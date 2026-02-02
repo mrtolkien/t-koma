@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -10,9 +10,11 @@ use tracing::{error, info, warn};
 mod app;
 mod client;
 mod gateway_spawner;
+mod log_follower;
 mod ui;
 
 use app::App;
+use log_follower::LogFollower;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,6 +45,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Show menu and get selection
+    let selection = show_menu()?;
+
+    match selection {
+        1 => run_chat_mode(&config.gateway_ws_url).await,
+        2 => run_log_mode(&config.gateway_ws_url).await,
+        _ => {
+            println!("Invalid selection");
+            Ok(())
+        }
+    }
+}
+
+/// Show the main menu and return the user's selection
+fn show_menu() -> Result<u32, Box<dyn std::error::Error>> {
+    println!("\n╔════════════════════════════════════╗");
+    println!("║           t-koma CLI               ║");
+    println!("╠════════════════════════════════════╣");
+    println!("║  1. Chat with t-koma               ║");
+    println!("║  2. Follow gateway logs            ║");
+    println!("╚════════════════════════════════════╝");
+    print!("\nSelect [1-2]: ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    Ok(input.trim().parse().unwrap_or(0))
+}
+
+/// Run the chat TUI mode
+async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Setup terminal
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -51,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create app and run
-    let mut app = App::new(&config.gateway_ws_url);
+    let mut app = App::new(ws_url);
     
     let result = match app.run(&mut terminal).await {
         Ok(()) => {
@@ -74,4 +108,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.show_cursor()?;
 
     result
+}
+
+/// Run the log follow mode
+async fn run_log_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\nConnecting to gateway logs...\n");
+    
+    let follower = LogFollower::new(ws_url);
+    follower.run().await
 }

@@ -37,9 +37,15 @@ tracing-subscriber.workspace = true
 # Error handling
 thiserror.workspace = true
 
+# Time
+chrono.workspace = true
+
 # Utilities
 futures = "0.3"
 uuid = { version = "1.12", features = ["v4"] }
+
+# Discord bot
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
 
 [dev-dependencies]
 # For snapshot testing
