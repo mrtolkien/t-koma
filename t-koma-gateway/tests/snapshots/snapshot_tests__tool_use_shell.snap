@@ -9,14 +9,18 @@ expression: response
   "model": "claude-sonnet-4-5-20250929",
   "content": [
     {
-      "type": "text",
-      "text": "4"
+      "type": "tool_use",
+      "id": "[tool_use_id]",
+      "name": "run_shell_command",
+      "input": {
+        "command": "ls -la"
+      }
     }
   ],
-  "stop_reason": "end_turn",
+  "stop_reason": "tool_use",
   "stop_sequence": null,
   "usage": {
-    "input_tokens": 20,
-    "output_tokens": 5
+    "input_tokens": 594,
+    "output_tokens": 57
   }
 }

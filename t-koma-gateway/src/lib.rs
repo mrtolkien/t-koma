@@ -1,4 +1,5 @@
-pub mod anthropic;
+pub mod models;
+pub mod tools;
 pub mod discord;
 pub mod server;
 pub mod state;
