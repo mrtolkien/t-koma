@@ -1956,6 +1956,7 @@ dependencies = [
  "serde_json",
  "serenity",
  "t-koma-core",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower-http",

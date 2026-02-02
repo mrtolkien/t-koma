@@ -1,0 +1,28 @@
+---
+source: t-koma-gateway/tests/snapshot_tests.rs
+expression: response
+---
+{
+  "id": "[id]",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5-20250929",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "[tool_use_id]",
+      "name": "replace",
+      "input": {
+        "file_path": "/tmp/test_file.txt",
+        "new_string": "world",
+        "old_string": "hello"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 759,
+    "output_tokens": 98
+  }
+}
