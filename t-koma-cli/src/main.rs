@@ -7,6 +7,7 @@ use crossterm::{
 use ratatui::prelude::*;
 use tracing::{error, info, warn};
 
+mod admin;
 mod app;
 mod client;
 mod gateway_spawner;
@@ -30,6 +31,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = t_koma_core::Config::from_env()?;
     info!("Configuration loaded, connecting to {}", config.gateway_ws_url);
 
+    // Verify localhost-only for security
+    if config.gateway_host != "127.0.0.1" && config.gateway_host != "localhost" {
+        warn!(
+            "Gateway is configured to bind to {} - this may expose it to remote access!",
+            config.gateway_host
+        );
+        print!("Continue anyway? [y/N]: ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+
     // Try to auto-start gateway if not running
     let _gateway_process = match gateway_spawner::ensure_gateway_running(&config.gateway_ws_url).await {
         Ok(process) => {
@@ -51,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match selection {
         1 => run_chat_mode(&config.gateway_ws_url).await,
         2 => run_log_mode(&config.gateway_ws_url).await,
+        3 => admin::run_admin_mode().await,
         _ => {
             println!("Invalid selection");
             Ok(())
@@ -65,8 +83,9 @@ fn show_menu() -> Result<u32, Box<dyn std::error::Error>> {
     println!("╠════════════════════════════════════╣");
     println!("║  1. Chat with t-koma               ║");
     println!("║  2. Follow gateway logs            ║");
+    println!("║  3. Manage users (admin)           ║");
     println!("╚════════════════════════════════════╝");
-    print!("\nSelect [1-2]: ");
+    print!("\nSelect [1-3]: ");
     io::stdout().flush()?;
 
     let mut input = String::new();

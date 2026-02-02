@@ -17,19 +17,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    // Load configuration
-    let config = t_koma_core::Config::from_env()?;
-    info!("Configuration loaded successfully");
+    // Load environment config
+    let env_config = t_koma_core::Config::from_env()?;
+    info!("Environment configuration loaded");
+
+    // Load or create persistent config (approved users)
+    let persistent_config = t_koma_core::PersistentConfig::load()?;
+    info!("Persistent configuration loaded");
+
+    // Load pending users (auto-pruned)
+    let pending_users = t_koma_core::PendingUsers::load()?;
+    info!("Pending users loaded");
 
     // Create Anthropic client
     let anthropic_client = AnthropicClient::new(
-        config.anthropic_api_key.clone(),
-        config.anthropic_model.clone(),
+        env_config.anthropic_api_key.clone(),
+        env_config.anthropic_model.clone(),
     );
-    info!("Anthropic client created with model: {}", config.anthropic_model);
+    info!("Anthropic client created with model: {}", env_config.anthropic_model);
 
     // Create shared application state
-    let state = Arc::new(AppState::new(anthropic_client));
+    let state = Arc::new(AppState::new(anthropic_client, persistent_config, pending_users));
 
     // Get Discord token (optional)
     let discord_token = env::var("DISCORD_BOT_TOKEN").ok();
@@ -57,9 +65,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Security: Verify localhost-only binding
+    if env_config.gateway_host != "127.0.0.1" && env_config.gateway_host != "localhost" {
+        tracing::warn!(
+            "Gateway binding to non-localhost address: {}. This may expose the API to remote access.",
+            env_config.gateway_host
+        );
+    }
+
     // Start the HTTP server
-    let bind_addr = config.bind_addr();
-    info!("Starting gateway server on {}", bind_addr);
+    let bind_addr = env_config.bind_addr();
+    info!("Starting gateway server on {} (localhost-only by default)", bind_addr);
 
     // Run server (this blocks)
     let server_result = server::run(state, &bind_addr).await;
