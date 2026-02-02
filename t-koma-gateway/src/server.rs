@@ -17,6 +17,8 @@ use crate::models::anthropic::AnthropicClient;
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
     pub content: String,
+    /// User ID for authentication (optional, for now uses a default)
+    pub user_id: Option<String>,
 }
 
 /// Chat response for HTTP API
@@ -46,6 +48,14 @@ pub struct HealthResponse {
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
+}
+
+/// User status response
+#[derive(Debug, Serialize)]
+pub struct UserStatusResponse {
+    pub user_id: String,
+    pub status: String,
+    pub allowed: bool,
 }
 
 /// Run the HTTP server
@@ -79,12 +89,71 @@ async fn health_handler() -> impl IntoResponse {
     })
 }
 
+/// Check if a user is allowed to use the API
+/// 
+/// Returns Ok(user) if approved, Err(response) if not
+async fn check_user_status(
+    state: &AppState,
+    user_id: &str,
+    user_name: &str,
+) -> Result<t_koma_db::User, impl IntoResponse> {
+    // Get or create user
+    let user = match t_koma_db::UserRepository::get_or_create(
+        state.db.pool(),
+        user_id,
+        user_name,
+        t_koma_db::Platform::Api,
+    ).await {
+        Ok(u) => u,
+        Err(e) => {
+            error!("Database error checking user {}: {}", user_id, e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Internal error checking user status".to_string(),
+                }),
+            ));
+        }
+    };
+
+    // Check status
+    match user.status {
+        t_koma_db::UserStatus::Approved => Ok(user),
+        t_koma_db::UserStatus::Pending => {
+            Err((
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "Your access request is pending approval".to_string(),
+                }),
+            ))
+        }
+        t_koma_db::UserStatus::Denied => {
+            Err((
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "Your access request was denied".to_string(),
+                }),
+            ))
+        }
+    }
+}
+
 /// Chat handler - POST /chat
 async fn chat_handler(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ChatRequest>,
 ) -> impl IntoResponse {
     info!("Received chat request");
+
+    // Use provided user_id or default to "anonymous"
+    let user_id = request.user_id.as_deref().unwrap_or("anonymous");
+    let user_name = request.user_id.as_deref().unwrap_or("Anonymous User");
+
+    // Check user status
+    let _user = match check_user_status(&state, user_id, user_name).await {
+        Ok(u) => u,
+        Err(response) => return response.into_response(),
+    };
 
     match state.anthropic.send_message(&request.content).await {
         Ok(response) => {
@@ -160,6 +229,49 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
     }).await;
 
     let (mut sender, mut receiver) = socket.split();
+
+    // Get or create user for this WebSocket connection
+    // For WebSocket, we use the client_id as the user_id
+    let user_id = client_id.clone();
+    let user_name = format!("WS Client {}", &client_id[..8]);
+    
+    let user = match t_koma_db::UserRepository::get_or_create(
+        state.db.pool(),
+        &user_id,
+        &user_name,
+        t_koma_db::Platform::Api,
+    ).await {
+        Ok(u) => u,
+        Err(e) => {
+            error!("Failed to create user for WebSocket client {}: {}", client_id, e);
+            let error_response = WsResponse::Error {
+                message: "Failed to initialize user session".to_string(),
+            };
+            let _ = sender.send(Message::Text(
+                serde_json::to_string(&error_response).unwrap().into()
+            )).await;
+            return;
+        }
+    };
+
+    // Check if user is approved
+    if user.status != t_koma_db::UserStatus::Approved {
+        let status_msg = match user.status {
+            t_koma_db::UserStatus::Pending => "Your access request is pending approval".to_string(),
+            t_koma_db::UserStatus::Denied => "Your access request was denied".to_string(),
+            _ => "Unknown user status".to_string(),
+        };
+        
+        let error_response = WsResponse::Error {
+            message: status_msg,
+        };
+        let _ = sender.send(Message::Text(
+            serde_json::to_string(&error_response).unwrap().into()
+        )).await;
+        
+        // Close connection
+        return;
+    }
 
     // Send welcome message
     let welcome = WsResponse::Response {

@@ -21,13 +21,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env_config = t_koma_core::Config::from_env()?;
     info!("Environment configuration loaded");
 
-    // Load or create persistent config (approved users)
-    let persistent_config = t_koma_core::PersistentConfig::load()?;
-    info!("Persistent configuration loaded");
+    // Initialize database
+    let db = t_koma_db::DbPool::new().await?;
+    info!("Database initialized");
 
-    // Load pending users (auto-pruned)
-    let pending_users = t_koma_core::PendingUsers::load()?;
-    info!("Pending users loaded");
+    // Prune old pending users (older than 1 hour)
+    match t_koma_db::UserRepository::prune_pending(db.pool(), 1).await {
+        Ok(count) => {
+            if count > 0 {
+                info!("Pruned {} expired pending users", count);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to prune pending users: {}", e);
+        }
+    }
 
     // Create Anthropic client
     let anthropic_client = AnthropicClient::new(
@@ -37,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Anthropic client created with model: {}", env_config.anthropic_model);
 
     // Create shared application state
-    let state = Arc::new(AppState::new(anthropic_client, persistent_config, pending_users));
+    let state = Arc::new(AppState::new(anthropic_client, db));
 
     // Get Discord token (optional)
     let discord_token = env::var("DISCORD_BOT_TOKEN").ok();

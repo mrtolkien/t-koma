@@ -41,52 +41,58 @@ impl EventHandler for Bot {
 
         info!("Discord message from {} ({}): {}", user_name, user_id, msg.content);
 
-        // Check if user is approved
-        let is_approved = {
-            let config = self.state.config.lock().await;
-            config.discord.is_approved(&user_id)
+        // Get or create user in database
+        let user = match t_koma_db::UserRepository::get_or_create(
+            self.state.db.pool(),
+            &user_id,
+            &user_name,
+            t_koma_db::Platform::Discord,
+        ).await {
+            Ok(u) => u,
+            Err(e) => {
+                error!("Failed to get/create user {}: {}", user_id, e);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Sorry, an error occurred. Please try again later.")
+                    .await;
+                return;
+            }
         };
 
-        if !is_approved {
-            // Check if already pending
-            let was_pending = {
-                let pending = self.state.pending.lock().await;
-                pending.get(&user_id).is_some()
-            };
-
-            if !was_pending {
-                // Add to pending
-                let mut pending = self.state.pending.lock().await;
-                pending.add(&user_id, &user_name);
-                if let Err(e) = pending.save() {
-                    error!("Failed to save pending users: {}", e);
-                }
-                info!("Added user {} to pending", user_id);
+        // Check user status
+        match user.status {
+            t_koma_db::UserStatus::Pending => {
+                // User is pending approval
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Your access request is pending approval. The bot owner will review it.")
+                    .await;
+                return;
             }
-
-            // Send pending message
-            let _ = msg
-                .channel_id
-                .say(&ctx.http, "Your access request is pending approval. The bot owner will review it.")
-                .await;
-            return;
+            t_koma_db::UserStatus::Denied => {
+                // User was denied
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Your access request was denied.")
+                    .await;
+                return;
+            }
+            t_koma_db::UserStatus::Approved => {
+                // User is approved - continue processing
+            }
         }
 
         // Check if this is the first message after approval (need to send welcome)
-        let need_welcome = {
-            let mut config = self.state.config.lock().await;
-            if let Some(user) = config.discord.get_mut(&user_id) {
-                if !user.welcomed {
-                    user.welcomed = true;
-                    let _ = config.save();
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
+        let need_welcome = !user.welcomed;
+        if need_welcome {
+            // Mark as welcomed
+            if let Err(e) = t_koma_db::UserRepository::mark_welcomed(
+                self.state.db.pool(),
+                &user_id,
+            ).await {
+                error!("Failed to mark user {} as welcomed: {}", user_id, e);
             }
-        };
+        }
 
         // Extract the actual message content (remove mention if present)
         let content = msg.content.clone();
