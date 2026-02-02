@@ -1,4 +1,4 @@
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::anthropic::AnthropicClient;
 
@@ -86,14 +86,24 @@ pub struct AppState {
     pub anthropic: AnthropicClient,
     /// Log broadcast channel
     log_tx: broadcast::Sender<LogEntry>,
+    /// Persistent configuration with approved users
+    pub config: Mutex<t_koma_core::PersistentConfig>,
+    /// Pending users (auto-pruned)
+    pub pending: Mutex<t_koma_core::PendingUsers>,
 }
 
 impl AppState {
-    pub fn new(anthropic: AnthropicClient) -> Self {
+    pub fn new(
+        anthropic: AnthropicClient,
+        config: t_koma_core::PersistentConfig,
+        pending: t_koma_core::PendingUsers,
+    ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
         Self {
             anthropic,
             log_tx,
+            config: Mutex::new(config),
+            pending: Mutex::new(pending),
         }
     }
 

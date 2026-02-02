@@ -36,12 +36,57 @@ impl EventHandler for Bot {
             return;
         }
 
-        info!(
-            "Discord message from {} in {}: {}",
-            msg.author.name,
-            msg.channel_id,
-            msg.content
-        );
+        let user_id = msg.author.id.to_string();
+        let user_name = msg.author.name.clone();
+
+        info!("Discord message from {} ({}): {}", user_name, user_id, msg.content);
+
+        // Check if user is approved
+        let is_approved = {
+            let config = self.state.config.lock().await;
+            config.discord.is_approved(&user_id)
+        };
+
+        if !is_approved {
+            // Check if already pending
+            let was_pending = {
+                let pending = self.state.pending.lock().await;
+                pending.get(&user_id).is_some()
+            };
+
+            if !was_pending {
+                // Add to pending
+                let mut pending = self.state.pending.lock().await;
+                pending.add(&user_id, &user_name);
+                if let Err(e) = pending.save() {
+                    error!("Failed to save pending users: {}", e);
+                }
+                info!("Added user {} to pending", user_id);
+            }
+
+            // Send pending message
+            let _ = msg
+                .channel_id
+                .say(&ctx.http, "Your access request is pending approval. The bot owner will review it.")
+                .await;
+            return;
+        }
+
+        // Check if this is the first message after approval (need to send welcome)
+        let need_welcome = {
+            let mut config = self.state.config.lock().await;
+            if let Some(user) = config.discord.get_mut(&user_id) {
+                if !user.welcomed {
+                    user.welcomed = true;
+                    let _ = config.save();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
 
         // Extract the actual message content (remove mention if present)
         let content = msg.content.clone();
@@ -55,23 +100,31 @@ impl EventHandler for Bot {
         self.state
             .log(crate::LogEntry::DiscordMessage {
                 channel: msg.channel_id.to_string(),
-                user: msg.author.name.clone(),
+                user: user_name.clone(),
                 content: clean_content.to_string(),
             })
             .await;
 
+        // TODO: Add input validation (length limits, content filtering)
+        // TODO: Add rate limiting per user
+
         // Call Anthropic API
         match self.state.anthropic.send_message(clean_content).await {
             Ok(response) => {
-                let text = AnthropicClient::extract_text(&response)
+                let mut text = AnthropicClient::extract_text(&response)
                     .unwrap_or_else(|| "(no response)".to_string());
 
-                info!("t-koma response: {}", text);
+                // Prepend welcome message if first interaction
+                if need_welcome {
+                    text = format!("Hello! You now have access to t-koma.\n\n{}", text);
+                }
+
+                info!("t-koma response to {}: {}", user_name, text);
 
                 // Log the response
                 self.state
                     .log(crate::LogEntry::DiscordResponse {
-                        user: msg.author.name.clone(),
+                        user: user_name.clone(),
                         content: text.clone(),
                     })
                     .await;
