@@ -1,6 +1,5 @@
 ---
 source: t-koma-gateway/tests/snapshot_tests.rs
-assertion_line: 77
 expression: response
 ---
 {
@@ -14,6 +13,8 @@ expression: response
       "text": "Red, blue, green."
     }
   ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
   "usage": {
     "input_tokens": 17,
     "output_tokens": 9
