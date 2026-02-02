@@ -2,7 +2,7 @@ use std::env;
 use std::sync::Arc;
 use tracing::info;
 
-use t_koma_gateway::anthropic::AnthropicClient;
+use t_koma_gateway::models::anthropic::AnthropicClient;
 use t_koma_gateway::discord::start_discord_bot;
 use t_koma_gateway::server;
 use t_koma_gateway::state::AppState;

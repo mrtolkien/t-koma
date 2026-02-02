@@ -1,6 +1,5 @@
 ---
 source: t-koma-gateway/tests/snapshot_tests.rs
-assertion_line: 27
 expression: response
 ---
 {
@@ -14,6 +13,8 @@ expression: response
       "text": "Hello from Claude!"
     }
   ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
   "usage": {
     "input_tokens": 19,
     "output_tokens": 7
