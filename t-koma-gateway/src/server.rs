@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
-use crate::state::AppState;
+use crate::state::{AppState, LogEntry};
 use crate::anthropic::AnthropicClient;
 
 /// Chat request from HTTP API
@@ -65,6 +65,7 @@ fn create_router(state: Arc<AppState>) -> Router {
         .route("/health", get(health_handler))
         .route("/chat", post(chat_handler))
         .route("/ws", get(ws_handler))
+        .route("/logs", get(logs_ws_handler))
         .with_state(state)
         .layer(tower_http::trace::TraceLayer::new_for_http())
 }
@@ -91,19 +92,34 @@ async fn chat_handler(
                 .unwrap_or_else(|| "(no response)".to_string());
 
             let chat_response = ChatResponse {
-                id: response.id,
-                content,
-                model: response.model,
+                id: response.id.clone(),
+                content: content.clone(),
+                model: response.model.clone(),
                 usage: response.usage.map(|u| UsageInfo {
                     input_tokens: u.input_tokens,
                     output_tokens: u.output_tokens,
                 }),
             };
 
+            // Log the request
+            state.log(LogEntry::HttpRequest {
+                method: "POST".to_string(),
+                path: "/chat".to_string(),
+                status: 200,
+            }).await;
+
             (StatusCode::OK, Json(Ok::<_, ErrorResponse>(chat_response))).into_response()
         }
         Err(e) => {
             error!("Anthropic API error: {}", e);
+            
+            // Log the error
+            state.log(LogEntry::HttpRequest {
+                method: "POST".to_string(),
+                path: "/chat".to_string(),
+                status: 500,
+            }).await;
+
             let error_response = ErrorResponse {
                 error: format!("Anthropic API error: {}", e),
             };
@@ -112,7 +128,7 @@ async fn chat_handler(
     }
 }
 
-/// WebSocket upgrade handler
+/// WebSocket upgrade handler for chat
 async fn ws_handler(
     State(state): State<Arc<AppState>>,
     ws: WebSocketUpgrade,
@@ -120,7 +136,15 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| handle_websocket(socket, state))
 }
 
-/// Handle WebSocket connection
+/// WebSocket upgrade handler for logs
+async fn logs_ws_handler(
+    State(state): State<Arc<AppState>>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_logs_websocket(socket, state))
+}
+
+/// Handle chat WebSocket connection
 async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppState>) {
     use axum::extract::ws::Message;
     use futures::{sink::SinkExt, stream::StreamExt};
@@ -128,6 +152,12 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
 
     let client_id = format!("client_{}", uuid::Uuid::new_v4());
     info!("WebSocket client connected: {}", client_id);
+
+    // Log connection
+    state.log(LogEntry::WebSocket {
+        event: "connected".to_string(),
+        client_id: client_id.clone(),
+    }).await;
 
     let (mut sender, mut receiver) = socket.split();
 
@@ -209,6 +239,13 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
             }
             Message::Close(_) => {
                 info!("WebSocket client disconnected: {}", client_id);
+                
+                // Log disconnection
+                state.log(LogEntry::WebSocket {
+                    event: "disconnected".to_string(),
+                    client_id: client_id.clone(),
+                }).await;
+                
                 break;
             }
             _ => {}
@@ -216,4 +253,51 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
     }
 
     info!("WebSocket connection closed: {}", client_id);
+}
+
+/// Handle logs WebSocket connection - streams log entries to client
+async fn handle_logs_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppState>) {
+    use axum::extract::ws::Message;
+    use futures::{sink::SinkExt, stream::StreamExt};
+
+    let client_id = format!("log_client_{}", uuid::Uuid::new_v4());
+    info!("Log WebSocket client connected: {}", client_id);
+
+    let (mut sender, mut receiver) = socket.split();
+
+    // Subscribe to log broadcasts
+    let mut log_rx = state.subscribe_logs();
+
+    // Send initial connection message
+    let _ = sender.send(Message::Text(
+        serde_json::json!({
+            "type": "connected",
+            "message": "Connected to t-koma gateway logs"
+        }).to_string().into()
+    )).await;
+
+    // Forward log entries to WebSocket
+    loop {
+        tokio::select! {
+            // Receive log entries from broadcast
+            Ok(entry) = log_rx.recv() => {
+                let log_line = entry.to_string();
+                if sender.send(Message::Text(log_line.into())).await.is_err() {
+                    break;
+                }
+            }
+            
+            // Handle incoming WebSocket messages (mainly close)
+            Some(Ok(msg)) = receiver.next() => {
+                if matches!(msg, Message::Close(_)) {
+                    break;
+                }
+            }
+            
+            // Channel closed
+            else => break,
+        }
+    }
+
+    info!("Log WebSocket client disconnected: {}", client_id);
 }
