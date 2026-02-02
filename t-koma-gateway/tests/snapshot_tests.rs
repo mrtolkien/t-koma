@@ -10,7 +10,7 @@ use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::models::anthropic::AnthropicClient;
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::tools::{shell::ShellTool, Tool};
+use t_koma_gateway::tools::{shell::ShellTool, file_edit::FileEditTool, Tool};
 
 /// Test a simple greeting query - captures the API response structure
 #[cfg(feature = "live-tests")]
@@ -107,6 +107,38 @@ async fn test_tool_use_shell() {
 
     assert_json_snapshot!(
         "tool_use_shell",
+        response,
+        {
+            ".id" => "[id]",
+            ".content[].id" => "[tool_use_id]"
+        }
+    );
+}
+
+/// Test tool use - asks Claude to use the file edit tool
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_tool_use_file_edit() {
+    t_koma_core::load_dotenv();
+
+    let api_key =
+        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
+
+    let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
+    let file_edit_tool = FileEditTool;
+    let tools: Vec<&dyn Tool> = vec![&file_edit_tool];
+
+    // We use a hypothetical path. Claude should try to edit it.
+    let response = client
+        .send_message_with_tools(
+            "Change the text 'hello' to 'world' in the file '/tmp/test_file.txt'.", 
+            tools
+        )
+        .await
+        .expect("API call failed");
+
+    assert_json_snapshot!(
+        "tool_use_file_edit",
         response,
         {
             ".id" => "[id]",
