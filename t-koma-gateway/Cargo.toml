@@ -1,0 +1,51 @@
+[package]
+name = "t-koma-gateway"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "t_koma_gateway"
+path = "src/lib.rs"
+
+[[bin]]
+name = "t-koma-gateway"
+path = "src/main.rs"
+
+[dependencies]
+t-koma-core.workspace = true
+
+# Async runtime
+tokio.workspace = true
+
+# Web framework
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Tracing
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Utilities
+futures = "0.3"
+uuid = { version = "1.12", features = ["v4"] }
+
+[dev-dependencies]
+# For snapshot testing
+insta = { version = "1.42", features = ["json", "redactions"] }
+serde_json = { workspace = true }
+
+[features]
+default = []
+live-tests = []
