@@ -8,7 +8,9 @@
 #[cfg(feature = "live-tests")]
 use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::anthropic::AnthropicClient;
+use t_koma_gateway::models::anthropic::AnthropicClient;
+#[cfg(feature = "live-tests")]
+use t_koma_gateway::tools::{shell::ShellTool, Tool};
 
 /// Test a simple greeting query - captures the API response structure
 #[cfg(feature = "live-tests")]
@@ -81,6 +83,34 @@ async fn test_longer_response() {
         response,
         {
             ".id" => "[id]"
+        }
+    );
+}
+
+/// Test tool use - asks Claude to use the shell tool
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_tool_use_shell() {
+    t_koma_core::load_dotenv();
+
+    let api_key =
+        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
+
+    let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
+    let shell_tool = ShellTool;
+    let tools: Vec<&dyn Tool> = vec![&shell_tool];
+
+    let response = client
+        .send_message_with_tools("List the files in the current directory using the shell tool.", tools)
+        .await
+        .expect("API call failed");
+
+    assert_json_snapshot!(
+        "tool_use_shell",
+        response,
+        {
+            ".id" => "[id]",
+            ".content[].id" => "[tool_use_id]"
         }
     );
 }

@@ -6,7 +6,7 @@ use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use tracing::{error, info};
 
-use crate::anthropic::AnthropicClient;
+use crate::models::anthropic::AnthropicClient;
 use crate::state::AppState;
 
 /// Discord bot handler

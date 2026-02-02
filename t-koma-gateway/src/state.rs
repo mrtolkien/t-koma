@@ -1,6 +1,6 @@
 use tokio::sync::broadcast;
 
-use crate::anthropic::AnthropicClient;
+use crate::models::anthropic::AnthropicClient;
 
 /// Log entry for broadcasting events to listeners
 #[derive(Debug, Clone)]

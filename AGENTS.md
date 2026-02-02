@@ -16,125 +16,18 @@ how you improve.
 
 ## Development flow
 
-- Always start by creating a markdown spec in ./vibe/specs for validation by the
-  user
-- After validation, iterate until all the steps and features you outlined in the
-  spec are developed and, if realistic, tested
-- Then edit the spec to add a leading underscore to the file name, to show it's
-  done
+- Always start by creating a markdown spec in `./vibe/specs` for validation by the
+  user.
+- After validation, create an append-only tracking file in `./vibe/ongoing`
+  (e.g., `./vibe/ongoing/feature_name.md`).
+- Update the ongoing file at each step after thinking and while editing files.
+- Iterate until all the steps and features outlined in the spec are developed
+  and, if realistic, tested.
+- Finally, rename the spec file to have a leading underscore (e.g.,
+  `_feature_name.md`) to indicate completion.
 
 ## Project Overview
-
-t-koma is a Rust-based AI agent system powered by the Anthropic Claude API. It
-consists of a gateway server that proxies requests to Anthropic and a terminal
-UI client for user interaction.
-
-**Repository**: https://github.com/tolki/t-koma
-
-## Architecture
-
-The project follows a workspace structure with three crates:
-
-```
-t-koma/
-├── Cargo.toml              # Workspace definition
-├── t-koma-core/            # Shared types and configuration
-├── t-koma-gateway/         # HTTP/WebSocket gateway server + Discord bot
-└── t-koma-cli/             # Terminal UI client
-```
-
-### Component Communication
-
-```
-┌─────────────┐     WebSocket      ┌─────────────┐     HTTP      ┌────────────┐
-│  t-koma-cli │ ◄────────────────► │   Gateway   │ ◄───────────► │ Anthropic  │
-│   (TUI)     │                    │             │               │    API     │
-└─────────────┘                    └─────────────┘               └────────────┘
-                                        │
-                                        ▼
-                              ┌───────────────────┐
-                              │   Discord Bot     │
-                              │  (optional)       │
-                              └───────────────────┘
-```
-
-## Technology Stack
-
-- **Language**: Rust 1.85+ (2024 edition)
-- **Async Runtime**: tokio
-- **Web Framework**: axum (HTTP server with WebSocket support)
-- **Terminal UI**: ratatui + crossterm
-- **HTTP Client**: reqwest (gateway), tokio-tungstenite (CLI WebSocket)
-- **Serialization**: serde, serde_json
-- **Error Handling**: thiserror
-- **Logging**: tracing, tracing-subscriber
-- **Discord Bot**: serenity
-- **Testing**: insta (snapshot testing)
-
-## Build and Development Commands
-
-```bash
-# Build the entire workspace
-cargo build --release
-
-# Run the gateway server
-cargo run --release --bin t-koma-gateway
-
-# Run the CLI client (auto-starts gateway if not running)
-cargo run --release --bin t-koma-cli
-
-# Run all unit tests (fast, no API calls)
-cargo test
-
-# Run live integration tests (requires ANTHROPIC_API_KEY)
-cargo test --features live-tests
-
-# Code quality
-cargo clippy --all-targets --all-features
-cargo fmt
-```
-
-## Configuration
-
-Configuration is loaded from environment variables with `.env` file support via
-`dotenvy`.
-
-### Required Environment Variables
-
-| Variable            | Description                       |
-| ------------------- | --------------------------------- |
-| `ANTHROPIC_API_KEY` | Your Anthropic API key (required) |
-
-### Optional Environment Variables
-
-| Variable            | Default                      | Description                                |
-| ------------------- | ---------------------------- | ------------------------------------------ |
-| `ANTHROPIC_MODEL`   | `claude-sonnet-4-5-20250929` | Claude model to use                        |
-| `GATEWAY_HOST`      | `127.0.0.1`                  | Gateway bind address                       |
-| `GATEWAY_PORT`      | `3000`                       | Gateway HTTP port                          |
-| `GATEWAY_WS_URL`    | `ws://127.0.0.1:3000/ws`     | WebSocket URL for CLI                      |
-| `DISCORD_BOT_TOKEN` | _(empty)_                    | Discord bot token (leave empty to disable) |
-
-### Example .env
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-api03-...
-ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
-GATEWAY_PORT=3000
-DISCORD_BOT_TOKEN=     # Optional
-```
-
-## Code Organization
-
-### t-koma-core
-
-Core types and configuration shared across crates:
-
-- `src/config.rs`: `Config` struct with environment variable loading,
-  `load_dotenv()` function
-- `src/message.rs`: `ChatMessage`, `MessageRole`, `WsMessage`, `WsResponse`
-  types
-
+...
 ### t-koma-gateway
 
 Gateway server with both library and binary targets:
@@ -143,47 +36,26 @@ Gateway server with both library and binary targets:
   optionally starts Discord bot
 - `src/server.rs`: HTTP routes (`/health`, `/chat`), WebSocket handlers (`/ws`,
   `/logs`)
-- `src/anthropic.rs`: `AnthropicClient` for calling Anthropic API
+- `src/models/`: Model provider implementations (e.g., `anthropic.rs`)
+- `src/tools/`: Model-agnostic tool implementations (e.g., `shell.rs`)
 - `src/state.rs`: `AppState` with broadcast channel for logs, `LogEntry` enum
 - `src/discord.rs`: Discord bot integration using serenity
 - `tests/snapshot_tests.rs`: Live API snapshot tests (requires `live-tests`
   feature)
 
-### t-koma-cli
-
-Terminal UI client:
-
-- `src/main.rs`: Entry point, menu selection, mode dispatch
-- `src/app.rs`: `App` struct with event loop, message handling, TUI state
-- `src/ui.rs`: `Ui` struct for rendering chat history, input area, status bar
-  with ratatui
-- `src/client.rs`: `WsClient` for WebSocket connection to gateway
-- `src/gateway_spawner.rs`: Auto-detection and spawning of gateway process
-- `src/log_follower.rs`: `LogFollower` for real-time log streaming mode
-
 ## API Endpoints
-
-The gateway exposes the following endpoints:
-
-### HTTP Endpoints
-
-- `GET /health` - Health check returning
-  `{"status": "ok", "version": "0.1.0", "gateway": "running"}`
-- `POST /chat` - Send message to Claude, returns `ChatResponse` with content,
-  model, usage
-
-### WebSocket Endpoints
-
-- `WS /ws` - Chat WebSocket
-  - Client → Server: `{"type": "chat", "content": "..."}` or `{"type": "ping"}`
-  - Server → Client:
-    `{"type": "response", "id": "...", "content": "...", "done": true}` or
-    `{"type": "error", "message": "..."}`
-
-- `WS /logs` - Log streaming WebSocket
-  - Server broadcasts `LogEntry` formatted strings with timestamps
-
+...
 ## Testing Strategy
+
+### Snapshot Testing
+
+We use `insta` for snapshot testing of API responses.
+
+**CRITICAL RULE**: Coding agents (AI) MUST NEVER validate or automatically
+update snapshots (e.g., using `INSTA_UPDATE=always` or `cargo insta accept`).
+Snapshot validation and acceptance is EXCLUSIVELY the responsibility of the
+human developer. If a snapshot test fails, the agent should report the failure
+and wait for the human to review and update the snapshots.
 
 ### Unit Tests
 

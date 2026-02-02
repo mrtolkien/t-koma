@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use crate::state::{AppState, LogEntry};
-use crate::anthropic::AnthropicClient;
+use crate::models::anthropic::AnthropicClient;
 
 /// Chat request from HTTP API
 #[derive(Debug, Deserialize)]

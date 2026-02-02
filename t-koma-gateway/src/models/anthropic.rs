@@ -1,5 +1,8 @@
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::tools::Tool;
 
 /// Anthropic API client
 #[derive(Clone)]
@@ -16,12 +19,21 @@ struct MessagesRequest {
     model: String,
     max_tokens: u32,
     messages: Vec<ApiMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<ToolDefinition>>,
 }
 
 #[derive(Debug, Serialize)]
 struct ApiMessage {
     role: String,
     content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolDefinition {
+    name: String,
+    description: String,
+    input_schema: Value,
 }
 
 /// Response from the Messages API
@@ -34,14 +46,22 @@ pub struct MessagesResponse {
     pub role: String,
     pub model: String,
     pub content: Vec<ContentBlock>,
+    pub stop_reason: Option<String>,
+    pub stop_sequence: Option<String>,
     pub usage: Option<Usage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContentBlock {
-    #[serde(rename = "type")]
-    pub block_type: String,
-    pub text: Option<String>,
+#[serde(tag = "type")]
+pub enum ContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,7 +114,31 @@ impl AnthropicClient {
         &self,
         content: impl AsRef<str>,
     ) -> Result<MessagesResponse, AnthropicError> {
+        self.send_message_with_tools(content, vec![]).await
+    }
+
+    /// Send a message to Claude with tools and get a response
+    pub async fn send_message_with_tools(
+        &self,
+        content: impl AsRef<str>,
+        tools: Vec<&dyn Tool>,
+    ) -> Result<MessagesResponse, AnthropicError> {
         let url = format!("{}/messages", self.base_url);
+
+        let tool_definitions = if tools.is_empty() {
+            None
+        } else {
+            Some(
+                tools
+                    .iter()
+                    .map(|t| ToolDefinition {
+                        name: t.name().to_string(),
+                        description: t.description().to_string(),
+                        input_schema: t.input_schema(),
+                    })
+                    .collect(),
+            )
+        };
 
         let request_body = MessagesRequest {
             model: self.model.clone(),
@@ -103,6 +147,7 @@ impl AnthropicClient {
                 role: "user".to_string(),
                 content: content.as_ref().to_string(),
             }],
+            tools: tool_definitions,
         };
 
         let response = self
@@ -130,8 +175,10 @@ impl AnthropicClient {
         response
             .content
             .iter()
-            .filter(|block| block.block_type == "text")
-            .filter_map(|block| block.text.clone())
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            })
             .next()
     }
 }
@@ -156,11 +203,12 @@ mod tests {
             role: "assistant".to_string(),
             model: "claude-sonnet-4-5-20250929".to_string(),
             content: vec![
-                ContentBlock {
-                    block_type: "text".to_string(),
-                    text: Some("Hello, world!".to_string()),
+                ContentBlock::Text {
+                    text: "Hello, world!".to_string(),
                 },
             ],
+            stop_reason: None,
+            stop_sequence: None,
             usage: Some(Usage {
                 input_tokens: 10,
                 output_tokens: 5,
@@ -181,6 +229,8 @@ mod tests {
             role: "assistant".to_string(),
             model: "claude-sonnet-4-5-20250929".to_string(),
             content: vec![],
+            stop_reason: None,
+            stop_sequence: None,
             usage: None,
         };
 
