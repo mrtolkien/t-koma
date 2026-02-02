@@ -1,19 +1,23 @@
 # t-koma
 
-A Rust-based AI agent powered by the Anthropic Claude API, featuring a gateway server and a terminal UI client.
+A Rust-based AI agent powered by the Anthropic Claude API, featuring a gateway
+server and a terminal UI client.
 
 ## Overview
 
 t-koma is an AI agent system consisting of:
 
-- **t-koma-gateway**: An async HTTP/WebSocket server that proxies requests to the Anthropic API
+- **t-koma-gateway**: An async HTTP/WebSocket server that proxies requests to
+  the Anthropic API
 - **t-koma-cli**: A terminal UI client for interacting with the agent
 - **t-koma-core**: Shared types and configuration
 
 ## Features
 
-- 🤖 **Claude 4.5 Sonnet Integration**: Direct API access to Anthropic's latest models
-- 🌐 **WebSocket Communication**: Real-time bidirectional messaging between CLI and gateway
+- 🤖 **Claude 4.5 Sonnet Integration**: Direct API access to Anthropic's latest
+  models
+- 🌐 **WebSocket Communication**: Real-time bidirectional messaging between CLI
+  and gateway
 - 🖥️ **Terminal UI**: Built with ratatui for a rich terminal experience
 - 🚀 **Auto-start**: CLI automatically starts the gateway if not already running
 - 🔧 **Configurable**: Environment-based configuration with `.env` file support
@@ -59,28 +63,29 @@ cargo run --release --bin t-koma-cli
 cargo run --release --bin t-koma-cli
 ```
 
-The TUI will automatically detect if the gateway is running and start it if needed.
+The TUI will automatically detect if the gateway is running and start it if
+needed.
 
 ### TUI Controls
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Send message |
-| `Esc` or `Ctrl+C` | Quit |
-| `Backspace` | Delete character |
-| `←` `→` | Move cursor |
+| Key               | Action           |
+| ----------------- | ---------------- |
+| `Enter`           | Send message     |
+| `Esc` or `Ctrl+C` | Quit             |
+| `Backspace`       | Delete character |
+| `←` `→`           | Move cursor      |
 
 ## Configuration
 
 Configuration is loaded from environment variables (with `.env` file support):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | *required* | Your Anthropic API key |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-5-20250929` | Claude model to use |
-| `GATEWAY_HOST` | `127.0.0.1` | Gateway bind address |
-| `GATEWAY_PORT` | `3000` | Gateway HTTP port |
-| `GATEWAY_WS_URL` | `ws://127.0.0.1:3000/ws` | WebSocket URL for CLI |
+| Variable            | Default                      | Description            |
+| ------------------- | ---------------------------- | ---------------------- |
+| `ANTHROPIC_API_KEY` | _required_                   | Your Anthropic API key |
+| `ANTHROPIC_MODEL`   | `claude-sonnet-4-5-20250929` | Claude model to use    |
+| `GATEWAY_HOST`      | `127.0.0.1`                  | Gateway bind address   |
+| `GATEWAY_PORT`      | `3000`                       | Gateway HTTP port      |
+| `GATEWAY_WS_URL`    | `ws://127.0.0.1:3000/ws`     | WebSocket URL for CLI  |
 
 ### Example `.env`
 
@@ -95,9 +100,11 @@ GATEWAY_PORT=3000
 The gateway exposes the following HTTP endpoints:
 
 ### `GET /health`
+
 Health check endpoint.
 
 **Response:**
+
 ```json
 {
   "status": "ok",
@@ -107,9 +114,11 @@ Health check endpoint.
 ```
 
 ### `POST /chat`
+
 Send a message to Claude.
 
 **Request:**
+
 ```json
 {
   "content": "Hello, Claude!"
@@ -117,6 +126,7 @@ Send a message to Claude.
 ```
 
 **Response:**
+
 ```json
 {
   "id": "msg_01ABC123",
@@ -130,14 +140,17 @@ Send a message to Claude.
 ```
 
 ### `WS /ws`
+
 WebSocket endpoint for real-time communication.
 
 **Client → Server:**
+
 ```json
-{"type": "chat", "content": "Hello!"}
+{ "type": "chat", "content": "Hello!" }
 ```
 
 **Server → Client:**
+
 ```json
 {
   "type": "response",
@@ -182,11 +195,23 @@ cargo fmt
 - **t-koma-gateway**: axum HTTP server, proxies to Anthropic API
 - **t-koma-core**: Shared types (messages, config)
 
-## License
+### Resetting the Database
 
-MIT License - see LICENSE file for details.
+For /testing, delete the database file:
+
+```bash
+# Linux
+rm ~/.local/share/t-koma/db.sqlite3
+
+# macOS
+rm ~/Library/Application\ Support/t-koma/db.sqlite3
+```
+
+The database will be recreated with migrations on next startup.
 
 ## Acknowledgments
 
-- Built with [axum](https://github.com/tokio-rs/axum), [ratatui](https://github.com/ratatui/ratatui), and [tokio](https://github.com/tokio-rs/tokio)
+- Built with [axum](https://github.com/tokio-rs/axum),
+  [ratatui](https://github.com/ratatui/ratatui), and
+  [tokio](https://github.com/tokio-rs/tokio)
 - Powered by [Anthropic's Claude API](https://www.anthropic.com/claude)

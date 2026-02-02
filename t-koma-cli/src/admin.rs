@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use t_koma_core::{ApprovedUser, PendingUser, PendingUsers, PersistentConfig};
+use t_koma_db::{DbPool, Platform, UserRepository, UserStatus};
 
 /// Run the admin interactive mode
 pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
@@ -10,51 +10,54 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
     println!("║        t-koma Admin Mode           ║");
     println!("╚════════════════════════════════════╝\n");
 
+    // Initialize database
+    let db = DbPool::new().await?;
+    println!("Connected to database.\n");
+
     loop {
-        // Load fresh data
-        let mut config = match PersistentConfig::load() {
-            Ok(c) => c,
+        // Prune old pending users before showing list
+        match UserRepository::prune_pending(db.pool(), 1).await {
+            Ok(count) => {
+                if count > 0 {
+                    println!("Pruned {} expired pending users.", count);
+                }
+            }
             Err(e) => {
-                println!("Error loading config: {}. Creating new...", e);
-                PersistentConfig::default()
+                eprintln!("Warning: failed to prune pending users: {}", e);
+            }
+        }
+
+        // Show pending users
+        let pending_list = match UserRepository::list_by_status(db.pool(), UserStatus::Pending, None).await {
+            Ok(list) => list,
+            Err(e) => {
+                eprintln!("Error loading pending users: {}", e);
+                Vec::new()
             }
         };
 
-        let mut pending = match PendingUsers::load() {
-            Ok(p) => p,
-            Err(e) => {
-                println!("Error loading pending users: {}. Creating new...", e);
-                PendingUsers::default()
-            }
-        };
-
-        // Show pending Discord users
-        let pending_list: Vec<PendingUser> = pending
-            .list()
-            .into_iter()
-            .cloned()
-            .collect();
-        
         if pending_list.is_empty() {
             println!("No pending users waiting for approval.");
-            println!("\nCommands: [r]efresh, [l]ist approved, [q]uit");
+            println!("\nCommands: [r]efresh, [l]ist approved, [d]enied list, [q]uit");
         } else {
-            println!("\n=== Pending Discord Users ===\n");
-            
+            println!("\n=== Pending Users ===\n");
+
             for (i, user) in pending_list.iter().enumerate() {
                 let mins_ago = chrono::Utc::now()
-                    .signed_duration_since(user.requested_at)
+                    .signed_duration_since(user.created_at)
                     .num_minutes();
+                let platform = format!("{:?}", user.platform).to_lowercase();
                 println!(
-                    "  {}. @{} (ID: {}) - {} min ago",
+                    "  {}. @{} [{}] (ID: {}) - {} min ago",
                     i + 1,
                     user.name,
+                    platform,
                     user.id,
                     mins_ago
                 );
             }
 
-            println!("\nEnter number to approve, 'd <num>' to deny, 'r' to refresh, 'l' to list approved, 'q' to quit");
+            println!("\nEnter number to approve, 'd <num>' to deny, 'r' to refresh, 'l' to list approved, 'D' for denied list, 'q' to quit");
         }
 
         print!("\nadmin> ");
@@ -82,7 +85,11 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
             "l" | "list" => {
-                list_approved(&config);
+                list_by_status(&db, UserStatus::Approved, "Approved").await;
+                continue;
+            }
+            "D" | "denied-list" => {
+                list_by_status(&db, UserStatus::Denied, "Denied").await;
                 continue;
             }
             "d" | "deny" => {
@@ -90,7 +97,7 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Usage: d <number>");
                     continue;
                 }
-                
+
                 let num: usize = match parts[1].parse() {
                     Ok(n) if n > 0 && n <= pending_list.len() => n,
                     _ => {
@@ -102,13 +109,15 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                 let user = &pending_list[num - 1];
                 let user_id = user.id.clone();
                 let user_name = user.name.clone();
-                
-                // Remove from pending (don't add to approved)
-                pending.remove(&user_id);
-                if let Err(e) = pending.save() {
-                    println!("Error saving pending: {}", e);
-                } else {
-                    println!("✗ Denied @{} (ID: {})", user_name, user_id);
+
+                // Deny user
+                match UserRepository::deny(db.pool(), &user_id).await {
+                    Ok(_) => {
+                        println!("✗ Denied @{} (ID: {})", user_name, user_id);
+                    }
+                    Err(e) => {
+                        println!("Error denying user: {}", e);
+                    }
                 }
             }
             _ => {
@@ -125,47 +134,50 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                 let user = &pending_list[num - 1];
                 let user_id = user.id.clone();
                 let user_name = user.name.clone();
-                
-                // Remove from pending
-                pending.remove(&user_id);
-                if let Err(e) = pending.save() {
-                    println!("Error saving pending: {}", e);
-                    continue;
-                }
-                
-                // Add to approved
-                config.discord.add(&user_id, &user_name);
-                if let Err(e) = config.save() {
-                    println!("Error saving config: {}", e);
-                    continue;
-                }
 
-                println!("✓ Approved @{} (ID: {})", user_name, user_id);
-                println!("  They'll receive a welcome message on their next interaction.");
+                // Approve user
+                match UserRepository::approve(db.pool(), &user_id).await {
+                    Ok(_) => {
+                        println!("✓ Approved @{} (ID: {})", user_name, user_id);
+                        if user.platform == Platform::Discord {
+                            println!("  They'll receive a welcome message on their next interaction.");
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error approving user: {}", e);
+                    }
+                }
             }
         }
     }
 }
 
-/// List approved Discord users
-fn list_approved(config: &PersistentConfig) {
-    let users: Vec<&ApprovedUser> = config.discord.list();
+/// List users by status
+async fn list_by_status(db: &DbPool, status: UserStatus, label: &str) {
+    let users = match UserRepository::list_by_status(db.pool(), status, None).await {
+        Ok(list) => list,
+        Err(e) => {
+            eprintln!("Error loading users: {}", e);
+            return;
+        }
+    };
 
     if users.is_empty() {
-        println!("\nNo approved users.");
+        println!("\nNo {} users.", label.to_lowercase());
         return;
     }
 
-    println!("\n=== Approved Discord Users ===\n");
-    println!("{:<20} {:<20} {:<12} Approved At", "Name", "ID", "Welcomed");
-    println!("{:-<70}", "");
+    println!("\n=== {} Users ===\n", label);
+    println!("{:<20} {:<12} {:<20} {:<12} Updated At", "Name", "Platform", "ID", "Welcomed");
+    println!("{:-<80}", "");
 
     for user in users {
-        let approved_str = user.approved_at.format("%Y-%m-%d %H:%M");
+        let updated_str = user.updated_at.format("%Y-%m-%d %H:%M");
+        let platform = format!("{:?}", user.platform).to_lowercase();
         let welcomed = if user.welcomed { "yes" } else { "no" };
         println!(
-            "{:<20} {:<20} {:<12} {}",
-            user.name, user.id, welcomed, approved_str
+            "{:<20} {:<12} {:<20} {:<12} {}",
+            user.name, platform, user.id, welcomed, updated_str
         );
     }
 }

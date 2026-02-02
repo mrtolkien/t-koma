@@ -16,35 +16,77 @@ how you improve.
 
 ## Development flow
 
-- Always start by creating a markdown spec in `./vibe/specs` for validation by the
-  user.
+- Always start by creating a markdown spec in `./vibe/specs` for validation by
+  the user.
 - After validation, create an append-only tracking file in `./vibe/ongoing`
-  (e.g., `./vibe/ongoing/feature_name.md`).
+  (e.g., `./vibe/ongoing/feature_name.md`). Never continue without the user's
+  validation.
 - Update the ongoing file at each step after thinking and while editing files.
 - Iterate until all the steps and features outlined in the spec are developed
   and, if realistic, tested.
+- cargo clippy and cargo test should pass
 - Finally, rename the spec file to have a leading underscore (e.g.,
   `_feature_name.md`) to indicate completion.
 
 ## Project Overview
+
 ...
+
+### t-koma-core
+
+Core library with shared types and configuration:
+
+- `src/config.rs`: Environment configuration (`Config` struct)
+- `src/message.rs`: WebSocket message types (`WsMessage`, `WsResponse`)
+- `src/persistent_config.rs`: Legacy TOML-based config (deprecated in favor of
+  DB)
+- `src/pending_users.rs`: Legacy TOML-based pending users (deprecated in favor
+  of DB)
+
+### t-koma-db
+
+Database layer using SQLite with sqlite-vec extension:
+
+- `src/db.rs`: Database pool initialization and connection management
+- `src/users.rs`: User management (`UserRepository`, `User`, `UserStatus`,
+  `Platform`)
+- `src/error.rs`: Database error types (`DbError`)
+- `migrations/001_initial_schema.sql`: Database schema
+
+**Key Types:**
+
+- `DbPool`: Database connection pool, initialize with `DbPool::new().await`
+- `UserRepository`: Static methods for user CRUD operations
+- `UserStatus`: `Pending`, `Approved`, `Denied`
+- `Platform`: `Discord`, `Api`, `Cli`
+
+**Database Location:** Platform-specific data directory:
+
+- Linux: `~/.local/share/t-koma/db.sqlite3`
+- macOS: `~/Library/Application Support/t-koma/db.sqlite3`
+- Windows: `%APPDATA%\t-koma\db.sqlite3`
+
 ### t-koma-gateway
 
 Gateway server with both library and binary targets:
 
 - `src/main.rs`: Entry point, initializes tracing, creates Anthropic client,
-  optionally starts Discord bot
+  initializes database, optionally starts Discord bot
 - `src/server.rs`: HTTP routes (`/health`, `/chat`), WebSocket handlers (`/ws`,
-  `/logs`)
+  `/logs`). **All routes check user approval status via database**
 - `src/models/`: Model provider implementations (e.g., `anthropic.rs`)
 - `src/tools/`: Model-agnostic tool implementations (e.g., `shell.rs`)
-- `src/state.rs`: `AppState` with broadcast channel for logs, `LogEntry` enum
-- `src/discord.rs`: Discord bot integration using serenity
+- `src/state.rs`: `AppState` with broadcast channel for logs, `LogEntry` enum,
+  and `DbPool` for database access
+- `src/discord.rs`: Discord bot integration using serenity, checks user approval
+  status before processing messages
 - `tests/snapshot_tests.rs`: Live API snapshot tests (requires `live-tests`
   feature)
 
 ## API Endpoints
+
 ...
+
 ## Testing Strategy
 
 ### Snapshot Testing
@@ -193,6 +235,13 @@ async fn test_my_live_test() {
 2. Add to workspace `members` in root `Cargo.toml`
 3. Add to workspace `dependencies` if needed
 4. Follow existing crate structure
+
+### Adding Database Operations
+
+1. Add methods to `t-koma-db/src/table/name.rs`
+2. Write tests in the `#[cfg(test)]` module
+3. Update migration file if schema changes needed
+4. Use `DbPool` from `AppState` in gateway/CLI
 
 ## Dependencies Management
 
