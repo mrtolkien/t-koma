@@ -141,7 +141,7 @@ mod tests {
     fn test_system_prompt_to_simple_string() {
         let prompt = SystemPrompt::new();
         let s = prompt.to_simple_string();
-        assert!(s.contains("t-koma"));
+        assert!(s.contains("T-KOMA"));
         assert!(s.contains("Using Tools"));
     }
 }

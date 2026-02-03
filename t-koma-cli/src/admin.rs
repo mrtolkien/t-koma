@@ -1,8 +1,9 @@
-//! Admin mode for managing user approvals (interactive).
+//! Admin mode for managing operator approvals (interactive).
 
 use std::io::{self, Write};
 
-use t_koma_db::{DbPool, Platform, UserRepository, UserStatus};
+use chrono::{TimeZone, Utc};
+use t_koma_db::{KomaDbPool, Platform, OperatorRepository, OperatorStatus};
 
 /// Run the admin interactive mode
 pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,48 +12,54 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
     println!("╚════════════════════════════════════╝\n");
 
     // Initialize database
-    let db = DbPool::new().await?;
+    let db = KomaDbPool::new().await?;
     println!("Connected to database.\n");
 
     loop {
-        // Prune old pending users before showing list
-        match UserRepository::prune_pending(db.pool(), 1).await {
+        // Prune old pending operators before showing list
+        match OperatorRepository::prune_pending(db.pool(), 1).await {
             Ok(count) => {
                 if count > 0 {
-                    println!("Pruned {} expired pending users.", count);
+                    println!("Pruned {} expired pending operators.", count);
                 }
             }
             Err(e) => {
-                eprintln!("Warning: failed to prune pending users: {}", e);
+                eprintln!("Warning: failed to prune pending operators: {}", e);
             }
         }
 
-        // Show pending users
-        let pending_list = match UserRepository::list_by_status(db.pool(), UserStatus::Pending, None).await {
+        // Show pending operators
+        let pending_list =
+            match OperatorRepository::list_by_status(db.pool(), OperatorStatus::Pending, None).await
+            {
             Ok(list) => list,
             Err(e) => {
-                eprintln!("Error loading pending users: {}", e);
+                eprintln!("Error loading pending operators: {}", e);
                 Vec::new()
             }
         };
 
         if pending_list.is_empty() {
-            println!("No pending users waiting for approval.");
+            println!("No pending operators waiting for approval.");
             println!("\nCommands: [r]efresh, [l]ist approved, [d]enied list, [q]uit");
         } else {
-            println!("\n=== Pending Users ===\n");
+            println!("\n=== Pending Operators ===\n");
 
-            for (i, user) in pending_list.iter().enumerate() {
-                let mins_ago = chrono::Utc::now()
-                    .signed_duration_since(user.created_at)
+            for (i, operator) in pending_list.iter().enumerate() {
+                let created_at = Utc
+                    .timestamp_opt(operator.created_at, 0)
+                    .single()
+                    .unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap());
+                let mins_ago = Utc::now()
+                    .signed_duration_since(created_at)
                     .num_minutes();
-                let platform = format!("{:?}", user.platform).to_lowercase();
+                let platform = format!("{:?}", operator.platform).to_lowercase();
                 println!(
                     "  {}. @{} [{}] (ID: {}) - {} min ago",
                     i + 1,
-                    user.name,
+                    operator.name,
                     platform,
-                    user.id,
+                    operator.id,
                     mins_ago
                 );
             }
@@ -85,11 +92,11 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
             "l" | "list" => {
-                list_by_status(&db, UserStatus::Approved, "Approved").await;
+                list_by_status(&db, OperatorStatus::Approved, "Approved").await;
                 continue;
             }
             "D" | "denied-list" => {
-                list_by_status(&db, UserStatus::Denied, "Denied").await;
+                list_by_status(&db, OperatorStatus::Denied, "Denied").await;
                 continue;
             }
             "d" | "deny" => {
@@ -106,17 +113,17 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                let user = &pending_list[num - 1];
-                let user_id = user.id.clone();
-                let user_name = user.name.clone();
+                let operator = &pending_list[num - 1];
+                let operator_id = operator.id.clone();
+                let operator_name = operator.name.clone();
 
-                // Deny user
-                match UserRepository::deny(db.pool(), &user_id).await {
+                // Deny operator
+                match OperatorRepository::deny(db.pool(), &operator_id).await {
                     Ok(_) => {
-                        println!("✗ Denied @{} (ID: {})", user_name, user_id);
+                        println!("✗ Denied @{} (ID: {})", operator_name, operator_id);
                     }
                     Err(e) => {
-                        println!("Error denying user: {}", e);
+                        println!("Error denying operator: {}", e);
                     }
                 }
             }
@@ -131,20 +138,20 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                let user = &pending_list[num - 1];
-                let user_id = user.id.clone();
-                let user_name = user.name.clone();
+                let operator = &pending_list[num - 1];
+                let operator_id = operator.id.clone();
+                let operator_name = operator.name.clone();
 
-                // Approve user
-                match UserRepository::approve(db.pool(), &user_id).await {
+                // Approve operator
+                match OperatorRepository::approve(db.pool(), &operator_id).await {
                     Ok(_) => {
-                        println!("✓ Approved @{} (ID: {})", user_name, user_id);
-                        if user.platform == Platform::Discord {
+                        println!("✓ Approved @{} (ID: {})", operator_name, operator_id);
+                        if operator.platform == Platform::Discord {
                             println!("  They'll receive a welcome message on their next interaction.");
                         }
                     }
                     Err(e) => {
-                        println!("Error approving user: {}", e);
+                        println!("Error approving operator: {}", e);
                     }
                 }
             }
@@ -153,31 +160,35 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// List users by status
-async fn list_by_status(db: &DbPool, status: UserStatus, label: &str) {
-    let users = match UserRepository::list_by_status(db.pool(), status, None).await {
+async fn list_by_status(db: &KomaDbPool, status: OperatorStatus, label: &str) {
+    let operators = match OperatorRepository::list_by_status(db.pool(), status, None).await {
         Ok(list) => list,
         Err(e) => {
-            eprintln!("Error loading users: {}", e);
+            eprintln!("Error loading operators: {}", e);
             return;
         }
     };
 
-    if users.is_empty() {
-        println!("\nNo {} users.", label.to_lowercase());
+    if operators.is_empty() {
+        println!("\nNo {} operators.", label.to_lowercase());
         return;
     }
 
-    println!("\n=== {} Users ===\n", label);
+    println!("\n=== {} Operators ===\n", label);
     println!("{:<20} {:<12} {:<20} {:<12} Updated At", "Name", "Platform", "ID", "Welcomed");
     println!("{:-<80}", "");
 
-    for user in users {
-        let updated_str = user.updated_at.format("%Y-%m-%d %H:%M");
-        let platform = format!("{:?}", user.platform).to_lowercase();
-        let welcomed = if user.welcomed { "yes" } else { "no" };
+    for operator in operators {
+        let updated_at = Utc
+            .timestamp_opt(operator.updated_at, 0)
+            .single()
+            .unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap());
+        let updated_str = updated_at.format("%Y-%m-%d %H:%M");
+        let platform = format!("{:?}", operator.platform).to_lowercase();
+        let welcomed = if operator.welcomed { "yes" } else { "no" };
         println!(
             "{:<20} {:<12} {:<20} {:<12} {}",
-            user.name, platform, user.id, welcomed, updated_str
+            operator.name, platform, operator.id, welcomed, updated_str
         );
     }
 }

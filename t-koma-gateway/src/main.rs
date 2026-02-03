@@ -28,18 +28,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Initialize database
-    let db = t_koma_db::DbPool::new().await?;
-    info!("Database initialized");
+    let koma_db = t_koma_db::KomaDbPool::new().await?;
+    info!("T-KOMA database initialized");
 
     // Prune old pending users (older than 1 hour)
-    match t_koma_db::UserRepository::prune_pending(db.pool(), 1).await {
+    match t_koma_db::OperatorRepository::prune_pending(koma_db.pool(), 1).await {
         Ok(count) => {
             if count > 0 {
-                info!("Pruned {} expired pending users", count);
+                info!("Pruned {} expired pending operators", count);
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to prune pending users: {}", e);
+            tracing::warn!("Failed to prune pending operators: {}", e);
         }
     }
 
@@ -125,11 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create shared application state
-    let state = Arc::new(AppState::new(
-        default_model_alias,
-        models,
-        db,
-    ));
+    let state = Arc::new(AppState::new(default_model_alias, models, koma_db));
 
     // Get Discord token from secrets
     let discord_token = config.discord_bot_token().map(|s| s.to_string());
@@ -168,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the HTTP server
     let bind_addr = config.bind_addr();
     info!(
-        "Starting gateway server on {} (localhost-only by default)",
+        "Starting T-KOMA server on {} (localhost-only by default)",
         bind_addr
     );
 

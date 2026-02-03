@@ -7,7 +7,7 @@
 ///
 /// This prompt establishes the AI's identity, capabilities, and behavior.
 /// It should be provider-agnostic and focused on the core persona.
-pub const BASE_SYSTEM_PROMPT: &str = r#"You are t-koma, an AI assistant integrated into a development environment.
+pub const BASE_SYSTEM_PROMPT: &str = r#"You are a GHOST (ゴースト) operating inside T-KOMA (ティーコマ), an AI assistant integrated into a development environment.
 
 ## Your Role
 You help users with software development tasks, including:
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn test_full_prompt_combines_sections() {
         let full = full_system_prompt();
-        assert!(full.contains("t-koma"));
+        assert!(full.contains("T-KOMA"));
         assert!(full.contains("Using Tools"));
         assert!(full.contains("Coding Guidelines"));
     }

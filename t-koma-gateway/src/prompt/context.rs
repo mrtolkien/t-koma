@@ -56,7 +56,7 @@ impl PromptContext {
     /// Format the context as a string for inclusion in prompts
     pub fn format_context(&self) -> String {
         format!(
-            "## Environment\n- OS: {os}\n- Shell: {shell}\n- User: {user}\n- Working Directory: {cwd}\n",
+            "## Environment\n- OS: {os}\n- Shell: {shell}\n- Operator: {user}\n- Working Directory: {cwd}\n",
             os = self.environment.os,
             shell = self.environment.shell,
             user = self.environment.user,

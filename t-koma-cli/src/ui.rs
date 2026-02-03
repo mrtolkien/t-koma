@@ -60,17 +60,17 @@ impl Ui {
             .iter()
             .map(|msg| {
                 let (role_style, role_text) = match msg.role {
-                    t_koma_core::MessageRole::User => (
+                    t_koma_core::MessageRole::Operator => (
                         Style::default()
                             .fg(Color::Green)
                             .add_modifier(Modifier::BOLD),
-                        "You",
+                        "Operator",
                     ),
-                    t_koma_core::MessageRole::Assistant => (
+                    t_koma_core::MessageRole::Ghost => (
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),
-                        "Assistant",
+                        "Ghost",
                     ),
                     t_koma_core::MessageRole::System => (
                         Style::default()

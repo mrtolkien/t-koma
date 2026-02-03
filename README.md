@@ -1,15 +1,15 @@
 # t-koma
 
-A Rust-based AI agent with multi-provider model support, featuring a gateway
-server and a terminal UI client.
+A Rust-based AI system with multi-provider model support, featuring the
+T-KOMA (ティーコマ) server and a terminal UI client.
 
 ## Overview
 
-t-koma is an AI agent system consisting of:
+t-koma is an AI system consisting of:
 
-- **t-koma-gateway**: An async HTTP/WebSocket server that proxies requests to
-  the configured model provider
-- **t-koma-cli**: A terminal UI client for interacting with the agent
+- **t-koma-gateway**: The T-KOMA (ティーコマ) server that proxies requests to
+  the configured model provider and manages operators/ghosts
+- **t-koma-cli**: A terminal UI client (interface) for interacting with the system
 - **t-koma-core**: Shared types and configuration
 
 ## Features
@@ -17,9 +17,11 @@ t-koma is an AI agent system consisting of:
 - 🤖 **Multi-provider Models**: Supports Anthropic and OpenRouter via a unified
   provider interface
 - 🌐 **WebSocket Communication**: Real-time bidirectional messaging between CLI
-  and gateway
+  and T-KOMA
 - 🖥️ **Terminal UI**: Built with ratatui for a rich terminal experience
-- 🚀 **Auto-start for Chat**: CLI can start the gateway for chat sessions
+- 🚀 **Auto-start for Chat**: CLI can start T-KOMA for chat sessions
+- 👤 **Operator + Ghost Model**: Operators own ghosts, with per-ghost sessions
+- 🗃️ **Per-Ghost Storage**: Each ghost has its own database and workspace
 - 🔧 **Configurable**: Environment-based configuration with `.env` file support
 - ✅ **Tested**: Unit tests and live API integration tests
 
@@ -50,21 +52,31 @@ cp .env.example .env
 #### Option 1: Run both components manually
 
 ```bash
-# Terminal 1: Start the gateway
+# Terminal 1: Start T-KOMA
 cargo run --release --bin t-koma-gateway
 
 # Terminal 2: Start the TUI
 cargo run --release --bin t-koma-cli
 ```
 
-#### Option 2: Run just the TUI (auto-starts gateway)
+#### Option 2: Run just the TUI (auto-starts T-KOMA)
 
 ```bash
 cargo run --release --bin t-koma-cli
 ```
 
-The TUI will automatically detect if the gateway is running and start it if
+The TUI will automatically detect if T-KOMA is running and start it if
 needed.
+
+### Operator/Ghost Flow
+
+1. First message on an interface (Discord or TUI) prompts whether the interface
+   belongs to a NEW or EXISTING operator.
+2. NEW operator creation is supported; EXISTING operator linking is not yet
+   implemented.
+3. Operators must be approved via the management CLI before interacting.
+4. GHOST creation happens in Discord. The bot prompts for a name, then boots
+   the GHOST with `default-prompts/BOOTSTRAP.md` as the first user message.
 
 ### TUI Controls
 
@@ -110,7 +122,7 @@ OPENROUTER_API_KEY=sk-or-...
 
 ## API Endpoints
 
-The gateway exposes the following HTTP endpoints:
+T-KOMA exposes the following HTTP endpoints:
 
 ### `GET /health`
 
@@ -122,7 +134,7 @@ Health check endpoint.
 {
   "status": "ok",
   "version": "0.1.0",
-  "gateway": "running"
+  "koma": "running"
 }
 ```
 
@@ -199,13 +211,13 @@ cargo fmt
 
 ```
 ┌─────────────┐     WebSocket      ┌─────────────┐     HTTP      ┌────────────┐
-│  t-koma-cli │ ◄────────────────► │   Gateway   │ ◄───────────► │ Provider   │
+│  t-koma-cli │ ◄────────────────► │  T-KOMA     │ ◄───────────► │ Provider   │
 │   (TUI)     │                    │             │               │    APIs    │
 └─────────────┘                    └─────────────┘               └────────────┘
 ```
 
 - **t-koma-cli**: ratatui-based TUI, connects via WebSocket
-- **t-koma-gateway**: axum HTTP server, proxies to provider APIs
+- **t-koma-gateway**: axum HTTP server (T-KOMA), proxies to provider APIs
 - **t-koma-core**: Shared types (messages, config)
 
 ### Resetting the Database

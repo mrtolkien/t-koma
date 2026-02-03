@@ -6,7 +6,7 @@
 #[cfg(feature = "live-tests")]
 use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
-use t_koma_db::{SessionRepository, UserRepository};
+use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     models::anthropic::history::build_api_messages,
@@ -14,6 +14,8 @@ use t_koma_gateway::{
     prompt::SystemPrompt,
     tools::{shell::ShellTool, Tool},
 };
+#[cfg(feature = "live-tests")]
+use uuid::Uuid;
 
 #[cfg(feature = "live-tests")]
 use crate::common;
@@ -34,7 +36,7 @@ struct ConversationTurn {
 #[derive(Debug, serde::Serialize)]
 struct Conversation {
     session_title: String,
-    user_id: String,
+    operator_id: String,
     turns: Vec<ConversationTurn>,
     total_messages: i64,
 }
@@ -53,25 +55,21 @@ struct Conversation {
 async fn test_multi_turn_story_conversation() {
     t_koma_core::load_dotenv();
 
-    // Set up in-memory test database
-    let db = setup_test_db().await.expect("Failed to create test database");
-
-    // Create AppState
-    let state = common::build_state_with_default_model(db.clone());
-
-    // Create a test user
-    let user_id = "test_user_001";
-    let user = UserRepository::get_or_create(db.pool(), user_id, "Test User", t_koma_db::Platform::Api)
+    let ghost_name = format!("test-ghost-{}", Uuid::new_v4());
+    let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
-        .expect("Failed to create user");
-
-    // Approve the user for testing
-    UserRepository::approve(db.pool(), user_id)
-        .await
-        .expect("Failed to approve user");
+        .expect("Failed to set up test environment");
+    let state = common::build_state_with_default_model(env.koma_db.clone());
+    let ghost_db = env.ghost_db;
+    let operator = env.operator;
+    let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(db.pool(), user_id, Some("Multi-turn Story Test"))
+    let session = SessionRepository::create(
+        ghost_db.pool(),
+        &operator.id,
+        Some("Multi-turn Story Test"),
+    )
         .await
         .expect("Failed to create session");
 
@@ -91,9 +89,9 @@ async fn test_multi_turn_story_conversation() {
     
     // Save user message
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: turn1_message.to_string(),
         }],
@@ -103,7 +101,7 @@ async fn test_multi_turn_story_conversation() {
     .expect("Failed to save turn 1 user message");
 
     // Get conversation history and build API messages
-    let history1 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages1 = build_api_messages(&history1, Some(50));
@@ -111,6 +109,7 @@ async fn test_multi_turn_story_conversation() {
     // Send to model through AppState
     let response1 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -125,7 +124,7 @@ async fn test_multi_turn_story_conversation() {
     println!("Turn 1 response:\n{}\n", response1);
 
     // Count messages after turn 1
-    let msg_count1 = SessionRepository::count_messages(db.pool(), &session.id)
+    let msg_count1 = SessionRepository::count_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
@@ -142,9 +141,9 @@ async fn test_multi_turn_story_conversation() {
     
     // Save user message
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: turn2_message.to_string(),
         }],
@@ -154,7 +153,7 @@ async fn test_multi_turn_story_conversation() {
     .expect("Failed to save turn 2 user message");
 
     // Get updated conversation history
-    let history2 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages2 = build_api_messages(&history2, Some(50));
@@ -162,6 +161,7 @@ async fn test_multi_turn_story_conversation() {
     // Send to model through AppState
     let response2 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -176,7 +176,7 @@ async fn test_multi_turn_story_conversation() {
     println!("Turn 2 response:\n{}\n", response2);
 
     // Count messages after turn 2
-    let msg_count2 = SessionRepository::count_messages(db.pool(), &session.id)
+    let msg_count2 = SessionRepository::count_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
@@ -193,9 +193,9 @@ async fn test_multi_turn_story_conversation() {
     
     // Save user message
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: turn3_message.to_string(),
         }],
@@ -205,7 +205,7 @@ async fn test_multi_turn_story_conversation() {
     .expect("Failed to save turn 3 user message");
 
     // Get updated conversation history
-    let history3 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages3 = build_api_messages(&history3, Some(50));
@@ -213,6 +213,7 @@ async fn test_multi_turn_story_conversation() {
     // Send to model through AppState
     let response3 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
@@ -227,7 +228,7 @@ async fn test_multi_turn_story_conversation() {
     println!("Turn 3 response:\n{}\n", response3);
 
     // Count messages after turn 3
-    let msg_count3 = SessionRepository::count_messages(db.pool(), &session.id)
+    let msg_count3 = SessionRepository::count_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
@@ -242,7 +243,7 @@ async fn test_multi_turn_story_conversation() {
     // Build final conversation snapshot
     let conversation = Conversation {
         session_title: session.title,
-        user_id: user.id,
+        operator_id: operator.id,
         turns: conversation_turns,
         total_messages: msg_count3,
     };
@@ -253,7 +254,7 @@ async fn test_multi_turn_story_conversation() {
         conversation,
         {
             ".turns[].session_id" => "[session_id]",
-            ".user_id" => "[user_id]",
+            ".operator_id" => "[operator_id]",
         }
     );
 
@@ -266,6 +267,7 @@ async fn test_multi_turn_story_conversation() {
     println!("\n✅ Multi-turn conversation test completed successfully!");
     println!("Session ID: {}", session.id);
     println!("Total messages: {}", msg_count3);
+    println!("Ghost: {}", ghost.name);
 }
 
 /// Test multi-turn conversation with tool use through the gateway
@@ -273,23 +275,21 @@ async fn test_multi_turn_story_conversation() {
 #[tokio::test]
 async fn test_multi_turn_with_tool_use() {
     // Set up in-memory test database
-    let db = setup_test_db().await.expect("Failed to create test database");
-
-    // Create AppState
-    let state = common::build_state_with_default_model(db.clone());
-
-    // Create a test user
-    let user_id = "test_user_tool_001";
-    UserRepository::get_or_create(db.pool(), user_id, "Test User", t_koma_db::Platform::Api)
+    let ghost_name = format!("test-ghost-{}", Uuid::new_v4());
+    let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
-        .expect("Failed to create user");
-
-    UserRepository::approve(db.pool(), user_id)
-        .await
-        .expect("Failed to approve user");
+        .expect("Failed to set up test environment");
+    let state = common::build_state_with_default_model(env.koma_db.clone());
+    let ghost_db = env.ghost_db;
+    let operator = env.operator;
+    let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(db.pool(), user_id, Some("Multi-turn Tool Test"))
+    let session = SessionRepository::create(
+        ghost_db.pool(),
+        &operator.id,
+        Some("Multi-turn Tool Test"),
+    )
         .await
         .expect("Failed to create session");
 
@@ -304,9 +304,9 @@ async fn test_multi_turn_with_tool_use() {
     let turn1_message = "What directory are we in? Use the shell tool to find out.";
     
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: turn1_message.to_string(),
         }],
@@ -315,13 +315,14 @@ async fn test_multi_turn_with_tool_use() {
     .await
     .expect("Failed to save turn 1 user message");
 
-    let history1 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages1 = build_api_messages(&history1, Some(50));
 
     let response1 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -345,9 +346,9 @@ async fn test_multi_turn_with_tool_use() {
     let turn2_message = "What command did you just run to find that out?";
     
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: turn2_message.to_string(),
         }],
@@ -356,13 +357,14 @@ async fn test_multi_turn_with_tool_use() {
     .await
     .expect("Failed to save turn 2 user message");
 
-    let history2 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages2 = build_api_messages(&history2, Some(50));
 
     let response2 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
@@ -385,24 +387,16 @@ async fn test_multi_turn_with_tool_use() {
     );
 
     // Verify message count includes tool_use and tool_result blocks
-    let msg_count = SessionRepository::count_messages(db.pool(), &session.id)
+    let msg_count = SessionRepository::count_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
     println!("Total messages in session: {}", msg_count);
+    println!("Ghost: {}", ghost.name);
     
     // Should have: user1, assistant1 (with tool_use), user1_tool_result, user2, assistant2
     // That's 5 message rows
     assert!(msg_count >= 4, "Expected at least 4 messages (including tool interactions)");
 
     println!("\n✅ Multi-turn tool use test completed successfully!");
-}
-
-/// Helper to set up an in-memory test database
-#[cfg(feature = "live-tests")]
-async fn setup_test_db() -> Result<t_koma_db::DbPool, Box<dyn std::error::Error>> {
-    // Use the test helper from t-koma-db which has proper migration path resolution
-    t_koma_db::test_helpers::create_test_pool()
-        .await
-        .map_err(|e| e.into())
 }

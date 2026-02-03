@@ -79,8 +79,8 @@ fn show_menu() -> Result<u32, Box<dyn std::error::Error>> {
     println!("║           t-koma CLI               ║");
     println!("╠════════════════════════════════════╣");
     println!("║  1. Chat with t-koma               ║");
-    println!("║  2. Follow gateway logs            ║");
-    println!("║  3. Manage users (admin)           ║");
+    println!("║  2. Follow T-KOMA logs             ║");
+    println!("║  3. Manage operators (admin)       ║");
     println!("║  4. Manage model config            ║");
     println!("╚════════════════════════════════════╝");
     print!("\nSelect [1-4]: ");
@@ -111,7 +111,7 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // First, connect to WebSocket and do provider selection in normal mode
-    println!("\nConnecting to gateway...");
+    println!("\nConnecting to T-KOMA...");
 
     let (ws_tx, ws_rx) = WsClient::connect(&ws_url).await?;
 
@@ -133,6 +133,21 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut session_ready = false;
     while !session_ready {
         match rx.recv().await {
+            Some(WsResponse::InterfaceSelectionRequired { message }) => {
+                println!("{}", message);
+                print!("Select [new/existing]: ");
+                io::stdout().flush()?;
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                let choice = input.trim().to_string();
+                if ws_tx
+                    .send(t_koma_core::WsMessage::SelectInterface { choice })
+                    .is_err()
+                {
+                    println!("Failed to send interface choice.");
+                    return Ok(());
+                }
+            }
             Some(WsResponse::SessionCreated { .. }) => {
                 session_ready = true;
                 println!("✓ Session created");
@@ -142,8 +157,7 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             Some(WsResponse::Response { content, .. }) => {
-                // Welcome message, ignore
-                if content.contains("Connected to t-koma") {
+                if content.contains("Connected to T-KOMA") {
                     // Continue waiting for SessionCreated
                 }
             }
@@ -214,7 +228,7 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Run the log follow mode
 async fn run_log_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\nConnecting to gateway logs...\n");
+    println!("\nConnecting to T-KOMA logs...\n");
 
     let follower = LogFollower::new(ws_url);
     follower.run().await
@@ -242,7 +256,7 @@ async fn run_provider_config_mode(ws_url: &str) -> Result<(), Box<dyn std::error
 
     let selection = match WsClient::connect(&ws_url_for_cli(ws_url)).await {
         Ok((ws_tx, ws_rx)) => {
-            println!("\nGateway reachable. Loading configured models...");
+            println!("\nT-KOMA reachable. Loading configured models...");
 
             let (tx, mut rx) = mpsc::unbounded_channel();
             tokio::spawn(async move {
@@ -270,7 +284,7 @@ async fn run_provider_config_mode(ws_url: &str) -> Result<(), Box<dyn std::error
             }
         }
         Err(e) => {
-            println!("Gateway not reachable: {}", e);
+            println!("T-KOMA not reachable: {}", e);
             println!("Using local config selection.");
             None
         }

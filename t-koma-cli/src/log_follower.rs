@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use tokio_tungstenite::connect_async;
 use tracing::{error, info};
 
-/// Log follower that displays gateway logs in real-time
+/// Log follower that displays T-KOMA logs in real-time
 pub struct LogFollower {
     ws_url: String,
 }
@@ -33,11 +33,11 @@ impl LogFollower {
         
         // Connect directly to WebSocket
         let (ws_stream, _) = connect_async(&self.ws_url).await?;
-        info!("Connected to gateway logs");
+        info!("Connected to T-KOMA logs");
         
         let (_write, mut read) = ws_stream.split();
         
-        println!("Connected to gateway logs. Press 'q' or Ctrl+C to quit.\n");
+        println!("Connected to T-KOMA logs. Press 'q' or Ctrl+C to quit.\n");
         
         // Enable raw mode for immediate key detection
         terminal::enable_raw_mode()?;

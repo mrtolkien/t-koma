@@ -13,7 +13,7 @@ expression: response
   ],
   "usage": {
     "input_tokens": 20,
-    "output_tokens": 43
+    "output_tokens": 51
   },
   "stop_reason": "stop"
 }
