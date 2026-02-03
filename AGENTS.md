@@ -50,15 +50,20 @@ Database layer using SQLite with sqlite-vec extension:
 - `src/db.rs`: Database pool initialization and connection management
 - `src/users.rs`: User management (`UserRepository`, `User`, `UserStatus`,
   `Platform`)
+- `src/sessions.rs`: Session and message management (`SessionRepository`,
+  `Session`, `Message`, `ContentBlock`)
 - `src/error.rs`: Database error types (`DbError`)
 - `migrations/001_initial_schema.sql`: Database schema
+- `migrations/002_sessions_and_messages.sql`: Sessions and messages schema
 
 **Key Types:**
 
 - `DbPool`: Database connection pool, initialize with `DbPool::new().await`
 - `UserRepository`: Static methods for user CRUD operations
+- `SessionRepository`: Static methods for session and message CRUD operations
 - `UserStatus`: `Pending`, `Approved`, `Denied`
 - `Platform`: `Discord`, `Api`, `Cli`
+- `ContentBlock`: Message content types (`Text`, `ToolUse`, `ToolResult`)
 
 **Database Location:** Platform-specific data directory:
 
@@ -74,7 +79,15 @@ Gateway server with both library and binary targets:
   initializes database, optionally starts Discord bot
 - `src/server.rs`: HTTP routes (`/health`, `/chat`), WebSocket handlers (`/ws`,
   `/logs`). **All routes check user approval status via database**
-- `src/models/`: Model provider implementations (e.g., `anthropic.rs`)
+- `src/models/`: Model provider implementations
+  - `anthropic/`: Claude API integration
+    - `client.rs`: HTTP client with prompt caching support
+    - `prompt.rs`: Anthropic-specific prompt building
+    - `history.rs`: Message formatting for Anthropic API
+  - `mod.rs`: Model exports
+- `src/prompt/`: System prompt management
+  - `base.rs`: Hardcoded system prompt definitions
+  - `mod.rs`: `SystemPrompt` struct with cache control support
 - `src/tools/`: Model-agnostic tool implementations (e.g., `shell.rs`)
 - `src/state.rs`: `AppState` with broadcast channel for logs, `LogEntry` enum,
   and `DbPool` for database access
@@ -279,4 +292,17 @@ When adding new dependencies:
 
 - `README.md`: User-facing documentation
 - `vibe/specs/`: Design specifications and PoC docs
+- `vibe/knowledge/`: Technical knowledge base for specific topics
 - `.cursor/`: Cursor IDE configuration (if present)
+
+## Knowledge Base
+
+The `vibe/knowledge/` directory contains detailed guides on specific technologies
+used in this project. **Always read relevant knowledge files before implementing
+features** that involve these technologies:
+
+- `vibe/knowledge/anthropic_claude_api.md` - Claude API integration, prompt
+  caching, tool use, and conversation management
+- `vibe/knowledge/sqlite-vec.md` - Vector search with sqlite-vec and sqlx
+- `vibe/knowledge/surrealdb_rust.md` - SurrealDB Rust SDK (reference only -
+  project uses SQLite)

@@ -49,11 +49,45 @@ impl ChatMessage {
     }
 }
 
+/// Usage information from the API response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageInfo {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_creation_tokens: Option<u32>,
+}
+
+/// Session information for listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInfo {
+    pub id: String,
+    pub title: String,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub created_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub updated_at: DateTime<Utc>,
+    pub message_count: i64,
+    pub is_active: bool,
+}
+
 /// WebSocket message from client to gateway
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsMessage {
-    Chat { content: String },
+    /// Send a chat message to a specific session
+    Chat { session_id: String, content: String },
+    /// List all sessions for the user
+    ListSessions,
+    /// Create a new session
+    CreateSession { title: Option<String> },
+    /// Switch to a different session
+    SwitchSession { session_id: String },
+    /// Delete a session
+    DeleteSession { session_id: String },
+    /// Ping to keep connection alive
     Ping,
 }
 
@@ -61,14 +95,25 @@ pub enum WsMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsResponse {
+    /// AI response text
     Response {
         id: String,
         content: String,
         done: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        usage: Option<UsageInfo>,
     },
-    Error {
-        message: String,
-    },
+    /// List of sessions
+    SessionList { sessions: Vec<SessionInfo> },
+    /// Session created successfully
+    SessionCreated { session_id: String, title: String },
+    /// Session switched successfully
+    SessionSwitched { session_id: String },
+    /// Session deleted successfully
+    SessionDeleted { session_id: String },
+    /// Error response
+    Error { message: String },
+    /// Pong response to ping
     Pong,
 }
 
@@ -111,14 +156,34 @@ mod tests {
     }
 
     #[test]
+    fn test_ws_message_session_commands() {
+        let msg = WsMessage::CreateSession {
+            title: Some("Test Session".to_string()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"create_session\""));
+        assert!(json.contains("\"title\":\"Test Session\""));
+    }
+
+    #[test]
     fn test_ws_response_serialization() {
         let resp = WsResponse::Response {
             id: "msg_001".to_string(),
             content: "Hello back".to_string(),
             done: true,
+            usage: Some(UsageInfo {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_tokens: Some(1000),
+                cache_creation_tokens: None,
+            }),
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"type\":\"response\""));
         assert!(json.contains("\"done\":true"));
+        assert!(json.contains("\"usage\""));
+        assert!(json.contains("\"cache_read_tokens\":1000"));
     }
+
+
 }
