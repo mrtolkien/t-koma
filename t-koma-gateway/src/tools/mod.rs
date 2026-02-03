@@ -1,4 +1,3 @@
-pub mod shell;
 pub mod file_edit;
 pub mod read_file;
 pub mod create_file;
@@ -8,6 +7,8 @@ pub mod list_dir;
 pub mod manager;
 
 pub use manager::ToolManager;
+pub mod load_skill;
+pub mod shell;
 
 use serde_json::Value;
 
