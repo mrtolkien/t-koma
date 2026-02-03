@@ -8,11 +8,13 @@
 
 pub mod db;
 pub mod error;
+pub mod sessions;
 pub mod users;
 
 // Re-export commonly used types
 pub use db::DbPool;
 pub use error::{DbError, DbResult};
+pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, SessionRepository};
 pub use users::{Platform, User, UserRepository, UserStatus};
 
 // Re-export test helpers when running tests

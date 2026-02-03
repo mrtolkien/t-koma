@@ -33,6 +33,8 @@ pub struct App {
     should_exit: bool,
     /// Status message
     status: String,
+    /// Current session ID (created by gateway on first connect)
+    session_id: Option<String>,
 }
 
 impl App {
@@ -49,6 +51,7 @@ impl App {
             ws_tx: None,
             should_exit: false,
             status: "Connecting...".to_string(),
+            session_id: None,
         }
     }
 
@@ -118,7 +121,7 @@ impl App {
     /// Handle WebSocket message
     async fn handle_ws_message(&mut self, msg: WsResponse) {
         match msg {
-            WsResponse::Response { id, content, done } => {
+            WsResponse::Response { id, content, done, .. } => {
                 if done {
                     // Check if we already have a message with this ID (streaming update)
                     if let Some(existing) = self.messages.iter_mut().find(|m| m.id == id) {
@@ -139,6 +142,19 @@ impl App {
             }
             WsResponse::Pong => {
                 // Heartbeat, ignore
+            }
+            WsResponse::SessionList { .. } => {
+                // TODO: Handle session list
+            }
+            WsResponse::SessionCreated { session_id, .. } => {
+                // Store the session ID for future messages
+                self.session_id = Some(session_id);
+            }
+            WsResponse::SessionSwitched { .. } => {
+                // TODO: Handle session switched
+            }
+            WsResponse::SessionDeleted { .. } => {
+                // TODO: Handle session deleted
             }
         }
     }
@@ -200,7 +216,10 @@ impl App {
 
         // Send via WebSocket
         if let Some(ref tx) = self.ws_tx {
-            let ws_msg = WsMessage::Chat { content };
+            // TODO: Get session_id from SessionCreated response or track active session
+            // For now, use a placeholder that the gateway will resolve
+            let session_id = self.session_id.clone().unwrap_or_else(|| "active".to_string());
+            let ws_msg = WsMessage::Chat { session_id, content };
             if tx.send(ws_msg).is_err() {
                 self.status = "Failed to send message".to_string();
                 self.connected = false;
