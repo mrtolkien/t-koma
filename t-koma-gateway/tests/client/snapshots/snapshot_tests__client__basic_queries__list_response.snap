@@ -1,0 +1,24 @@
+---
+source: t-koma-gateway/tests/client/basic_queries.rs
+expression: response
+---
+{
+  "id": "[id]",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5-20250929",
+  "content": [
+    {
+      "type": "text",
+      "text": "Red, blue, green."
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 17,
+    "output_tokens": 9,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0
+  }
+}

@@ -273,11 +273,40 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
         return;
     }
 
+    // Get or create active session for this user
+    let session = match t_koma_db::SessionRepository::get_or_create_active(
+        state.db.pool(),
+        &user_id,
+    ).await {
+        Ok(s) => {
+            // Send session created notification
+            let created_response = WsResponse::SessionCreated {
+                session_id: s.id.clone(),
+                title: s.title.clone(),
+            };
+            let _ = sender.send(Message::Text(
+                serde_json::to_string(&created_response).unwrap().into()
+            )).await;
+            s
+        }
+        Err(e) => {
+            error!("Failed to create session for {}: {}", client_id, e);
+            let error_response = WsResponse::Error {
+                message: "Failed to initialize chat session".to_string(),
+            };
+            let _ = sender.send(Message::Text(
+                serde_json::to_string(&error_response).unwrap().into()
+            )).await;
+            return;
+        }
+    };
+
     // Send welcome message
     let welcome = WsResponse::Response {
         id: "welcome".to_string(),
-        content: "Connected to t-koma gateway".to_string(),
+        content: format!("Connected to t-koma gateway. Session: {}", session.id),
         done: true,
+        usage: None,
     };
     
     let welcome_json = serde_json::to_string(&welcome).unwrap();
@@ -301,19 +330,105 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
                             .send(Message::Text(pong_json.into()))
                             .await;
                     }
-                    Ok(WsMessage::Chat { content }) => {
-                        info!("Received chat message from {}: {}", client_id, content);
+                    Ok(WsMessage::Chat { session_id, content }) => {
+                        info!("Received chat message from {} in session {}: {}", 
+                              client_id, session_id, content);
 
-                        // Send to Anthropic
-                        match state.anthropic.send_message(&content).await {
+                        // Verify the session belongs to this user
+                        let target_session = if session_id == "active" || session_id == session.id {
+                            &session
+                        } else {
+                            // Fetch the specified session
+                            match t_koma_db::SessionRepository::get_by_id(state.db.pool(), &session_id).await {
+                                Ok(Some(s)) if s.user_id == user_id => {
+                                    // Use this session
+                                    &session  // TODO: Handle session switching properly
+                                }
+                                _ => {
+                                    let error_response = WsResponse::Error {
+                                        message: "Invalid session".to_string(),
+                                    };
+                                    let _ = sender.send(Message::Text(
+                                        serde_json::to_string(&error_response).unwrap().into()
+                                    )).await;
+                                    continue;
+                                }
+                            }
+                        };
+
+                        // Fetch conversation history
+                        let history = match t_koma_db::SessionRepository::get_messages(
+                            state.db.pool(),
+                            &target_session.id,
+                        ).await {
+                            Ok(msgs) => msgs,
+                            Err(e) => {
+                                error!("Failed to fetch history: {}", e);
+                                vec![]
+                            }
+                        };
+
+                        // Save user message to database
+                        let user_content = vec![t_koma_db::ContentBlock::Text {
+                            text: content.clone(),
+                        }];
+                        if let Err(e) = t_koma_db::SessionRepository::add_message(
+                            state.db.pool(),
+                            &target_session.id,
+                            t_koma_db::MessageRole::User,
+                            user_content,
+                            None,
+                        ).await {
+                            error!("Failed to save user message: {}", e);
+                        }
+
+                        // Build API messages from history
+                        let api_messages = crate::models::anthropic::history::build_api_messages(
+                            &history,
+                            Some(50), // Limit to last 50 messages
+                        );
+
+                        // Get system prompt with caching
+                        let system_prompt = crate::prompt::SystemPrompt::new();
+                        let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
+
+                        // Send to Anthropic with conversation history
+                        match state.anthropic.send_conversation(
+                            Some(system_blocks),
+                            api_messages,
+                            vec![], // TODO: Pass actual tools
+                            Some(&content),
+                            None, // message_limit - already applied in build_api_messages
+                            None, // tool_choice - let model decide
+                        ).await {
                             Ok(response) => {
                                 let text = AnthropicClient::extract_text(&response)
                                     .unwrap_or_else(|| "(no response)".to_string());
+
+                                // Save assistant response to database
+                                let assistant_content = vec![t_koma_db::ContentBlock::Text {
+                                    text: text.clone(),
+                                }];
+                                if let Err(e) = t_koma_db::SessionRepository::add_message(
+                                    state.db.pool(),
+                                    &target_session.id,
+                                    t_koma_db::MessageRole::Assistant,
+                                    assistant_content,
+                                    Some(&response.model),
+                                ).await {
+                                    error!("Failed to save assistant message: {}", e);
+                                }
 
                                 let ws_response = WsResponse::Response {
                                     id: response.id,
                                     content: text,
                                     done: true,
+                                    usage: response.usage.map(|u| t_koma_core::message::UsageInfo {
+                                        input_tokens: u.input_tokens,
+                                        output_tokens: u.output_tokens,
+                                        cache_read_tokens: Some(u.cache_read_tokens),
+                                        cache_creation_tokens: Some(u.cache_creation_tokens),
+                                    }),
                                 };
 
                                 let response_json = serde_json::to_string(&ws_response).unwrap();
@@ -334,6 +449,107 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
                                 let _ = sender
                                     .send(Message::Text(error_json.into()))
                                     .await;
+                            }
+                        }
+                    }
+                    Ok(WsMessage::ListSessions) => {
+                        match t_koma_db::SessionRepository::list(state.db.pool(), &user_id).await {
+                            Ok(sessions) => {
+                                let session_infos: Vec<t_koma_core::message::SessionInfo> = sessions.into_iter().map(|s| {
+                                    t_koma_core::message::SessionInfo {
+                                        id: s.id,
+                                        title: s.title,
+                                        created_at: s.created_at,
+                                        updated_at: s.updated_at,
+                                        message_count: s.message_count,
+                                        is_active: s.is_active,
+                                    }
+                                }).collect();
+                                let response = WsResponse::SessionList { sessions: session_infos };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into()
+                                )).await;
+                            }
+                            Err(e) => {
+                                error!("Failed to list sessions: {}", e);
+                                let error_response = WsResponse::Error {
+                                    message: "Failed to list sessions".to_string(),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into()
+                                )).await;
+                            }
+                        }
+                    }
+                    Ok(WsMessage::CreateSession { title }) => {
+                        match t_koma_db::SessionRepository::create(
+                            state.db.pool(),
+                            &user_id,
+                            title.as_deref(),
+                        ).await {
+                            Ok(new_session) => {
+                                let response = WsResponse::SessionCreated {
+                                    session_id: new_session.id,
+                                    title: new_session.title,
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into()
+                                )).await;
+                            }
+                            Err(e) => {
+                                error!("Failed to create session: {}", e);
+                                let error_response = WsResponse::Error {
+                                    message: "Failed to create session".to_string(),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into()
+                                )).await;
+                            }
+                        }
+                    }
+                    Ok(WsMessage::SwitchSession { session_id }) => {
+                        match t_koma_db::SessionRepository::switch(
+                            state.db.pool(),
+                            &user_id,
+                            &session_id,
+                        ).await {
+                            Ok(_) => {
+                                let response = WsResponse::SessionSwitched { session_id };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into()
+                                )).await;
+                            }
+                            Err(e) => {
+                                error!("Failed to switch session: {}", e);
+                                let error_response = WsResponse::Error {
+                                    message: "Failed to switch session".to_string(),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into()
+                                )).await;
+                            }
+                        }
+                    }
+                    Ok(WsMessage::DeleteSession { session_id }) => {
+                        match t_koma_db::SessionRepository::delete(
+                            state.db.pool(),
+                            &user_id,
+                            &session_id,
+                        ).await {
+                            Ok(_) => {
+                                let response = WsResponse::SessionDeleted { session_id };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into()
+                                )).await;
+                            }
+                            Err(e) => {
+                                error!("Failed to delete session: {}", e);
+                                let error_response = WsResponse::Error {
+                                    message: "Failed to delete session".to_string(),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into()
+                                )).await;
                             }
                         }
                     }

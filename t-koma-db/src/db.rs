@@ -109,21 +109,17 @@ impl DbPool {
         Ok(pool)
     }
 
-    /// Run database migrations
+    /// Run database migrations using sqlx migrate macro
+    ///
+    /// Migrations are stored in the `migrations/` directory and are applied
+    /// automatically in version order. The migration state is tracked in the
+    /// database using the `_sqlx_migrations` table.
     async fn run_migrations(pool: &SqlitePool) -> DbResult<()> {
-        // Load migration SQL
-        let migration_sql = include_str!("../migrations/001_initial_schema.sql");
-
-        // Split and execute each statement
-        for statement in migration_sql.split(";") {
-            let stmt = statement.trim();
-            if !stmt.is_empty() {
-                sqlx::query(stmt).execute(pool).await.map_err(|e| {
-                    DbError::Migration(format!("Failed to execute migration: {}", e))
-                })?;
-            }
-        }
-
+        sqlx::migrate!("./migrations")
+            .run(pool)
+            .await
+            .map_err(|e| DbError::Migration(e.to_string()))?;
+        
         info!("Database migrations completed");
         Ok(())
     }
@@ -132,10 +128,18 @@ impl DbPool {
     pub async fn close(&self) {
         self.pool.close().await;
     }
+
+    /// Create a DbPool from an existing SqlitePool (for testing)
+    ///
+    /// This is useful in integration tests where you want to create
+    /// an in-memory database and wrap it in a DbPool.
+    pub fn from_pool(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
 }
 
 /// Test helpers
-#[cfg(test)]
+#[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
@@ -163,13 +167,10 @@ pub mod test_helpers {
             .await?;
 
         // Run migrations
-        let migration_sql = include_str!("../migrations/001_initial_schema.sql");
-        for statement in migration_sql.split(";") {
-            let stmt = statement.trim();
-            if !stmt.is_empty() {
-                sqlx::query(stmt).execute(&pool).await?;
-            }
-        }
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .map_err(|e| DbError::Migration(e.to_string()))?;
 
         Ok(DbPool { pool })
     }

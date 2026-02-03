@@ -1,7 +1,11 @@
+//! Anthropic API client with session support and prompt caching.
+
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::models::anthropic::history::{ApiContentBlock, ApiMessage};
+use crate::models::anthropic::prompt::SystemBlock;
 use crate::tools::Tool;
 
 /// Anthropic API client
@@ -13,20 +17,20 @@ pub struct AnthropicClient {
     base_url: String,
 }
 
-/// Request body for the Messages API
+/// Request body for the Messages API with prompt caching support
 #[derive(Debug, Serialize)]
 struct MessagesRequest {
     model: String,
     max_tokens: u32,
+    /// System prompt as array of blocks (supports cache_control)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<Vec<SystemBlock>>,
+    /// Conversation history
     messages: Vec<ApiMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<ToolDefinition>>,
-}
-
-#[derive(Debug, Serialize)]
-struct ApiMessage {
-    role: String,
-    content: String,
+    // TODO: Add tool_choice when we need to force specific tool usage.
+    // For now, the model decides based on tool definitions.
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +55,7 @@ pub struct MessagesResponse {
     pub usage: Option<Usage>,
 }
 
+/// Content block in the response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ContentBlock {
@@ -64,10 +69,19 @@ pub enum ContentBlock {
     },
 }
 
+/// Usage information including prompt caching metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    /// Tokens read from cache (cache hit)
+    #[serde(rename = "cache_read_input_tokens")]
+    #[serde(default)]
+    pub cache_read_tokens: u32,
+    /// Tokens written to cache (cache creation)
+    #[serde(rename = "cache_creation_input_tokens")]
+    #[serde(default)]
+    pub cache_creation_tokens: u32,
 }
 
 /// Errors that can occur when calling the Anthropic API
@@ -77,9 +91,10 @@ pub enum AnthropicError {
     HttpError(#[from] reqwest::Error),
     #[error("API error: {message}")]
     ApiError { message: String },
-    #[allow(dead_code)]
     #[error("No content in response")]
     NoContent,
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
 }
 
 impl AnthropicClient {
@@ -97,7 +112,7 @@ impl AnthropicClient {
 
         let http_client = reqwest::Client::builder()
             .default_headers(headers)
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("Failed to build HTTP client");
 
@@ -109,22 +124,66 @@ impl AnthropicClient {
         }
     }
 
-    /// Send a message to Claude and get a response
+    /// Send a simple message (for backwards compatibility)
     pub async fn send_message(
         &self,
         content: impl AsRef<str>,
     ) -> Result<MessagesResponse, AnthropicError> {
-        self.send_message_with_tools(content, vec![]).await
+        self.send_conversation(None, vec![], vec![], Some(content.as_ref()), None, None)
+            .await
     }
 
-    /// Send a message to Claude with tools and get a response
+    /// Send a message with tools (for backwards compatibility)
     pub async fn send_message_with_tools(
         &self,
         content: impl AsRef<str>,
         tools: Vec<&dyn Tool>,
     ) -> Result<MessagesResponse, AnthropicError> {
+        self.send_conversation(None, vec![], tools, Some(content.as_ref()), None, None)
+            .await
+    }
+
+    /// Send a conversation with full history and prompt caching
+    ///
+    /// # Arguments
+    /// * `system` - Optional system prompt blocks with cache_control
+    /// * `history` - Previous conversation messages
+    /// * `tools` - Available tools
+    /// * `new_message` - Optional new user message to add
+    /// * `message_limit` - Optional limit on history messages to include
+    /// * `_tool_choice` - Placeholder for future forced tool selection
+    pub async fn send_conversation(
+        &self,
+        system: Option<Vec<SystemBlock>>,
+        history: Vec<ApiMessage>,
+        tools: Vec<&dyn Tool>,
+        new_message: Option<&str>,
+        message_limit: Option<usize>,
+        _tool_choice: Option<String>,
+    ) -> Result<MessagesResponse, AnthropicError> {
         let url = format!("{}/messages", self.base_url);
 
+        // Build messages: history + optional new message
+        let mut messages = if let Some(limit) = message_limit {
+            // Apply limit to history
+            let start = history.len().saturating_sub(limit);
+            history.into_iter().skip(start).collect()
+        } else {
+            history
+        };
+
+        // Add new message if provided
+        if let Some(content) = new_message {
+            messages.push(ApiMessage {
+                role: "user".to_string(),
+                content: vec![ApiContentBlock::Text {
+                    text: content.to_string(),
+                    cache_control: None,
+                }],
+            });
+        }
+
+        // Build tool definitions
         let tool_definitions = if tools.is_empty() {
             None
         } else {
@@ -143,10 +202,8 @@ impl AnthropicClient {
         let request_body = MessagesRequest {
             model: self.model.clone(),
             max_tokens: 4096,
-            messages: vec![ApiMessage {
-                role: "user".to_string(),
-                content: content.as_ref().to_string(),
-            }],
+            system,
+            messages,
             tools: tool_definitions,
         };
 
@@ -181,6 +238,41 @@ impl AnthropicClient {
             })
             .next()
     }
+
+    /// Extract all text content from a response
+    pub fn extract_all_text(response: &MessagesResponse) -> String {
+        response
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Extract tool uses from a response
+    pub fn extract_tool_uses(response: &MessagesResponse) -> Vec<(String, String, Value)> {
+        response
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::ToolUse { id, name, input } => {
+                    Some((id.clone(), name.clone(), input.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Check if the response has tool uses
+    pub fn has_tool_uses(response: &MessagesResponse) -> bool {
+        response
+            .content
+            .iter()
+            .any(|block| matches!(block, ContentBlock::ToolUse { .. }))
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +304,8 @@ mod tests {
             usage: Some(Usage {
                 input_tokens: 10,
                 output_tokens: 5,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
             }),
         };
 
@@ -222,46 +316,48 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_text_no_content() {
+    fn test_extract_tool_uses() {
         let response = MessagesResponse {
             id: "msg_001".to_string(),
             msg_type: "message".to_string(),
             role: "assistant".to_string(),
             model: "claude-sonnet-4-5-20250929".to_string(),
-            content: vec![],
-            stop_reason: None,
+            content: vec![
+                ContentBlock::Text {
+                    text: "I'll check that.".to_string(),
+                },
+                ContentBlock::ToolUse {
+                    id: "tool_123".to_string(),
+                    name: "get_weather".to_string(),
+                    input: serde_json::json!({"location": "SF"}),
+                },
+            ],
+            stop_reason: Some("tool_use".to_string()),
             stop_sequence: None,
-            usage: None,
+            usage: Some(Usage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_tokens: 1000,
+                cache_creation_tokens: 0,
+            }),
         };
 
-        assert_eq!(AnthropicClient::extract_text(&response), None);
+        let tools = AnthropicClient::extract_tool_uses(&response);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].0, "tool_123");
+        assert_eq!(tools[0].1, "get_weather");
+        assert!(AnthropicClient::has_tool_uses(&response));
     }
 
-    /// Live test that actually calls the Anthropic API.
-    /// Run with: cargo test --features live-tests
-    #[cfg(feature = "live-tests")]
-    #[tokio::test]
-    async fn test_live_anthropic_api() {
-        // Load .env file
-        t_koma_core::load_dotenv();
-        
-        let api_key = std::env::var("ANTHROPIC_API_KEY")
-            .expect("ANTHROPIC_API_KEY must be set for live tests");
-        
-        let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-        
-        let response = client
-            .send_message("Hello, this is a test message. Please respond with 'Test successful.'")
-            .await;
-        
-        assert!(response.is_ok(), "API call failed: {:?}", response.err());
-        
-        let response = response.unwrap();
-        assert!(!response.id.is_empty());
-        assert_eq!(response.role, "assistant");
-        
-        let text = AnthropicClient::extract_text(&response);
-        assert!(text.is_some());
-        assert!(!text.unwrap().is_empty());
+    #[test]
+    fn test_usage_with_cache() {
+        let usage = Usage {
+            input_tokens: 50,
+            output_tokens: 100,
+            cache_read_tokens: 10000,
+            cache_creation_tokens: 0,
+        };
+
+        assert_eq!(usage.cache_read_tokens, 10000);
     }
 }

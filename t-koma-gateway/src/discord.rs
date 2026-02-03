@@ -6,7 +6,6 @@ use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use tracing::{error, info};
 
-use crate::models::anthropic::AnthropicClient;
 use crate::state::AppState;
 
 /// Discord bot handler
@@ -18,6 +17,7 @@ impl Bot {
     pub fn new(state: Arc<AppState>) -> Self {
         Self { state }
     }
+
 }
 
 #[async_trait]
@@ -39,7 +39,7 @@ impl EventHandler for Bot {
         let user_id = msg.author.id.to_string();
         let user_name = msg.author.name.clone();
 
-        info!("Discord message from {} ({}): {}", user_name, user_id, msg.content);
+        info!("[session:-] Discord message from {} ({}): {}", user_name, user_id, msg.content);
 
         // Get or create user in database
         let user = match t_koma_db::UserRepository::get_or_create(
@@ -102,51 +102,114 @@ impl EventHandler for Bot {
             return;
         }
 
-        // Log the incoming message
-        self.state
-            .log(crate::LogEntry::DiscordMessage {
-                channel: msg.channel_id.to_string(),
-                user: user_name.clone(),
-                content: clean_content.to_string(),
-            })
-            .await;
+        // Log the incoming message (session will be logged after it's created)
 
         // TODO: Add input validation (length limits, content filtering)
         // TODO: Add rate limiting per user
 
-        // Call Anthropic API
-        match self.state.anthropic.send_message(clean_content).await {
-            Ok(response) => {
-                let mut text = AnthropicClient::extract_text(&response)
-                    .unwrap_or_else(|| "(no response)".to_string());
-
-                // Prepend welcome message if first interaction
-                if need_welcome {
-                    text = format!("Hello! You now have access to t-koma.\n\n{}", text);
-                }
-
-                info!("t-koma response to {}: {}", user_name, text);
-
-                // Log the response
-                self.state
-                    .log(crate::LogEntry::DiscordResponse {
-                        user: user_name.clone(),
-                        content: text.clone(),
-                    })
-                    .await;
-
-                // Send response back to Discord
-                if let Err(e) = msg.channel_id.say(&ctx.http, &text).await {
-                    error!("Failed to send Discord message: {}", e);
-                }
+        // Get or create session for this Discord user
+        let session = match t_koma_db::SessionRepository::get_or_create_active(
+            self.state.db.pool(),
+            &user_id,
+        ).await {
+            Ok(s) => {
+                info!("[session:{}] Active session for user {}", s.id, user_id);
+                s
             }
             Err(e) => {
-                error!("Anthropic API error: {}", e);
+                error!("Failed to create session for user {}: {}", user_id, e);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Sorry, an error occurred initializing your session.")
+                    .await;
+                return;
+            }
+        };
+
+        // Fetch conversation history
+        let history = match t_koma_db::SessionRepository::get_messages(
+            self.state.db.pool(),
+            &session.id,
+        ).await {
+            Ok(msgs) => msgs,
+            Err(e) => {
+                error!("Failed to fetch history for session {}: {}", session.id, e);
+                vec![]
+            }
+        };
+
+        // Save user message to database
+        let user_content = vec![t_koma_db::ContentBlock::Text {
+            text: clean_content.to_string(),
+        }];
+        if let Err(e) = t_koma_db::SessionRepository::add_message(
+            self.state.db.pool(),
+            &session.id,
+            t_koma_db::MessageRole::User,
+            user_content,
+            None,
+        ).await {
+            error!("Failed to save user message: {}", e);
+        }
+
+        // Build API messages from history
+        let api_messages = crate::models::anthropic::history::build_api_messages(
+            &history,
+            Some(50), // Limit to last 50 messages
+        );
+
+        // Get system prompt with caching
+        let system_prompt = crate::prompt::SystemPrompt::new();
+        let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
+
+        // Create shell tool for execution
+        let shell_tool = crate::tools::shell::ShellTool;
+        let tools: Vec<&dyn crate::tools::Tool> = vec![&shell_tool];
+
+        info!(
+            "Sending message to Claude for user {} in session {} ({} history messages)",
+            user_id,
+            session.id,
+            history.len()
+        );
+
+        // Call Claude using the shared state method
+        let model = "claude-sonnet-4-5-20250929";
+        let mut final_text = match self.state.send_conversation_with_tools(
+            &session.id,
+            system_blocks,
+            api_messages,
+            tools,
+            Some(clean_content),
+            model,
+        ).await {
+            Ok(text) => text,
+            Err(e) => {
+                error!("[session:{}] Claude API error: {}", session.id, e);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, "Sorry, I encountered an error processing your request.")
                     .await;
+                return;
             }
+        };
+
+        // Prepend welcome message if first interaction
+        if need_welcome {
+            final_text = format!("Hello! You now have access to t-koma.\n\n{}", final_text);
+        }
+
+        // Log the response
+        self.state
+            .log(crate::LogEntry::DiscordResponse {
+                user: user_name.clone(),
+                content: final_text.clone(),
+            })
+            .await;
+
+        // Send response back to Discord
+        if let Err(e) = msg.channel_id.say(&ctx.http, &final_text).await {
+            error!("[session:{}] Failed to send Discord message: {}", session.id, e);
         }
     }
 
