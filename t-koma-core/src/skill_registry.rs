@@ -106,19 +106,19 @@ impl SkillRegistry {
         let config_path = self.config_path.clone();
 
         // First, discover project-level skills
-        if let Some(ref path) = project_path {
-            if path.exists() {
-                info!("Discovering project skills from: {:?}", path);
-                self.discover_from_path(path)?;
-            }
+        if let Some(ref path) = project_path
+            && path.exists()
+        {
+            info!("Discovering project skills from: {:?}", path);
+            self.discover_from_path(path)?;
         }
 
         // Then, discover config skills (these take precedence)
-        if let Some(ref path) = config_path {
-            if path.exists() {
-                info!("Discovering config skills from: {:?}", path);
-                self.discover_from_path(path)?;
-            }
+        if let Some(ref path) = config_path
+            && path.exists()
+        {
+            info!("Discovering config skills from: {:?}", path);
+            self.discover_from_path(path)?;
         }
 
         info!("Total skills discovered: {}", self.skills.len());
@@ -343,8 +343,8 @@ description: The first test skill.
 "#,
         );
 
-        let registry = SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None)
-            .unwrap();
+        let registry =
+            SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None).unwrap();
 
         assert_eq!(registry.len(), 1);
         assert!(registry.has_skill("skill-one"));
@@ -420,8 +420,8 @@ description: The second test skill.
         // Create a directory without SKILL.md (should be skipped)
         fs::create_dir(temp_dir.path().join("not-a-skill")).unwrap();
 
-        let registry = SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None)
-            .unwrap();
+        let registry =
+            SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None).unwrap();
 
         assert_eq!(registry.len(), 2);
         assert!(registry.has_skill("skill-one"));
@@ -445,8 +445,8 @@ description: A test skill.
 "#,
         );
 
-        let registry = SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None)
-            .unwrap();
+        let registry =
+            SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None).unwrap();
 
         let skill = registry.get("test-skill");
         assert!(skill.is_some());
@@ -479,8 +479,8 @@ description: Skill B description.
 "#,
         );
 
-        let registry = SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None)
-            .unwrap();
+        let registry =
+            SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None).unwrap();
 
         let skills = registry.list_skills();
         assert_eq!(skills.len(), 2);
@@ -524,8 +524,8 @@ description: Analyze CSV and Excel data files.
 "#,
         );
 
-        let registry = SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None)
-            .unwrap();
+        let registry =
+            SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None).unwrap();
 
         let pdf_results = registry.search("pdf");
         assert_eq!(pdf_results.len(), 1);
@@ -556,8 +556,8 @@ This is the skill content.
 "#,
         );
 
-        let mut registry = SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None)
-            .unwrap();
+        let mut registry =
+            SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None).unwrap();
 
         // Initially content is not loaded
         let skill = registry.get("content-skill").unwrap();
@@ -566,14 +566,20 @@ This is the skill content.
         // Load the content
         let skill = registry.load_skill("content-skill").unwrap();
         assert!(skill.content.is_some());
-        assert!(skill.content.as_ref().unwrap().contains("# Content Section"));
+        assert!(
+            skill
+                .content
+                .as_ref()
+                .unwrap()
+                .contains("# Content Section")
+        );
     }
 
     #[test]
     fn test_empty_registry() {
         let temp_dir = TempDir::new().unwrap();
-        let registry = SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None)
-            .unwrap();
+        let registry =
+            SkillRegistry::new_with_paths(Some(temp_dir.path().to_path_buf()), None).unwrap();
 
         assert!(registry.is_empty());
         assert_eq!(registry.len(), 0);
