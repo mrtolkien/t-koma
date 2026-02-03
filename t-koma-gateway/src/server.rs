@@ -388,15 +388,18 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
                             Some(50), // Limit to last 50 messages
                         );
 
-                        // Get system prompt with caching
-                        let system_prompt = crate::prompt::SystemPrompt::new();
+                        // Build system prompt with tool instructions
+                        let shell_tool = crate::tools::shell::ShellTool;
+                        let file_edit_tool = crate::tools::file_edit::FileEditTool;
+                        let tools: Vec<&dyn crate::tools::Tool> = vec![&shell_tool, &file_edit_tool];
+                        let system_prompt = crate::prompt::SystemPrompt::with_tools(&tools);
                         let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
 
-                        // Send to Anthropic with conversation history
+                        // Send to Anthropic with conversation history and tools
                         match state.anthropic.send_conversation(
                             Some(system_blocks),
                             api_messages,
-                            vec![], // TODO: Pass actual tools
+                            tools,
                             Some(&content),
                             None, // message_limit - already applied in build_api_messages
                             None, // tool_choice - let model decide

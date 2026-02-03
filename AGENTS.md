@@ -91,8 +91,13 @@ Gateway server with both library and binary targets:
   - `mod.rs`: Model exports
 - `src/prompt/`: System prompt management
   - `base.rs`: Hardcoded system prompt definitions
-  - `mod.rs`: `SystemPrompt` struct with cache control support
-- `src/tools/`: Model-agnostic tool implementations (e.g., `shell.rs`)
+  - `mod.rs`: `SystemPrompt` struct with cache control support and auto-composition of tool prompts
+  - `block.rs`: `PromptBlock` with optional `CacheControl`
+  - `context.rs`: `PromptContext` for environment and project info
+- `src/tools/`: Model-agnostic tool implementations
+  - `mod.rs`: `Tool` trait with `prompt()` method for tool-specific instructions
+  - `shell.rs`: Shell command execution tool
+  - `file_edit.rs`: File editing tool with `replace` functionality
 - `src/state.rs`: `AppState` with broadcast channel for logs, `LogEntry` enum,
   and `DbPool` for database access
 - `src/discord.rs`: Discord bot integration using serenity, checks user approval
@@ -384,6 +389,127 @@ feature for dev-dependencies.
 2. Write tests in the `#[cfg(test)]` module
 3. Update migration file if schema changes needed
 4. Use `DbPool` from `AppState` in gateway/CLI
+
+### Adding a New Tool
+
+#### Basic Implementation
+
+1. Create a new file in `t-koma-gateway/src/tools/` (e.g., `my_tool.rs`)
+2. Implement the `Tool` trait:
+   ```rust
+   use serde_json::{json, Value};
+   use super::Tool;
+
+   pub struct MyTool;
+
+   #[async_trait::async_trait]
+   impl Tool for MyTool {
+       fn name(&self) -> &str { "my_tool_name" }
+       fn description(&self) -> &str { "What this tool does" }
+       fn input_schema(&self) -> Value { /* JSON schema */ }
+       fn prompt(&self) -> Option<&'static str> { 
+           Some("Instructions for using this tool...") 
+       }
+       async fn execute(&self, args: Value) -> Result<String, String> { 
+           /* Implementation */ 
+       }
+   }
+   ```
+3. Add the tool to `t-koma-gateway/src/tools/mod.rs`
+4. Register the tool in:
+   - `server.rs`: Add to the tools vector in WebSocket handler
+   - `discord.rs`: Add to the tools vector in message handler
+   - `state.rs`: Add case to `execute_tool_by_name()` match statement
+5. Tool prompts are automatically composed into the system prompt via `SystemPrompt::with_tools()`
+
+#### Best Practices
+
+**Naming Conventions:**
+- Use `snake_case` for tool names: `run_shell_command`, `read_file`, `search_code`
+- Tool names should be descriptive verbs: `run_`, `read_`, `write_`, `search_`, `get_`, `set_`
+- Keep names concise but clear - this is what Claude will reference
+
+**Input Schema Design:**
+- Use descriptive parameter names
+- Include `description` for every parameter - Claude uses these to understand what to provide
+- Mark required fields explicitly with `"required": ["field1", "field2"]`
+- Use appropriate JSON Schema types and constraints:
+  ```rust
+  fn input_schema(&self) -> Value {
+      json!({
+          "type": "object",
+          "properties": {
+              "file_path": {
+                  "type": "string",
+                  "description": "Absolute path to the file"
+              },
+              "limit": {
+                  "type": "integer",
+                  "description": "Maximum number of results",
+                  "minimum": 1,
+                  "maximum": 100
+              }
+          },
+          "required": ["file_path"]
+      })
+  }
+  ```
+
+**Prompt Instructions (`prompt()` method):**
+- Return `Some(...)` if the tool needs detailed usage instructions
+- Return `None` if the tool is self-explanatory (like `run_shell_command`)
+- Include examples of correct usage in the prompt
+- Document common pitfalls or error cases
+- Keep instructions focused on HOW to use the tool, not WHAT the tool does (that's in `description`)
+
+**Execution Implementation:**
+- Always validate input arguments and return clear error messages
+- Use `args["field_name"].as_str().ok_or_else(|| "Missing 'field_name'".to_string())?` pattern
+- Keep error messages actionable - tell the user what went wrong and how to fix it
+- For async operations, use proper `await` and handle timeouts appropriately
+- Sanitize any user input that will be passed to system commands or file operations
+
+**Error Handling:**
+- Return `Err(...)` for recoverable errors (Claude will see the error and may retry)
+- Return `Ok(...)` with error description for partial failures
+- Never panic - always return `Result<String, String>`
+- Include context in errors: `format!("Failed to read file '{}': {}", path, e)`
+
+**Testing:**
+- Add unit tests in the `#[cfg(test)]` module at the bottom of the tool file
+- Test success cases, error cases, and edge cases
+- Use `tempfile` crate for tests that need files
+- Example:
+  ```rust
+  #[cfg(test)]
+  mod tests {
+      use super::*;
+
+      #[tokio::test]
+      async fn test_my_tool_success() {
+          let tool = MyTool;
+          let args = json!({ "param": "value" });
+          let result = tool.execute(args).await;
+          assert!(result.is_ok());
+      }
+
+      #[tokio::test]
+      async fn test_my_tool_missing_param() {
+          let tool = MyTool;
+          let args = json!({});
+          let result = tool.execute(args).await;
+          assert!(result.is_err());
+          assert!(result.unwrap_err().contains("Missing"));
+      }
+  }
+  ```
+
+**Security Considerations:**
+- Never expose secrets or sensitive data in tool outputs
+- Validate file paths to prevent directory traversal attacks
+- Use timeouts for long-running operations
+- Be cautious with shell command execution - validate or sanitize inputs
+- Consider adding allowlists for sensitive operations
 
 ## Dependencies Management
 
