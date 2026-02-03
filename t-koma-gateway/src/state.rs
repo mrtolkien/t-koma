@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+#[cfg(feature = "live-tests")]
+use tracing::{error, info};
 
-use crate::models::anthropic::AnthropicClient;
 use crate::session::{ChatError, SessionChat};
-use crate::models::provider::{
-    extract_all_text, has_tool_uses, Provider, ProviderResponse,
-};
+use crate::models::provider::Provider;
+#[cfg(feature = "live-tests")]
+use crate::models::provider::{extract_all_text, ProviderResponse};
 
 /// Log entry for broadcasting events to listeners
 #[derive(Debug, Clone)]
@@ -98,15 +99,14 @@ pub struct ModelEntry {
 }
 
 impl AppState {
-    /// Create a new AppState with the given Anthropic client and database
-    pub fn new(anthropic: AnthropicClient, db: t_koma_db::DbPool) -> Self {
+    /// Create a new AppState with the given model registry and database
     pub fn new(
         default_model_alias: String,
         models: HashMap<String, ModelEntry>,
         db: t_koma_db::DbPool,
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
-        let session_chat = SessionChat::new(db.clone(), anthropic.clone());
+        let session_chat = SessionChat::new(db.clone());
 
         Self {
             default_model_alias,
@@ -179,14 +179,49 @@ impl AppState {
     /// * `message` - The user's message content
     ///
     /// # Returns
-    /// The final text response from Claude
+    /// The final text response from the provider
     pub async fn chat(
         &self,
         session_id: &str,
         user_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
-        self.session_chat.chat(session_id, user_id, message).await
+        let model = self.default_model();
+        self.session_chat
+            .chat(
+                model.client.as_ref(),
+                &model.provider,
+                &model.model,
+                session_id,
+                user_id,
+                message,
+            )
+            .await
+    }
+
+    /// Send a chat message using a specific model alias
+    pub async fn chat_with_model_alias(
+        &self,
+        model_alias: &str,
+        session_id: &str,
+        user_id: &str,
+        message: &str,
+    ) -> Result<String, ChatError> {
+        let model = self
+            .models
+            .get(model_alias)
+            .unwrap_or_else(|| self.default_model());
+
+        self.session_chat
+            .chat(
+                model.client.as_ref(),
+                &model.provider,
+                &model.model,
+                session_id,
+                user_id,
+                message,
+            )
+            .await
     }
 
     /// Low-level conversation method with full tool use loop support
@@ -211,7 +246,7 @@ impl AppState {
     /// * `model` - Model name for saving responses
     ///
     /// # Returns
-    /// The final text response from Claude after all tool use is complete
+    /// The final text response from the provider after all tool use is complete
     #[cfg(feature = "live-tests")]
     /// The final text response from the AI after all tool use is complete
     #[allow(clippy::too_many_arguments)]
@@ -219,13 +254,14 @@ impl AppState {
         &self,
         provider: &dyn Provider,
         session_id: &str,
-        system_blocks: Vec<crate::models::anthropic::prompt::SystemBlock>,
+        system_blocks: Vec<crate::models::prompt::SystemBlock>,
         api_messages: Vec<crate::models::anthropic::history::ApiMessage>,
         tools: Vec<&dyn crate::tools::Tool>,
         new_message: Option<&str>,
         model: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         use crate::models::anthropic::history::build_api_messages;
+        use crate::models::provider::has_tool_uses;
         use t_koma_db::SessionRepository;
         use tracing::info;
 
@@ -243,10 +279,6 @@ impl AppState {
 
         // Handle tool use loop (max 5 iterations to prevent infinite loops)
         for iteration in 0..5 {
-            let has_tool_use = response
-                .content
-                .iter()
-                .any(|b| matches!(b, crate::models::anthropic::ContentBlock::ToolUse { .. }));
             let has_tool_use = has_tool_uses(&response);
 
             if !has_tool_use {
@@ -260,72 +292,14 @@ impl AppState {
             );
 
             // Save assistant message with tool_use blocks
-            let assistant_content: Vec<t_koma_db::ContentBlock> = response
-                .content
-                .iter()
-                .map(|block| match block {
-                    crate::models::anthropic::ContentBlock::Text { text } => {
-                        t_koma_db::ContentBlock::Text { text: text.clone() }
-                    }
-                    crate::models::anthropic::ContentBlock::ToolUse { id, name, input } => {
-                        t_koma_db::ContentBlock::ToolUse {
-                            id: id.clone(),
-                            name: name.clone(),
-                            input: input.clone(),
-                        }
-                    }
-                })
-                .collect();
-
-            let _ = SessionRepository::add_message(
-                self.db.pool(),
-                session_id,
-                t_koma_db::MessageRole::Assistant,
-                assistant_content,
-                Some(model),
-            )
-            .await;
+            self.save_assistant_response(session_id, model, &response)
+                .await;
 
             // Execute tools and get results
-            let mut tool_results = Vec::new();
-            for block in &response.content {
-                let crate::models::anthropic::ContentBlock::ToolUse { id, name, input } = block
-                else {
-                    continue;
-                };
-
-                info!(
-                    "[session:{}] Executing tool: {} (id: {})",
-                    session_id, name, id
-                );
-
-                let result = self
-                    .session_chat
-                    .tool_manager
-                    .execute(name, input.clone())
-                    .await;
-
-                let content = match result {
-                    Ok(output) => output,
-                    Err(e) => format!("Error: {}", e),
-                };
-
-                tool_results.push(t_koma_db::ContentBlock::ToolResult {
-                    tool_use_id: id.clone(),
-                    content,
-                    is_error: None,
-                });
-            }
+            let tool_results = self.execute_tools_from_response(session_id, &response).await;
 
             // Save tool results to database
-            let _ = SessionRepository::add_message(
-                self.db.pool(),
-                session_id,
-                t_koma_db::MessageRole::User,
-                tool_results,
-                None,
-            )
-            .await;
+            self.save_tool_results(session_id, &tool_results).await;
 
             // Build new API messages including the tool results
             let history = SessionRepository::get_messages(self.db.pool(), session_id).await?;
@@ -345,7 +319,6 @@ impl AppState {
         }
 
         // Extract and save final text response
-        let text = crate::models::anthropic::AnthropicClient::extract_all_text(&response);
         let text = self
             .finalize_response(session_id, provider.name(), model, &response)
             .await;
@@ -354,6 +327,7 @@ impl AppState {
     }
 
     /// Save an assistant response (with tool_use blocks) to the database
+    #[cfg(feature = "live-tests")]
     async fn save_assistant_response(
         &self,
         session_id: &str,
@@ -402,6 +376,7 @@ impl AppState {
     }
 
     /// Execute all tool_use blocks from a response and return the results
+    #[cfg(feature = "live-tests")]
     async fn execute_tools_from_response(
         &self,
         session_id: &str,
@@ -436,27 +411,17 @@ impl AppState {
     }
 
     /// Execute a tool by name with the given input
+    #[cfg(feature = "live-tests")]
     async fn execute_tool_by_name(
         &self,
         name: &str,
         input: serde_json::Value,
     ) -> Result<String, String> {
-        use crate::tools::{file_edit::FileEditTool, shell::ShellTool, Tool};
-
-        match name {
-            "run_shell_command" => {
-                let tool = ShellTool;
-                tool.execute(input).await
-            }
-            "replace" => {
-                let tool = FileEditTool;
-                tool.execute(input).await
-            }
-            _ => Err(format!("Unknown tool: {}", name)),
-        }
+        self.session_chat.tool_manager.execute(name, input).await
     }
 
     /// Save tool results to the database
+    #[cfg(feature = "live-tests")]
     async fn save_tool_results(
         &self,
         session_id: &str,
@@ -478,6 +443,7 @@ impl AppState {
     }
 
     /// Extract final text response and save it to the database
+    #[cfg(feature = "live-tests")]
     async fn finalize_response(
         &self,
         session_id: &str,
@@ -485,7 +451,7 @@ impl AppState {
         model: &str,
         response: &ProviderResponse,
     ) -> String {
-        use t_koma_db::{ContentBlock as DbContentBlock, MessageRole, SessionRepository};
+        use t_koma_db::SessionRepository;
 
         let text = extract_all_text(response);
 
@@ -509,7 +475,7 @@ impl AppState {
         )
         .await;
 
-        Ok(text)
+        text
     }
 }
 

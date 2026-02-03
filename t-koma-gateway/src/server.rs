@@ -441,7 +441,15 @@ async fn handle_websocket(
                         };
 
                         // Use the centralized chat interface - handles everything including tools
-                        match state.chat(&target_session_id, &user_id, &content).await {
+                        match state
+                            .chat_with_model_alias(
+                                &selected_model_alias,
+                                &target_session_id,
+                                &user_id,
+                                &content,
+                            )
+                            .await
+                        {
                             Ok(text) => {
                                 let ws_response = WsResponse::Response {
                                     id: format!("ws_{}", uuid::Uuid::new_v4()),

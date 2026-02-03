@@ -85,14 +85,14 @@ Gateway server with both library and binary targets:
 - `src/server.rs`: HTTP routes (`/health`, `/chat`), WebSocket handlers (`/ws`,
   `/logs`). **All routes check user approval status via database**
 - `src/models/`: Model provider implementations
-  - `anthropic/`: Claude API integration
+  - `anthropic/`: Anthropic API integration
     - `client.rs`: HTTP client with prompt caching support
-    - `prompt.rs`: Anthropic-specific prompt building
     - `history.rs`: Message formatting for Anthropic API
   - `openrouter/`: OpenRouter API integration (OpenAI-compatible)
     - `client.rs`: HTTP client for OpenRouter
     - `mod.rs`: Module exports
   - `provider.rs`: `Provider` trait for abstracting different LLM backends
+  - `prompt.rs`: Provider-agnostic system prompt builder and block types
   - `mod.rs`: Model exports
 - `src/prompt/`: System prompt management
   - `base.rs`: Hardcoded system prompt definitions
@@ -239,18 +239,18 @@ as they require snapshot review and API access.
 #[cfg(feature = "live-tests")]
 use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::models::anthropic::AnthropicClient;
+use t_koma_gateway::models::Provider;
+#[cfg(feature = "live-tests")]
+use crate::common;
 
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_my_api_feature() {
     t_koma_core::load_dotenv();
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .expect("ANTHROPIC_API_KEY must be set for live tests");
+    let default_model = common::load_default_model();
 
-    let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-
-    let response = client
+    let response = default_model
+        .client
         .send_message("My test prompt")
         .await
         .expect("API call failed");
@@ -270,32 +270,29 @@ async fn test_my_api_feature() {
 ```rust
 // In t-koma-gateway/tests/conversation/my_feature.rs
 #[cfg(feature = "live-tests")]
-use std::sync::Arc;
-#[cfg(feature = "live-tests")]
-use t_koma_db::{UserRepository, SessionRepository};
+use t_koma_db::{SessionRepository, UserRepository};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     models::anthropic::{history::build_api_messages, prompt::build_anthropic_system_prompt},
     prompt::SystemPrompt,
-    state::AppState,
     tools::{shell::ShellTool, Tool},
 };
+#[cfg(feature = "live-tests")]
+use crate::common;
 
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_my_conversation_feature() {
     t_koma_core::load_dotenv();
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .expect("ANTHROPIC_API_KEY must be set for live tests");
 
     // Set up in-memory test database
     let db = t_koma_db::test_helpers::create_test_pool()
         .await
         .expect("Failed to create test database");
 
-    // Create AppState
-    let anthropic_client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-    let state = Arc::new(AppState::new(anthropic_client, db.clone()));
+    // Create AppState using the default model from config
+    let default_model = common::load_default_model();
+    let state = common::build_state_with_default_model(db.clone());
 
     // Create and approve a test user
     let user_id = "test_user_001";
@@ -316,10 +313,10 @@ async fn test_my_conversation_feature() {
     let system_blocks = build_anthropic_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
-    let model = "claude-sonnet-4-5-20250929";
+    let model = default_model.model.as_str();
 
     // Your test logic here...
-    // Use state.send_conversation_with_tools() for full conversation flow
+    // Use state.send_conversation_with_tools(default_model.client.as_ref(), ...) for full flow
 }
 ```
 
@@ -341,7 +338,7 @@ feature for dev-dependencies.
 
 ### Best Practices for Integration Tests
 
-1. **Use snapshot testing** for API responses to detect changes in Claude's
+1. **Use snapshot testing** for API responses to detect changes in model
    output format
 2. **Redact dynamic fields** like message IDs, timestamps, and session IDs
 3. **Structure tests by category**: Put client tests in `client/` and
@@ -400,7 +397,7 @@ feature for dev-dependencies.
 - **Never commit API keys to version control**
 - Use `.env` file for local development (already in `.gitignore`)
 - The `Config` struct loads from environment only
-- Gateway stores API key in `AnthropicClient`, never exposes it via API
+- Gateway stores API keys in provider clients, never exposes them via API
 
 ### Discord Bot Token
 
@@ -638,11 +635,11 @@ which handles all tool logic internally.
 **Naming Conventions:**
 - Use `snake_case` for tool names: `run_shell_command`, `read_file`, `search_code`
 - Tool names should be descriptive verbs: `run_`, `read_`, `write_`, `search_`, `get_`, `set_`
-- Keep names concise but clear - this is what Claude will reference
+- Keep names concise but clear - this is what the model will reference
 
 **Input Schema Design:**
 - Use descriptive parameter names
-- Include `description` for every parameter - Claude uses these to understand what to provide
+- Include `description` for every parameter - the model uses these to understand what to provide
 - Mark required fields explicitly with `"required": ["field1", "field2"]`
 - Use appropriate JSON Schema types and constraints:
   ```rust
@@ -681,7 +678,7 @@ which handles all tool logic internally.
 - Sanitize any user input that will be passed to system commands or file operations
 
 **Error Handling:**
-- Return `Err(...)` for recoverable errors (Claude will see the error and may retry)
+- Return `Err(...)` for recoverable errors (the model will see the error and may retry)
 - Return `Ok(...)` with error description for partial failures
 - Never panic - always return `Result<String, String>`
 - Include context in errors: `format!("Failed to read file '{}': {}", path, e)`
@@ -777,7 +774,7 @@ The `vibe/knowledge/` directory contains detailed guides on specific
 technologies used in this project. **Always read relevant knowledge files before
 implementing features** that involve these technologies:
 
-- `vibe/knowledge/anthropic_claude_api.md` - Claude API integration, prompt
+- `vibe/knowledge/anthropic_claude_api.md` - Anthropic API integration, prompt
   caching, tool use, and conversation management
 - `vibe/knowledge/openrouter.md` - OpenRouter API integration, model selection,
   and provider abstraction

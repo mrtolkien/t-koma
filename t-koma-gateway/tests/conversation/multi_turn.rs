@@ -9,7 +9,8 @@ use insta::assert_json_snapshot;
 use t_koma_db::{SessionRepository, UserRepository};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::{history::build_api_messages, prompt::build_anthropic_system_prompt},
+    models::anthropic::history::build_api_messages,
+    models::prompt::build_system_prompt,
     prompt::SystemPrompt,
     tools::{shell::ShellTool, Tool},
 };
@@ -78,7 +79,7 @@ async fn test_multi_turn_story_conversation() {
 
     // Set up system prompt and tools
     let system_prompt = SystemPrompt::new();
-    let system_blocks = build_anthropic_system_prompt(&system_prompt);
+    let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
     let model = state.default_model().model.as_str();
@@ -294,7 +295,7 @@ async fn test_multi_turn_with_tool_use() {
 
     // Set up system prompt and tools
     let system_prompt = SystemPrompt::new();
-    let system_blocks = build_anthropic_system_prompt(&system_prompt);
+    let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
     let model = state.default_model().model.as_str();

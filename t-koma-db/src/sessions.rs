@@ -703,13 +703,13 @@ mod tests {
             &session.id,
             MessageRole::Assistant,
             content,
-            Some("claude-sonnet-4-5"),
+            Some("test-model"),
         )
         .await
         .unwrap();
 
         assert_eq!(msg.content.len(), 2);
-        assert_eq!(msg.model, Some("claude-sonnet-4-5".to_string()));
+        assert_eq!(msg.model, Some("test-model".to_string()));
 
         // Verify round-trip
         let messages = SessionRepository::get_messages(pool, &session.id)

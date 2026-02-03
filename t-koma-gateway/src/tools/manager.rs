@@ -29,7 +29,7 @@ impl ToolManager {
         Self { tools }
     }
 
-    /// Get all tools as references for use with Claude API
+    /// Get all tools as references for use with the provider API
     pub fn get_tools(&self) -> Vec<&dyn Tool> {
         self.tools.iter().map(|t| t.as_ref()).collect()
     }

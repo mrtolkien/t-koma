@@ -10,7 +10,8 @@
 use t_koma_db::{SessionRepository, UserRepository};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::{history::build_api_messages, prompt::build_anthropic_system_prompt},
+    models::anthropic::history::build_api_messages,
+    models::prompt::build_system_prompt,
     prompt::SystemPrompt,
     tools::{file_edit::FileEditTool, shell::ShellTool, Tool},
 };
@@ -58,7 +59,7 @@ async fn test_file_create_edit_delete_workflow() {
     let file_edit_tool = FileEditTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
     let system_prompt = SystemPrompt::with_tools(&tools);
-    let system_blocks = build_anthropic_system_prompt(&system_prompt);
+    let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();
 
     // === STEP 1: Create a file ===
@@ -269,7 +270,7 @@ async fn test_replace_tool_exact_match_requirement() {
     let file_edit_tool = FileEditTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
     let system_prompt = SystemPrompt::with_tools(&tools);
-    let system_blocks = build_anthropic_system_prompt(&system_prompt);
+    let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();
 
     // Ask the model to edit the file
