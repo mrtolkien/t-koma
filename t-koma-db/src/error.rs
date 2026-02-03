@@ -30,6 +30,22 @@ pub enum DbError {
     /// SQLite vec initialization error
     #[error("SQLite-vec initialization error: {0}")]
     SqliteVec(String),
+
+    /// Session not found
+    #[error("Session not found: {0}")]
+    SessionNotFound(String),
+
+    /// Unauthorized access
+    #[error("Unauthorized access")]
+    Unauthorized,
+
+    /// Serialization error
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
+    /// Invalid role
+    #[error("Invalid role: {0}")]
+    InvalidRole(String),
 }
 
 /// Result type alias for database operations

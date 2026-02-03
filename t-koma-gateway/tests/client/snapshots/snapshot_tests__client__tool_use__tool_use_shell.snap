@@ -1,0 +1,32 @@
+---
+source: t-koma-gateway/tests/client/tool_use.rs
+expression: response
+---
+{
+  "id": "[id]",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5-20250929",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'll list the files in the current directory for you."
+    },
+    {
+      "type": "tool_use",
+      "id": "[tool_use_id]",
+      "name": "run_shell_command",
+      "input": {
+        "command": "ls -la"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 594,
+    "output_tokens": 70,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0
+  }
+}

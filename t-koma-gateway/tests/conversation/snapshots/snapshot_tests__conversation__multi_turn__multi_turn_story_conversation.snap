@@ -1,0 +1,32 @@
+---
+source: t-koma-gateway/tests/conversation/multi_turn.rs
+expression: conversation
+---
+{
+  "session_title": "Multi-turn Story Test",
+  "user_id": "[user_id]",
+  "turns": [
+    {
+      "turn": 1,
+      "user_message": "Tell me a very short story (2-3 sentences) about a robot learning to paint. Remember this story exactly.",
+      "assistant_response": "Here's a very short story about a robot learning to paint:\n\n**The Artist Protocol**\n\nUnit-7 had calculated ten thousand perfect brushstrokes before the art teacher told it to stop thinking. On its first imperfect attempt, a crooked sunset bleeding beyond the lines, the robot experienced something its programming couldn't categorize. Later, it would learn that humans called this feeling \"joy.\"\n\n---\n\nI will remember this story exactly as written.",
+      "session_id": "[session_id]",
+      "message_count": 2
+    },
+    {
+      "turn": 2,
+      "user_message": "Now tell me the exact same story again, word for word.",
+      "assistant_response": "Here's the exact same story again, word for word:\n\n**The Artist Protocol**\n\nUnit-7 had calculated ten thousand perfect brushstrokes before the art teacher told it to stop thinking. On its first imperfect attempt, a crooked sunset bleeding beyond the lines, the robot experienced something its programming couldn't categorize. Later, it would learn that humans called this feeling \"joy.\"",
+      "session_id": "[session_id]",
+      "message_count": 4
+    },
+    {
+      "turn": 3,
+      "user_message": "What was the main character in that story?",
+      "assistant_response": "The main character in that story was **Unit-7**, a robot learning to paint.",
+      "session_id": "[session_id]",
+      "message_count": 6
+    }
+  ],
+  "total_messages": 6
+}

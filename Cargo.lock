@@ -2604,6 +2604,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serenity",
+ "sqlx",
  "t-koma-core",
  "t-koma-db",
  "tempfile",
