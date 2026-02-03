@@ -35,10 +35,13 @@ pub struct App {
     status: String,
     /// Current session ID (created by gateway on first connect)
     session_id: Option<String>,
+    /// Whether provider has been selected
+    provider_selected: bool,
 }
 
 impl App {
     /// Create a new app instance
+    #[allow(dead_code)]
     pub fn new(ws_url: impl Into<String>) -> Self {
         Self {
             ws_url: ws_url.into(),
@@ -52,6 +55,29 @@ impl App {
             should_exit: false,
             status: "Connecting...".to_string(),
             session_id: None,
+            provider_selected: false,
+        }
+    }
+
+    /// Create a new app instance with pre-established channels
+    pub fn new_with_channels(
+        ws_url: impl Into<String>,
+        ws_tx: mpsc::UnboundedSender<WsMessage>,
+        ws_rx: mpsc::UnboundedReceiver<WsResponse>,
+    ) -> Self {
+        Self {
+            ws_url: ws_url.into(),
+            messages: Vec::new(),
+            input: String::new(),
+            cursor_position: 0,
+            connected: true,
+            ui: Ui::new(),
+            ws_rx: Some(ws_rx),
+            ws_tx: Some(ws_tx),
+            should_exit: false,
+            status: "Connected".to_string(),
+            session_id: None,
+            provider_selected: true,
         }
     }
 
@@ -155,6 +181,14 @@ impl App {
             }
             WsResponse::SessionDeleted { .. } => {
                 // TODO: Handle session deleted
+            }
+            WsResponse::ProviderSelected { provider, model } => {
+                self.provider_selected = true;
+                self.status = format!("Using {}: {}", provider, model);
+                info!("Provider selected: {} with model: {}", provider, model);
+            }
+            WsResponse::AvailableModels { .. } => {
+                // Handled in provider selection flow
             }
         }
     }

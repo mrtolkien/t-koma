@@ -1,31 +1,34 @@
-//! Tool use tests for the Anthropic API.
+//! Tool use tests for the default configured provider.
 //!
-//! These tests verify that Claude can correctly use tools.
+//! These tests verify that the configured model can correctly use tools.
 
 #[cfg(feature = "live-tests")]
 use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::models::anthropic::AnthropicClient;
+use t_koma_gateway::{extract_all_text, ProviderContentBlock};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::tools::{file_edit::FileEditTool, shell::ShellTool, Tool};
 
-/// Test tool use - asks Claude to use the shell tool
+#[cfg(feature = "live-tests")]
+use crate::common;
+
+/// Test tool use - asks the model to use the shell tool
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_tool_use_shell() {
-    t_koma_core::load_dotenv();
-
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
-    let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
+    let default_model = common::load_default_model();
+    let client = default_model.client;
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
 
     let response = client
-        .send_message_with_tools(
-            "List the files in the current directory using the shell tool.",
+        .send_conversation(
+            None,
+            vec![],
             tools,
+            Some("List the files in the current directory using the shell tool."),
+            None,
+            None,
         )
         .await
         .expect("API call failed");
@@ -40,16 +43,12 @@ async fn test_tool_use_shell() {
     );
 }
 
-/// Test that asks Claude to run pwd and validates the tool is used correctly
+/// Test that asks the model to run pwd and validates the tool is used correctly
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_pwd_tool_execution() {
-    t_koma_core::load_dotenv();
-
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
-    let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
+    let default_model = common::load_default_model();
+    let client = default_model.client;
 
     // Build system prompt with tool instructions
     let system_prompt = t_koma_gateway::prompt::SystemPrompt::new();
@@ -59,7 +58,7 @@ async fn test_pwd_tool_execution() {
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
 
-    // First request - ask Claude to run pwd
+    // First request - ask the model to run pwd
     let response = client
         .send_conversation(
             Some(system_blocks.clone()),
@@ -72,27 +71,26 @@ async fn test_pwd_tool_execution() {
         .await
         .expect("API call failed");
 
-    // Check that Claude used the tool
-    let has_tool_use = response.content.iter().any(|b| matches!(b,
-        t_koma_gateway::models::anthropic::ContentBlock::ToolUse { name, .. } if name == "run_shell_command"
+    // Check that the model used the tool
+    let has_tool_use = response.content.iter().any(|b| matches!(
+        b,
+        ProviderContentBlock::ToolUse { name, .. } if name == "run_shell_command"
     ));
 
     assert!(
         has_tool_use,
-        "Expected Claude to use run_shell_command tool"
+        "Expected the model to use run_shell_command tool"
     );
 
     // Collect tool uses to process
     let tool_uses: Vec<_> = response
         .content
         .iter()
-        .filter_map(|b| {
-            if let t_koma_gateway::models::anthropic::ContentBlock::ToolUse { id, name, input } = b
-            {
+        .filter_map(|b| match b {
+            ProviderContentBlock::ToolUse { id, name, input } => {
                 Some((id.clone(), name.clone(), input.clone()))
-            } else {
-                None
             }
+            _ => None,
         })
         .collect();
 
@@ -112,17 +110,23 @@ async fn test_pwd_tool_execution() {
             .content
             .iter()
             .map(|b| match b {
-                t_koma_gateway::models::anthropic::ContentBlock::Text { text } => {
+                ProviderContentBlock::Text { text } => {
                     t_koma_gateway::models::anthropic::history::ApiContentBlock::Text {
                         text: text.clone(),
                         cache_control: None,
                     }
                 }
-                t_koma_gateway::models::anthropic::ContentBlock::ToolUse { id, name, input } => {
+                ProviderContentBlock::ToolUse { id, name, input } => {
                     t_koma_gateway::models::anthropic::history::ApiContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: input.clone(),
+                    }
+                }
+                ProviderContentBlock::ToolResult { .. } => {
+                    t_koma_gateway::models::anthropic::history::ApiContentBlock::Text {
+                        text: String::new(),
+                        cache_control: None,
                     }
                 }
             })
@@ -163,15 +167,14 @@ async fn test_pwd_tool_execution() {
         t_koma_gateway::models::anthropic::history::build_tool_result_message(tool_results),
     );
 
-    // Get final response from Claude
+    // Get final response from the model
     let final_response = client
         .send_conversation(Some(system_blocks), messages, tools, None, None, None)
         .await
         .expect("Second API call failed");
 
     // Verify the response mentions the directory
-    let text =
-        t_koma_gateway::models::anthropic::AnthropicClient::extract_all_text(&final_response);
+    let text = extract_all_text(&final_response);
     assert!(!text.is_empty(), "Final response should not be empty");
 
     // The response should mention being in a directory (contains /)
@@ -181,27 +184,27 @@ async fn test_pwd_tool_execution() {
         text
     );
 
-    println!("Claude's response about pwd: {}", text);
+    println!("Model response about pwd: {}", text);
 }
 
-/// Test tool use - asks Claude to use the file edit tool
+/// Test tool use - asks the model to use the file edit tool
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_tool_use_file_edit() {
-    t_koma_core::load_dotenv();
-
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
-    let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
+    let default_model = common::load_default_model();
+    let client = default_model.client;
     let file_edit_tool = FileEditTool;
     let tools: Vec<&dyn Tool> = vec![&file_edit_tool];
 
-    // We use a hypothetical path. Claude should try to edit it.
+    // We use a hypothetical path. The model should try to edit it.
     let response = client
-        .send_message_with_tools(
-            "Change the text 'hello' to 'world' in the file '/tmp/test_file.txt'.",
+        .send_conversation(
+            None,
+            vec![],
             tools,
+            Some("Change the text 'hello' to 'world' in the file '/tmp/test_file.txt'."),
+            None,
+            None,
         )
         .await
         .expect("API call failed");

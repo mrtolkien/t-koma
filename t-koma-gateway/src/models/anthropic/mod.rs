@@ -1,4 +1,4 @@
-//! Anthropic Claude API integration with prompt caching support.
+//! Anthropic API integration with prompt caching support.
 
 pub mod client;
 pub mod history;

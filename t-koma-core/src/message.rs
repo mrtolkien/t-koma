@@ -10,6 +10,50 @@ pub enum MessageRole {
     System,
 }
 
+/// Provider type for model selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderType {
+    Anthropic,
+    OpenRouter,
+}
+
+impl ProviderType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProviderType::Anthropic => "anthropic",
+            ProviderType::OpenRouter => "openrouter",
+        }
+    }
+}
+
+impl std::fmt::Display for ProviderType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for ProviderType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "anthropic" => Ok(ProviderType::Anthropic),
+            "openrouter" => Ok(ProviderType::OpenRouter),
+            _ => Err(format!("Unknown provider: {}", s)),
+        }
+    }
+}
+
+/// Model information for provider selection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub context_length: Option<u32>,
+}
+
 impl std::fmt::Display for MessageRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -87,6 +131,10 @@ pub enum WsMessage {
     SwitchSession { session_id: String },
     /// Delete a session
     DeleteSession { session_id: String },
+    /// Select provider and model for the session
+    SelectProvider { provider: ProviderType, model: String },
+    /// Request available models from a provider
+    ListAvailableModels { provider: ProviderType },
     /// Ping to keep connection alive
     Ping,
 }
@@ -111,6 +159,10 @@ pub enum WsResponse {
     SessionSwitched { session_id: String },
     /// Session deleted successfully
     SessionDeleted { session_id: String },
+    /// Provider selection confirmation
+    ProviderSelected { provider: String, model: String },
+    /// Available models list
+    AvailableModels { provider: String, models: Vec<ModelInfo> },
     /// Error response
     Error { message: String },
     /// Pong response to ping

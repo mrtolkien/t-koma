@@ -1,0 +1,81 @@
+//! Shared helpers for integration tests.
+
+use t_koma_core::Config;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use t_koma_gateway::models::anthropic::AnthropicClient;
+use t_koma_gateway::models::openrouter::OpenRouterClient;
+use t_koma_gateway::models::Provider;
+use t_koma_gateway::state::{AppState, ModelEntry};
+use t_koma_db::DbPool;
+
+#[allow(dead_code)]
+pub struct DefaultModelInfo {
+    pub alias: String,
+    pub provider: String,
+    pub model: String,
+    pub client: Arc<dyn Provider>,
+}
+
+pub fn load_default_model() -> DefaultModelInfo {
+    t_koma_core::load_dotenv();
+
+    let config = Config::load().expect("Failed to load config for live tests");
+    let alias = config.default_model_alias().to_string();
+    let model_config = config.default_model_config();
+
+    match model_config.provider.as_str() {
+        "anthropic" => {
+            let api_key = config
+                .anthropic_api_key()
+                .expect("ANTHROPIC_API_KEY must be set for live tests");
+            let client = AnthropicClient::new(api_key, &model_config.model);
+            DefaultModelInfo {
+                alias,
+                provider: model_config.provider.clone(),
+                model: model_config.model.clone(),
+                client: Arc::new(client),
+            }
+        }
+        "openrouter" => {
+            let api_key = config
+                .openrouter_api_key()
+                .expect("OPENROUTER_API_KEY must be set for live tests");
+            let client = OpenRouterClient::new(
+                api_key,
+                &model_config.model,
+                config.settings.openrouter.http_referer.clone(),
+                config.settings.openrouter.app_name.clone(),
+            );
+            DefaultModelInfo {
+                alias,
+                provider: model_config.provider.clone(),
+                model: model_config.model.clone(),
+                client: Arc::new(client),
+            }
+        }
+        other => panic!("Unknown provider '{}' in default model", other),
+    }
+}
+
+#[allow(dead_code)]
+pub fn build_state_with_default_model(db: DbPool) -> Arc<AppState> {
+    let default_model = load_default_model();
+    let mut models = HashMap::new();
+    models.insert(
+        default_model.alias.clone(),
+        ModelEntry {
+            alias: default_model.alias.clone(),
+            provider: default_model.provider.clone(),
+            model: default_model.model.clone(),
+            client: default_model.client.clone(),
+        },
+    );
+
+    Arc::new(AppState::new(
+        default_model.alias,
+        models,
+        db,
+    ))
+}

@@ -26,7 +26,7 @@ how you improve.
   and, if realistic, tested.
 - Run `cargo check --all-features --all-targets` to verify compilation
 - Run `cargo clippy --all-features --all-targets` to check for lint issues
-- Run `cargo test` to run unit tests (without live-tests feature)
+- Run `cargo test` to run unit tests (without live-tests feature) **every time**
 - **Note**: Live tests (`--features live-tests`) should only be run by humans as
   they call external APIs and require snapshot review
 - Finally, rename the spec file to have a leading underscore (e.g.,
@@ -40,12 +40,13 @@ how you improve.
 
 Core library with shared types and configuration:
 
-- `src/config.rs`: Environment configuration (`Config` struct)
+- `src/config/`: Configuration management
+  - `mod.rs`: Main `Config` struct combining secrets and settings
+  - `secrets.rs`: Secrets from environment variables (API keys)
+  - `settings.rs`: Settings from TOML config files
 - `src/message.rs`: WebSocket message types (`WsMessage`, `WsResponse`)
 - `src/persistent_config.rs`: Legacy TOML-based config (deprecated in favor of
   DB)
-- `src/pending_users.rs`: Legacy TOML-based pending users (deprecated in favor
-  of DB)
 
 ### t-koma-db
 
@@ -79,7 +80,7 @@ Database layer using SQLite with sqlite-vec extension:
 
 Gateway server with both library and binary targets:
 
-- `src/main.rs`: Entry point, initializes tracing, creates Anthropic client,
+- `src/main.rs`: Entry point, initializes tracing, creates provider clients,
   initializes database, optionally starts Discord bot
 - `src/server.rs`: HTTP routes (`/health`, `/chat`), WebSocket handlers (`/ws`,
   `/logs`). **All routes check user approval status via database**
@@ -88,6 +89,10 @@ Gateway server with both library and binary targets:
     - `client.rs`: HTTP client with prompt caching support
     - `prompt.rs`: Anthropic-specific prompt building
     - `history.rs`: Message formatting for Anthropic API
+  - `openrouter/`: OpenRouter API integration (OpenAI-compatible)
+    - `client.rs`: HTTP client for OpenRouter
+    - `mod.rs`: Module exports
+  - `provider.rs`: `Provider` trait for abstracting different LLM backends
   - `mod.rs`: Model exports
 - `src/prompt/`: System prompt management
   - `base.rs`: Hardcoded system prompt definitions
@@ -99,7 +104,7 @@ Gateway server with both library and binary targets:
   - `shell.rs`: Shell command execution tool
   - `file_edit.rs`: File editing tool with `replace` functionality
 - `src/state.rs`: `AppState` with broadcast channel for logs, `LogEntry` enum,
-  and `DbPool` for database access
+  `DbPool` for database access, and support for multiple providers
 - `src/discord.rs`: Discord bot integration using serenity, checks user approval
   status before processing messages
 
@@ -356,12 +361,75 @@ feature for dev-dependencies.
 
 ## Common Development Tasks
 
-### Adding a New Environment Variable
+### Configuration System
 
-1. Add to `t-koma-core/src/config.rs` in `Config` struct
-2. Add default value handling in `from_env_inner()`
+t-koma uses a two-tier configuration system:
+
+#### Secrets (Environment Variables)
+
+Sensitive values loaded from environment variables:
+- `ANTHROPIC_API_KEY` - Anthropic API key
+- `OPENROUTER_API_KEY` - OpenRouter API key
+- `DISCORD_BOT_TOKEN` - Discord bot token (optional)
+
+Stored in `Secrets` struct (`t-koma-core/src/config/secrets.rs`).
+
+#### Settings (TOML Files)
+
+Non-sensitive configuration stored in TOML format at:
+- Linux/macOS: `~/.config/t-koma/config.toml`
+- Windows: `%APPDATA%/t-koma/config.toml`
+
+Example TOML config:
+```toml
+default_model = "primary"
+
+[models]
+[models.primary]
+provider = "openrouter"
+model = "your-openrouter-model-id"
+
+[models.secondary]
+provider = "anthropic"
+model = "your-anthropic-model-id"
+
+[openrouter]
+http_referer = "https://example.com"
+app_name = "Your App"
+
+[gateway]
+host = "127.0.0.1"
+port = 3000
+ws_url = null
+
+[discord]
+enabled = false
+
+[logging]
+level = "info"
+file_enabled = false
+file_path = null
+```
+
+Stored in `Settings` struct (`t-koma-core/src/config/settings.rs`).
+
+### Adding a New Configuration Option
+
+#### For Secrets (API keys, tokens):
+
+1. Add field to `Secrets` struct in `t-koma-core/src/config/secrets.rs`
+2. Load it in `from_env_inner()` using `env::var("VAR_NAME").ok()`
 3. Update `.env.example`
 4. Update this AGENTS.md
+
+#### For Settings (non-sensitive):
+
+1. Add field to appropriate settings struct in `t-koma-core/src/config/settings.rs`
+  - Use `#[serde(default = "function_name")]` for defaults
+2. Add default value function if needed
+3. Update `Default` impl or use `#[serde(default)]`
+4. Update default TOML content (`DEFAULT_CONFIG_TOML` constant)
+5. Update this AGENTS.md
 
 ### Adding a New HTTP Endpoint
 
@@ -389,6 +457,48 @@ feature for dev-dependencies.
 2. Write tests in the `#[cfg(test)]` module
 3. Update migration file if schema changes needed
 4. Use `DbPool` from `AppState` in gateway/CLI
+
+### Adding a New Model Provider
+
+The gateway uses a `Provider` trait to abstract different LLM backends. To add a new provider:
+
+1. Create a new module in `t-koma-gateway/src/models/` (e.g., `my_provider/`)
+2. Implement the `Provider` trait:
+   ```rust
+   use crate::models::provider::{Provider, ProviderError, ProviderResponse};
+   
+   #[derive(Clone)]
+   pub struct MyProviderClient {
+       // fields
+   }
+   
+   #[async_trait::async_trait]
+   impl Provider for MyProviderClient {
+       fn name(&self) -> &str { "my_provider" }
+       fn model(&self) -> &str { &self.model }
+       
+       async fn send_conversation(
+           &self,
+           system: Option<Vec<SystemBlock>>,
+           history: Vec<ApiMessage>,
+           tools: Vec<&dyn Tool>,
+           new_message: Option<&str>,
+           message_limit: Option<usize>,
+           tool_choice: Option<String>,
+       ) -> Result<ProviderResponse, ProviderError> {
+           // Implementation
+       }
+       
+       fn clone_box(&self) -> Box<dyn Provider> {
+           Box::new(self.clone())
+       }
+   }
+   ```
+3. Update `t-koma-gateway/src/models/mod.rs` to export the new provider
+4. Update `t-koma-gateway/src/main.rs` to initialize the new provider client
+5. Update `t-koma-core/src/config.rs` to add the new provider type
+6. Update `t-koma-core/src/message.rs` to add the new provider variant
+7. Update CLI to support the new provider in `provider_selection.rs`
 
 ### Adding a New Tool
 
@@ -527,21 +637,31 @@ When adding new dependencies:
 
 ### Gateway won't start
 
-- Check that `ANTHROPIC_API_KEY` is set
-- Verify port 3000 is not in use (or change `GATEWAY_PORT`)
+- Check that `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` is set (at least one required)
+- Verify TOML config exists at `~/.config/t-koma/config.toml` (created automatically with defaults)
+- Verify port 3000 is not in use (or change `gateway.port` in config)
 - Check logs with `RUST_LOG=debug cargo run --bin t-koma-gateway`
+- If `default_model` uses OpenRouter, ensure `OPENROUTER_API_KEY` is set
 
 ### CLI can't connect
 
 - Verify gateway is running: `curl http://localhost:3000/health`
-- Check `GATEWAY_WS_URL` matches gateway's actual address
+- Check `gateway.ws_url` in TOML config matches gateway's actual address
 - Try manual gateway start first to see error messages
 
 ### Discord bot not responding
 
 - Verify `DISCORD_BOT_TOKEN` is set correctly
+- Verify `discord.enabled = true` in TOML config
 - Check bot has proper permissions in Discord
 - Bot only responds to mentions or DMs by design
+
+### Configuration Issues
+
+- Config file location: `~/.config/t-koma/config.toml` (Linux/macOS)
+- Windows: `%APPDATA%/t-koma/config.toml`
+- To reset config: Delete the TOML file and restart (defaults will be recreated)
+- To debug config loading: `RUST_LOG=debug cargo run` will show config path and values
 
 ## Additional Documentation
 
@@ -558,6 +678,8 @@ implementing features** that involve these technologies:
 
 - `vibe/knowledge/anthropic_claude_api.md` - Claude API integration, prompt
   caching, tool use, and conversation management
+- `vibe/knowledge/openrouter.md` - OpenRouter API integration, model selection,
+  and provider abstraction
 - `vibe/knowledge/sqlite-vec.md` - Vector search with sqlite-vec and sqlx
 - `vibe/knowledge/surrealdb_rust.md` - SurrealDB Rust SDK (reference only -
   project uses SQLite)

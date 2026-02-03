@@ -165,16 +165,21 @@ impl EventHandler for Bot {
         let system_prompt = crate::prompt::SystemPrompt::with_tools(&tools);
         let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
 
+        let default_model = self.state.default_model();
         info!(
-            "Sending message to Claude for user {} in session {} ({} history messages)",
+            "Sending message using {}/{} for user {} in session {} ({} history messages)",
+            default_model.provider,
+            default_model.model,
             user_id,
             session.id,
             history.len()
         );
 
-        // Call Claude using the shared state method
-        let model = "claude-sonnet-4-5-20250929";
+        // Call AI using the shared state method
+        let provider = default_model.client.as_ref();
+        let model = default_model.model.as_str();
         let mut final_text = match self.state.send_conversation_with_tools(
+            provider,
             &session.id,
             system_blocks,
             api_messages,
@@ -184,7 +189,7 @@ impl EventHandler for Bot {
         ).await {
             Ok(text) => text,
             Err(e) => {
-                error!("[session:{}] Claude API error: {}", session.id, e);
+                error!("[session:{}] AI API error: {}", session.id, e);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, "Sorry, I encountered an error processing your request.")

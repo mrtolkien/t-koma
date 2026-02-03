@@ -350,6 +350,28 @@ impl UserRepository {
         let cutoff = Utc::now() - chrono::TimeDelta::hours(hours);
         let cutoff_ts = to_timestamp(cutoff);
 
+        let pending_ids: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT id
+            FROM users
+            WHERE status = 'pending' AND created_at < ?
+            "#,
+        )
+        .bind(cutoff_ts)
+        .fetch_all(pool)
+        .await?;
+
+        let event_data = serde_json::json!({
+            "reason": "pruned",
+            "cutoff_hours": hours,
+            "cutoff_ts": cutoff_ts
+        })
+        .to_string();
+
+        for (user_id, ) in &pending_ids {
+            Self::log_event(pool, user_id, "removed", Some(&event_data)).await?;
+        }
+
         let result = sqlx::query(
             r#"
             DELETE FROM users
