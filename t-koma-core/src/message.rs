@@ -143,6 +143,7 @@ mod tests {
     fn test_ws_message_serialization() {
         let msg = WsMessage::Chat {
             content: "Hello".to_string(),
+            session_id: "sess_123".to_string(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"chat\""));
@@ -150,7 +151,10 @@ mod tests {
 
         let decoded: WsMessage = serde_json::from_str(&json).unwrap();
         match decoded {
-            WsMessage::Chat { content } => assert_eq!(content, "Hello"),
+            WsMessage::Chat { content, session_id } => {
+                assert_eq!(content, "Hello");
+                assert_eq!(session_id, "sess_123".to_string());
+            }
             _ => panic!("Expected Chat variant"),
         }
     }

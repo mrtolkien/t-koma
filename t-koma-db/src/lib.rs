@@ -17,6 +17,6 @@ pub use error::{DbError, DbResult};
 pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, SessionRepository};
 pub use users::{Platform, User, UserRepository, UserStatus};
 
-// Re-export test helpers when running tests
-#[cfg(test)]
+// Re-export test helpers when running tests or when test-helpers feature is enabled
+#[cfg(any(test, feature = "test-helpers"))]
 pub use db::test_helpers;

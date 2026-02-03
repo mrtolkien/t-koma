@@ -54,6 +54,10 @@ async-trait = "0.1.89"
 insta = { version = "1.42", features = ["json", "redactions"] }
 serde_json = { workspace = true }
 
+# For integration test database setup - enable test-helpers feature
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros"] }
+t-koma-db = { path = "../t-koma-db", features = ["test-helpers"] }
+
 [features]
 default = []
 live-tests = []

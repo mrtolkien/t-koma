@@ -24,7 +24,11 @@ how you improve.
 - Update the ongoing file at each step after thinking and while editing files.
 - Iterate until all the steps and features outlined in the spec are developed
   and, if realistic, tested.
-- cargo clippy and cargo test should pass
+- Run `cargo check --all-features --all-targets` to verify compilation
+- Run `cargo clippy --all-features --all-targets` to check for lint issues
+- Run `cargo test` to run unit tests (without live-tests feature)
+- **Note**: Live tests (`--features live-tests`) should only be run by humans as
+  they call external APIs and require snapshot review
 - Finally, rename the spec file to have a leading underscore (e.g.,
   `_feature_name.md`) to indicate completion.
 
@@ -93,8 +97,6 @@ Gateway server with both library and binary targets:
   and `DbPool` for database access
 - `src/discord.rs`: Discord bot integration using serenity, checks user approval
   status before processing messages
-- `tests/snapshot_tests.rs`: Live API snapshot tests (requires `live-tests`
-  feature)
 
 ## API Endpoints
 
@@ -121,39 +123,166 @@ Embedded in source files using `#[cfg(test)]` modules:
 - `state.rs`: Tests for log entry formatting
 - `anthropic.rs`: Tests for client creation, text extraction
 
-### Live Integration Tests
+### Integration Tests Structure
 
-Located in `t-koma-gateway/tests/snapshot_tests.rs`:
+Integration tests are organized in `t-koma-gateway/tests/`:
 
-- Requires `ANTHROPIC_API_KEY` environment variable
-- Run with `cargo test --features live-tests`
-- Uses `insta` for snapshot testing with redactions for dynamic fields (message
-  IDs)
-- Tests actual API calls: simple greeting, factual query, list response
-
-### Adding Tests
-
-For unit tests, add to the `#[cfg(test)]` module in the relevant source file:
-
-```rust
-#[test]
-fn test_my_feature() {
-    // Test code
-}
+```
+t-koma-gateway/tests/
+├── snapshot_tests.rs          # Main entry point (module declarations)
+├── client/
+├── conversation/
 ```
 
-For live tests, add to `t-koma-gateway/tests/snapshot_tests.rs`:
+#### Test Categories
+
+**Client Tests** (`client/`):
+
+- Test the API clients directly
+- Good for testing basic API functionality and response formats
+
+**Conversation Tests** (`conversation/`):
+
+- Test the full gateway stack including AppState and database
+- Use in-memory SQLite database via
+  `t_koma_db::test_helpers::create_test_pool()`
+- Good for testing session management, context preservation, and tool use loops
+
+You are welcome to add more categories as you add features. Big features should
+have at least one integration test.
+
+### Running Tests
+
+```bash
+# Unit tests only (no external API calls)
+cargo test
+```
+
+**IMPORTANT**: Live tests should only be run by human developers, not AI agents,
+as they require snapshot review and API access.
+
+### Writing Integration Tests
+
+#### Basic Client Test
 
 ```rust
+// In t-koma-gateway/tests/client/my_feature.rs
+#[cfg(feature = "live-tests")]
+use insta::assert_json_snapshot;
+#[cfg(feature = "live-tests")]
+use t_koma_gateway::models::anthropic::AnthropicClient;
+
 #[cfg(feature = "live-tests")]
 #[tokio::test]
-async fn test_my_live_test() {
+async fn test_my_api_feature() {
     t_koma_core::load_dotenv();
-    let api_key = std::env::var("ANTHROPIC_API_KEY").expect("...");
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .expect("ANTHROPIC_API_KEY must be set for live tests");
+
     let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-    // Test code
+
+    let response = client
+        .send_message("My test prompt")
+        .await
+        .expect("API call failed");
+
+    assert_json_snapshot!(
+        "my_feature",
+        response,
+        {
+            ".id" => "[id]"  // Redact dynamic fields
+        }
+    );
 }
 ```
+
+#### Conversation Test with Database
+
+```rust
+// In t-koma-gateway/tests/conversation/my_feature.rs
+#[cfg(feature = "live-tests")]
+use std::sync::Arc;
+#[cfg(feature = "live-tests")]
+use t_koma_db::{UserRepository, SessionRepository};
+#[cfg(feature = "live-tests")]
+use t_koma_gateway::{
+    models::anthropic::{history::build_api_messages, prompt::build_anthropic_system_prompt},
+    prompt::SystemPrompt,
+    state::AppState,
+    tools::{shell::ShellTool, Tool},
+};
+
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_my_conversation_feature() {
+    t_koma_core::load_dotenv();
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .expect("ANTHROPIC_API_KEY must be set for live tests");
+
+    // Set up in-memory test database
+    let db = t_koma_db::test_helpers::create_test_pool()
+        .await
+        .expect("Failed to create test database");
+
+    // Create AppState
+    let anthropic_client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
+    let state = Arc::new(AppState::new(anthropic_client, db.clone()));
+
+    // Create and approve a test user
+    let user_id = "test_user_001";
+    UserRepository::get_or_create(db.pool(), user_id, "Test User", t_koma_db::Platform::Api)
+        .await
+        .expect("Failed to create user");
+    UserRepository::approve(db.pool(), user_id)
+        .await
+        .expect("Failed to approve user");
+
+    // Create a session
+    let session = SessionRepository::create(db.pool(), user_id, Some("My Test Session"))
+        .await
+        .expect("Failed to create session");
+
+    // Set up system prompt and tools
+    let system_prompt = SystemPrompt::new();
+    let system_blocks = build_anthropic_system_prompt(&system_prompt);
+    let shell_tool = ShellTool;
+    let tools: Vec<&dyn Tool> = vec![&shell_tool];
+    let model = "claude-sonnet-4-5-20250929";
+
+    // Your test logic here...
+    // Use state.send_conversation_with_tools() for full conversation flow
+}
+```
+
+### Database Test Helpers
+
+The `t-koma-db` crate provides test helpers via the `test-helpers` feature:
+
+```rust
+// In your integration test
+let db = t_koma_db::test_helpers::create_test_pool()
+    .await
+    .expect("Failed to create test database");
+```
+
+This creates an in-memory SQLite database with all migrations applied. The
+helper is automatically available when running tests with
+`--features live-tests` because `t-koma-gateway` enables the `test-helpers`
+feature for dev-dependencies.
+
+### Best Practices for Integration Tests
+
+1. **Use snapshot testing** for API responses to detect changes in Claude's
+   output format
+2. **Redact dynamic fields** like message IDs, timestamps, and session IDs
+3. **Structure tests by category**: Put client tests in `client/` and
+   conversation tests in `conversation/`
+4. **Use the test database helper** - don't try to set up sqlite-vec manually
+5. **Log session IDs** in test output for debugging:
+   `println!("Session: {}", session.id)`
+6. **Verify database state** after operations (message counts, session state)
+7. **Test multi-turn conversations** to verify context preservation
+8. **Test tool use loops** end-to-end through AppState
 
 ## Code Style Guidelines
 
@@ -297,9 +426,9 @@ When adding new dependencies:
 
 ## Knowledge Base
 
-The `vibe/knowledge/` directory contains detailed guides on specific technologies
-used in this project. **Always read relevant knowledge files before implementing
-features** that involve these technologies:
+The `vibe/knowledge/` directory contains detailed guides on specific
+technologies used in this project. **Always read relevant knowledge files before
+implementing features** that involve these technologies:
 
 - `vibe/knowledge/anthropic_claude_api.md` - Claude API integration, prompt
   caching, tool use, and conversation management

@@ -128,10 +128,18 @@ impl DbPool {
     pub async fn close(&self) {
         self.pool.close().await;
     }
+
+    /// Create a DbPool from an existing SqlitePool (for testing)
+    ///
+    /// This is useful in integration tests where you want to create
+    /// an in-memory database and wrap it in a DbPool.
+    pub fn from_pool(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
 }
 
 /// Test helpers
-#[cfg(test)]
+#[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
