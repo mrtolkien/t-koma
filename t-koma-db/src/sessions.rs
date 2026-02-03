@@ -412,6 +412,22 @@ impl SessionRepository {
         messages.reverse();
         Ok(messages)
     }
+
+    /// Count total messages in a session
+    pub async fn count_messages(pool: &SqlitePool, session_id: &str) -> DbResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM messages
+            WHERE session_id = ?
+            "#,
+        )
+        .bind(session_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(count)
+    }
 }
 
 // Internal row types for SQLx
