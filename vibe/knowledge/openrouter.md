@@ -260,7 +260,7 @@ Note: Live tests require `OPENROUTER_API_KEY` to be set.
 
 ## Security Considerations
 
-1. **API Key Storage**: OpenRouter API key stored same as Anthropic key
+1. **API Key Storage**: OpenRouter API key stored alongside other provider keys
 2. **No Key Exposure**: API keys never exposed via WebSocket or HTTP APIs
 3. **Model Validation**: User-provided model IDs are validated before use
 4. **Request Headers**: Optional `HTTP-Referer` and `X-Title` for attribution
@@ -270,7 +270,7 @@ Note: Live tests require `OPENROUTER_API_KEY` to be set.
 ### From Anthropic Only
 
 1. Add `OPENROUTER_API_KEY` to `.env`
-2. Set `DEFAULT_PROVIDER=openrouter` (optional)
+2. Add or update `default_model` in `config.toml` (optional)
 3. Restart gateway
 4. Use CLI to select OpenRouter models
 
@@ -278,7 +278,7 @@ Note: Live tests require `OPENROUTER_API_KEY` to be set.
 
 - Existing Anthropic-only setups continue to work
 - `ANTHROPIC_API_KEY` still required if using Anthropic
-- CLI defaults to Anthropic if no selection made
+- CLI uses the configured `default_model` if no selection is made
 
 ## Resources
 

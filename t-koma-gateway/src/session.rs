@@ -1,9 +1,9 @@
 use tracing::{error, info};
 
-use crate::models::anthropic::{
-    history::{build_api_messages, ApiMessage},
-    prompt::{build_anthropic_system_prompt, SystemBlock},
-    AnthropicClient, ContentBlock,
+use crate::models::anthropic::history::{build_api_messages, ApiMessage};
+use crate::models::prompt::{build_system_prompt, SystemBlock};
+use crate::models::provider::{
+    extract_all_text, has_tool_uses, Provider, ProviderContentBlock, ProviderResponse,
 };
 use crate::prompt::SystemPrompt;
 use crate::tools::ToolManager;
@@ -25,22 +25,20 @@ pub enum ChatError {
     ToolExecution(String),
 }
 
-/// High-level chat interface that completely hides tools and conversation complexity
+/// High-level chat interface that hides tools and conversation complexity
 ///
 /// This is the SINGLE interface that Discord, WebSocket, and other transports
 /// should use. It handles everything: history, system prompts, tool loops, etc.
 pub struct SessionChat {
     db: DbPool,
-    anthropic: AnthropicClient,
     pub(crate) tool_manager: ToolManager,
 }
 
 impl SessionChat {
     /// Create a new SessionChat instance
-    pub fn new(db: DbPool, anthropic: AnthropicClient) -> Self {
+    pub fn new(db: DbPool) -> Self {
         Self {
             db,
-            anthropic,
             tool_manager: ToolManager::new(),
         }
     }
@@ -52,7 +50,7 @@ impl SessionChat {
     /// 2. Saves the user message to the database
     /// 3. Fetches conversation history
     /// 4. Builds system prompt with all available tools
-    /// 5. Sends to Claude with full tool use loop support
+    /// 5. Sends to the provider with full tool use loop support
     /// 6. Saves the assistant response to the database
     /// 7. Returns the final text response
     ///
@@ -62,8 +60,16 @@ impl SessionChat {
     /// * `message` - The user's message content
     ///
     /// # Returns
-    /// The final text response from Claude
-    pub async fn chat(&self, session_id: &str, user_id: &str, message: &str) -> Result<String, ChatError> {
+    /// The final text response from the provider
+    pub async fn chat(
+        &self,
+        provider: &dyn Provider,
+        provider_name: &str,
+        model: &str,
+        session_id: &str,
+        user_id: &str,
+        message: &str,
+    ) -> Result<String, ChatError> {
         // Verify session exists and belongs to user
         let session = SessionRepository::get_by_id(self.db.pool(), session_id)
             .await?
@@ -94,33 +100,43 @@ impl SessionChat {
         // Build system prompt with tools
         let tools = self.tool_manager.get_tools();
         let system_prompt = SystemPrompt::with_tools(&tools);
-        let system_blocks = build_anthropic_system_prompt(&system_prompt);
+        let system_blocks = build_system_prompt(&system_prompt);
 
         // Build API messages from history
         let api_messages = build_api_messages(&history, Some(50));
 
-        // Send to Claude with tool loop
+        // Send to provider with tool loop
         let response = self
-            .send_with_tool_loop(session_id, system_blocks, api_messages, message)
+            .send_with_tool_loop(
+                provider,
+                provider_name,
+                model,
+                session_id,
+                system_blocks,
+                api_messages,
+                message,
+            )
             .await?;
 
         Ok(response)
     }
 
-    /// Internal method: Send conversation to Claude with full tool use loop
+    /// Internal method: Send conversation to the provider with full tool use loop
+    #[allow(clippy::too_many_arguments)]
     async fn send_with_tool_loop(
         &self,
+        provider: &dyn Provider,
+        provider_name: &str,
+        model: &str,
         session_id: &str,
         system_blocks: Vec<SystemBlock>,
         api_messages: Vec<ApiMessage>,
         new_message: &str,
     ) -> Result<String, ChatError> {
-        let model = "claude-sonnet-4-5-20250929";
         let tools = self.tool_manager.get_tools();
 
-        // Initial request to Claude
-        let mut response = self
-            .anthropic
+        // Initial request to the provider
+        let mut response = provider
             .send_conversation(
                 Some(system_blocks.clone()),
                 api_messages.clone(),
@@ -134,7 +150,7 @@ impl SessionChat {
 
         // Handle tool use loop (max 5 iterations to prevent infinite loops)
         for iteration in 0..5 {
-            let has_tool_use = self.response_has_tool_use(&response);
+            let has_tool_use = has_tool_uses(&response);
 
             if !has_tool_use {
                 break;
@@ -160,9 +176,8 @@ impl SessionChat {
             let history = SessionRepository::get_messages(self.db.pool(), session_id).await?;
             let new_api_messages = build_api_messages(&history, Some(50));
 
-            // Send tool results back to Claude
-            response = self
-                .anthropic
+            // Send tool results back to the provider
+            response = provider
                 .send_conversation(
                     Some(system_blocks.clone()),
                     new_api_messages,
@@ -176,17 +191,11 @@ impl SessionChat {
         }
 
         // Extract and save final text response
-        let text = self.finalize_response(session_id, model, &response).await;
+        let text = self
+            .finalize_response(session_id, provider_name, model, &response)
+            .await;
 
         Ok(text)
-    }
-
-    /// Check if a response contains any tool use blocks
-    fn response_has_tool_use(&self, response: &crate::models::anthropic::MessagesResponse) -> bool {
-        response
-            .content
-            .iter()
-            .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
     }
 
     /// Save an assistant response (with tool_use blocks) to the database
@@ -194,17 +203,28 @@ impl SessionChat {
         &self,
         session_id: &str,
         model: &str,
-        response: &crate::models::anthropic::MessagesResponse,
+        response: &ProviderResponse,
     ) {
         let assistant_content: Vec<DbContentBlock> = response
             .content
             .iter()
             .map(|block| match block {
-                ContentBlock::Text { text } => DbContentBlock::Text { text: text.clone() },
-                ContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
+                ProviderContentBlock::Text { text } => {
+                    DbContentBlock::Text { text: text.clone() }
+                }
+                ProviderContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
                     id: id.clone(),
                     name: name.clone(),
                     input: input.clone(),
+                },
+                ProviderContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => DbContentBlock::ToolResult {
+                    tool_use_id: tool_use_id.clone(),
+                    content: content.clone(),
+                    is_error: *is_error,
                 },
             })
             .collect();
@@ -226,12 +246,12 @@ impl SessionChat {
     async fn execute_tools_from_response(
         &self,
         session_id: &str,
-        response: &crate::models::anthropic::MessagesResponse,
+        response: &ProviderResponse,
     ) -> Vec<DbContentBlock> {
         let mut tool_results = Vec::new();
 
         for block in &response.content {
-            let ContentBlock::ToolUse { id, name, input } = block else {
+            let ProviderContentBlock::ToolUse { id, name, input } = block else {
                 continue;
             };
 
@@ -273,14 +293,17 @@ impl SessionChat {
     async fn finalize_response(
         &self,
         session_id: &str,
+        provider_name: &str,
         model: &str,
-        response: &crate::models::anthropic::MessagesResponse,
+        response: &ProviderResponse,
     ) -> String {
-        let text = AnthropicClient::extract_all_text(response);
+        let text = extract_all_text(response);
 
         info!(
-            "[session:{}] Claude final response: {}",
+            "[session:{}] AI final response ({} / {}): {}",
             session_id,
+            provider_name,
+            model,
             if text.len() > 100 { &text[..100] } else { &text }
         );
 

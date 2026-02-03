@@ -90,7 +90,7 @@ impl PersistentConfig {
     /// Generate a new random secret key
     fn generate_secret() -> String {
         use rand::Rng;
-        let bytes: [u8; 32] = rand::thread_rng().r#gen();
+        let bytes: [u8; 32] = rand::rng().random();
         hex::encode(bytes)
     }
 

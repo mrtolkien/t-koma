@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::models::anthropic::history::ApiMessage;
-use crate::models::anthropic::prompt::SystemBlock;
+use crate::models::prompt::SystemBlock;
 use crate::tools::Tool;
 
 /// Unified content block across providers

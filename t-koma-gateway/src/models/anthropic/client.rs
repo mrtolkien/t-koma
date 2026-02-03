@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::models::anthropic::history::{ApiContentBlock, ApiMessage};
-use crate::models::anthropic::prompt::SystemBlock;
+use crate::models::prompt::SystemBlock;
 use crate::models::provider::{
     Provider, ProviderContentBlock, ProviderError, ProviderResponse, ProviderUsage,
 };

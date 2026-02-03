@@ -11,19 +11,17 @@
 //! Run with: cargo test --features live-tests conversation::new_tools_workflow
 
 #[cfg(feature = "live-tests")]
-use std::sync::Arc;
-
-#[cfg(feature = "live-tests")]
 use t_koma_db::{SessionRepository, UserRepository};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::{
-        AnthropicClient, history::build_api_messages, prompt::build_anthropic_system_prompt,
-    },
+    models::anthropic::history::build_api_messages,
+    models::prompt::build_system_prompt,
     prompt::SystemPrompt,
-    state::AppState,
     tools::manager::ToolManager,
 };
+
+#[cfg(feature = "live-tests")]
+use crate::common;
 
 /// Assert that the last tool used in the session matches the expected tool name.
 /// Optionally validates that the tool input contains a specific substring.
@@ -116,17 +114,14 @@ async fn assert_tool_used_since(
 async fn test_comprehensive_coding_workflow() {
     t_koma_core::load_dotenv();
 
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
     // Set up in-memory test database
     let db = t_koma_db::test_helpers::create_test_pool()
         .await
         .expect("Failed to create test database");
 
     // Create AppState
-    let anthropic_client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-    let state = Arc::new(AppState::new(anthropic_client, db.clone()));
+    let default_model = common::load_default_model();
+    let state = common::build_state_with_default_model(db.clone());
 
     // Create and approve a test user
     let user_id = "test_user_new_tools_001";
@@ -149,8 +144,8 @@ async fn test_comprehensive_coding_workflow() {
     let tool_manager = ToolManager::new();
     let tools = tool_manager.get_tools();
     let system_prompt = SystemPrompt::with_tools(&tools);
-    let system_blocks = build_anthropic_system_prompt(&system_prompt);
-    let model = "claude-sonnet-4-5-20250929";
+    let system_blocks = build_system_prompt(&system_prompt);
+    let model = default_model.model.as_str();
 
     // Create a temporary project directory for testing
     let temp_dir = format!("/tmp/t_koma_test_project_{}", uuid::Uuid::new_v4());
@@ -210,6 +205,7 @@ async fn test_comprehensive_coding_workflow() {
 
     let _response1 = state
         .send_conversation_with_tools(
+            default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages1,
@@ -250,6 +246,7 @@ async fn test_comprehensive_coding_workflow() {
 
     let _response2 = state
         .send_conversation_with_tools(
+            default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages2,
@@ -290,6 +287,7 @@ async fn test_comprehensive_coding_workflow() {
 
     let _response3 = state
         .send_conversation_with_tools(
+            default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages3,
@@ -330,6 +328,7 @@ async fn test_comprehensive_coding_workflow() {
 
     let _response4 = state
         .send_conversation_with_tools(
+            default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages4,
@@ -373,6 +372,7 @@ async fn test_comprehensive_coding_workflow() {
 
     let _response5 = state
         .send_conversation_with_tools(
+            default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages5,
@@ -430,6 +430,7 @@ async fn test_comprehensive_coding_workflow() {
 
     let _response6 = state
         .send_conversation_with_tools(
+            default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages6,
@@ -483,6 +484,7 @@ async fn test_comprehensive_coding_workflow() {
 
     let _response7 = state
         .send_conversation_with_tools(
+            default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages7,

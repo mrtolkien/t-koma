@@ -53,7 +53,7 @@ async fn test_pwd_tool_execution() {
     // Build system prompt with tool instructions
     let system_prompt = t_koma_gateway::prompt::SystemPrompt::new();
     let system_blocks =
-        t_koma_gateway::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
+        t_koma_gateway::models::prompt::build_system_prompt(&system_prompt);
 
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];

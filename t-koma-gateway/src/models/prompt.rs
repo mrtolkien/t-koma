@@ -1,11 +1,11 @@
-//! Anthropic-specific prompt building with cache_control support.
+//! Provider-agnostic prompt building with cache_control support.
 
 use crate::prompt::{CacheControl, PromptBlock, SystemPrompt};
 use serde::{Deserialize, Serialize};
 
-/// A system block for Anthropic's Messages API
+/// A system block with optional cache_control metadata.
 ///
-/// Anthropic supports an array of system blocks, each with optional cache_control.
+/// Providers may choose to honor or ignore cache_control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemBlock {
     /// Block type (always "text")
@@ -37,11 +37,11 @@ impl SystemBlock {
     }
 }
 
-/// Build Anthropic system prompt blocks from a SystemPrompt
+/// Build system prompt blocks from a SystemPrompt
 ///
-/// This converts the provider-agnostic SystemPrompt into Anthropic's format,
-/// placing cache_control breakpoints at the appropriate positions.
-pub fn build_anthropic_system_prompt(system: &SystemPrompt) -> Vec<SystemBlock> {
+/// This converts the provider-agnostic SystemPrompt into a list of system blocks,
+/// preserving cache_control breakpoints when present.
+pub fn build_system_prompt(system: &SystemPrompt) -> Vec<SystemBlock> {
     let mut blocks = Vec::new();
 
     // Add instruction blocks
@@ -95,15 +95,15 @@ mod tests {
     }
 
     #[test]
-    fn test_build_anthropic_system_prompt() {
+    fn test_build_system_prompt() {
         let mut system = SystemPrompt::default();
         system.add_instruction("Instruction 1".to_string(), false);
         system.add_instruction("Instruction 2".to_string(), true); // Cache here
         system.add_context("Context".to_string(), false);
 
-        let blocks = build_anthropic_system_prompt(&system);
+        let blocks = build_system_prompt(&system);
         assert_eq!(blocks.len(), 3);
-        
+
         // Last instruction has cache control
         assert!(blocks[1].cache_control.is_some());
         assert!(blocks[0].cache_control.is_none());

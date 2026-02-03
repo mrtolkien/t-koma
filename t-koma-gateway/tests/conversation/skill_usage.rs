@@ -1,6 +1,6 @@
 //! Skill usage integration test.
 //!
-//! This test verifies that Claude can discover and use skills through
+//! This test verifies that the model can discover and use skills through
 //! the load_skill tool.
 
 #[cfg(feature = "live-tests")]
@@ -11,15 +11,15 @@ use t_koma_gateway::{
     tools::{load_skill::LoadSkillTool, Tool},
 };
 
-/// Test that Claude can discover and load a skill.
+/// Test that the model can discover and load a skill.
 ///
 /// This test:
 /// 1. Sets up a test skill
-/// 2. Tells Claude about available skills
-/// 3. Asks Claude to use the skill
-/// 4. Verifies Claude calls load_skill tool
+/// 2. Tells the model about available skills
+/// 3. Asks the model to use the skill
+/// 4. Verifies the model calls load_skill tool
 /// 5. Processes the tool result
-/// 6. Verifies Claude's final response
+/// 6. Verifies the model's final response
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_skill_discovery_and_load() {
@@ -80,10 +80,10 @@ Skill directory: {:?}
         skills_dir
     );
 
-    // First request - ask Claude to use the skill
+    // First request - ask the model to use the skill
     let response = client
         .send_conversation(
-            Some(vec![t_koma_gateway::models::anthropic::prompt::SystemBlock::new(&system_prompt_text)]),
+            Some(vec![t_koma_gateway::models::prompt::SystemBlock::new(&system_prompt_text)]),
             vec![],
             tools.clone(),
             Some("I have the test-echo skill available. Please use it to demonstrate skill loading."),
@@ -103,13 +103,13 @@ Skill directory: {:?}
         }
     );
 
-    // Check if Claude used the load_skill tool
+    // Check if the model used the load_skill tool
     let has_load_skill = response.content.iter().any(|b| matches!(b,
         t_koma_gateway::models::anthropic::ContentBlock::ToolUse { name, .. } if name == "load_skill"
     ));
 
-    println!("Claude requested skill load: {}", has_load_skill);
-    assert!(has_load_skill, "Claude should have requested to load the skill");
+    println!("Model requested skill load: {}", has_load_skill);
+    assert!(has_load_skill, "Model should have requested to load the skill");
 
     // Build conversation history
     let mut messages = vec![];
@@ -185,10 +185,10 @@ Skill directory: {:?}
         ),
     );
 
-    // Get final response from Claude
+    // Get final response from the model
     let final_response = client
         .send_conversation(
-            Some(vec![t_koma_gateway::models::anthropic::prompt::SystemBlock::new(&system_prompt_text)]),
+            Some(vec![t_koma_gateway::models::prompt::SystemBlock::new(&system_prompt_text)]),
             messages, 
             tools, 
             None, 
@@ -215,5 +215,5 @@ Skill directory: {:?}
         text
     );
 
-    println!("Claude's final response: {}", text);
+    println!("Model's final response: {}", text);
 }

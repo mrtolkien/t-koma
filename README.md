@@ -1,6 +1,6 @@
 # t-koma
 
-A Rust-based AI agent powered by the Anthropic Claude API, featuring a gateway
+A Rust-based AI agent with multi-provider model support, featuring a gateway
 server and a terminal UI client.
 
 ## Overview
@@ -8,18 +8,18 @@ server and a terminal UI client.
 t-koma is an AI agent system consisting of:
 
 - **t-koma-gateway**: An async HTTP/WebSocket server that proxies requests to
-  the Anthropic API
+  the configured model provider
 - **t-koma-cli**: A terminal UI client for interacting with the agent
 - **t-koma-core**: Shared types and configuration
 
 ## Features
 
-- 🤖 **Claude 4.5 Sonnet Integration**: Direct API access to Anthropic's latest
-  models
+- 🤖 **Multi-provider Models**: Supports Anthropic and OpenRouter via a unified
+  provider interface
 - 🌐 **WebSocket Communication**: Real-time bidirectional messaging between CLI
   and gateway
 - 🖥️ **Terminal UI**: Built with ratatui for a rich terminal experience
-- 🚀 **Auto-start**: CLI automatically starts the gateway if not already running
+- 🚀 **Auto-start for Chat**: CLI can start the gateway for chat sessions
 - 🔧 **Configurable**: Environment-based configuration with `.env` file support
 - ✅ **Tested**: Unit tests and live API integration tests
 
@@ -28,7 +28,7 @@ t-koma is an AI agent system consisting of:
 ### Prerequisites
 
 - Rust 1.85+ (2024 edition)
-- Anthropic API key
+- API key for your chosen provider (Anthropic and/or OpenRouter)
 
 ### Installation
 
@@ -42,7 +42,7 @@ cargo build --release
 
 # Set up environment
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Edit .env and add your provider API keys
 ```
 
 ### Usage
@@ -77,22 +77,35 @@ needed.
 
 ## Configuration
 
-Configuration is loaded from environment variables (with `.env` file support):
+Configuration is loaded from a TOML file and environment variables:
 
-| Variable            | Default                      | Description            |
-| ------------------- | ---------------------------- | ---------------------- |
-| `ANTHROPIC_API_KEY` | _required_                   | Your Anthropic API key |
-| `ANTHROPIC_MODEL`   | `claude-sonnet-4-5-20250929` | Claude model to use    |
-| `GATEWAY_HOST`      | `127.0.0.1`                  | Gateway bind address   |
-| `GATEWAY_PORT`      | `3000`                       | Gateway HTTP port      |
-| `GATEWAY_WS_URL`    | `ws://127.0.0.1:3000/ws`     | WebSocket URL for CLI  |
+- Settings: `~/.config/t-koma/config.toml` (Linux/macOS) or `%APPDATA%/t-koma/config.toml` (Windows)
+- Secrets: `.env` or environment variables for API keys
+
+### Example `config.toml`
+
+```toml
+default_model = "primary"
+
+[models]
+[models.primary]
+provider = "openrouter"
+model = "your-openrouter-model-id"
+
+[models.fallback]
+provider = "anthropic"
+model = "your-anthropic-model-id"
+
+[gateway]
+host = "127.0.0.1"
+port = 3000
+```
 
 ### Example `.env`
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-api03-...
-ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
-GATEWAY_PORT=3000
+ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_API_KEY=sk-or-...
 ```
 
 ## API Endpoints
@@ -115,13 +128,13 @@ Health check endpoint.
 
 ### `POST /chat`
 
-Send a message to Claude.
+Send a message to the configured provider.
 
 **Request:**
 
 ```json
 {
-  "content": "Hello, Claude!"
+  "content": "Hello!"
 }
 ```
 
@@ -131,7 +144,7 @@ Send a message to Claude.
 {
   "id": "msg_01ABC123",
   "content": "Hello! How can I help?",
-  "model": "claude-sonnet-4-5-20250929",
+  "model": "your-model-id",
   "usage": {
     "input_tokens": 10,
     "output_tokens": 15
@@ -186,13 +199,13 @@ cargo fmt
 
 ```
 ┌─────────────┐     WebSocket      ┌─────────────┐     HTTP      ┌────────────┐
-│  t-koma-cli │ ◄────────────────► │   Gateway   │ ◄───────────► │ Anthropic  │
-│   (TUI)     │                    │             │               │    API     │
+│  t-koma-cli │ ◄────────────────► │   Gateway   │ ◄───────────► │ Provider   │
+│   (TUI)     │                    │             │               │    APIs    │
 └─────────────┘                    └─────────────┘               └────────────┘
 ```
 
 - **t-koma-cli**: ratatui-based TUI, connects via WebSocket
-- **t-koma-gateway**: axum HTTP server, proxies to Anthropic API
+- **t-koma-gateway**: axum HTTP server, proxies to provider APIs
 - **t-koma-core**: Shared types (messages, config)
 
 ### Resetting the Database
@@ -214,4 +227,4 @@ The database will be recreated with migrations on next startup.
 - Built with [axum](https://github.com/tokio-rs/axum),
   [ratatui](https://github.com/ratatui/ratatui), and
   [tokio](https://github.com/tokio-rs/tokio)
-- Powered by [Anthropic's Claude API](https://www.anthropic.com/claude)
+- Powered by external LLM provider APIs

@@ -4,9 +4,7 @@ expression: response
 ---
 {
   "id": "[id]",
-  "type": "message",
-  "role": "assistant",
-  "model": "claude-sonnet-4-5-20250929",
+  "model": "moonshotai/kimi-k2.5",
   "content": [
     {
       "type": "tool_use",
@@ -19,12 +17,9 @@ expression: response
       }
     }
   ],
-  "stop_reason": "tool_use",
-  "stop_sequence": null,
   "usage": {
-    "input_tokens": 759,
-    "output_tokens": 98,
-    "cache_read_input_tokens": 0,
-    "cache_creation_input_tokens": 0
-  }
+    "input_tokens": 197,
+    "output_tokens": 98
+  },
+  "stop_reason": "tool_calls"
 }
