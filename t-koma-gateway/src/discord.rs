@@ -9,6 +9,9 @@ use tracing::{error, info};
 use crate::state::AppState;
 
 /// Discord bot handler
+///
+/// This handler is completely decoupled from tool/conversation logic.
+/// All chat handling is delegated to `state.session_chat.chat()`.
 pub struct Bot {
     state: Arc<AppState>,
 }
@@ -17,7 +20,6 @@ impl Bot {
     pub fn new(state: Arc<AppState>) -> Self {
         Self { state }
     }
-
 }
 
 #[async_trait]
@@ -39,7 +41,10 @@ impl EventHandler for Bot {
         let user_id = msg.author.id.to_string();
         let user_name = msg.author.name.clone();
 
-        info!("[session:-] Discord message from {} ({}): {}", user_name, user_id, msg.content);
+        info!(
+            "[session:-] Discord message from {} ({}): {}",
+            user_name, user_id, msg.content
+        );
 
         // Get or create user in database
         let user = match t_koma_db::UserRepository::get_or_create(
@@ -47,7 +52,9 @@ impl EventHandler for Bot {
             &user_id,
             &user_name,
             t_koma_db::Platform::Discord,
-        ).await {
+        )
+        .await
+        {
             Ok(u) => u,
             Err(e) => {
                 error!("Failed to get/create user {}: {}", user_id, e);
@@ -62,15 +69,16 @@ impl EventHandler for Bot {
         // Check user status
         match user.status {
             t_koma_db::UserStatus::Pending => {
-                // User is pending approval
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Your access request is pending approval. The bot owner will review it.")
+                    .say(
+                        &ctx.http,
+                        "Your access request is pending approval. The bot owner will review it.",
+                    )
                     .await;
                 return;
             }
             t_koma_db::UserStatus::Denied => {
-                // User was denied
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, "Your access request was denied.")
@@ -86,10 +94,9 @@ impl EventHandler for Bot {
         let need_welcome = !user.welcomed;
         if need_welcome {
             // Mark as welcomed
-            if let Err(e) = t_koma_db::UserRepository::mark_welcomed(
-                self.state.db.pool(),
-                &user_id,
-            ).await {
+            if let Err(e) =
+                t_koma_db::UserRepository::mark_welcomed(self.state.db.pool(), &user_id).await
+            {
                 error!("Failed to mark user {} as welcomed: {}", user_id, e);
             }
         }
@@ -102,16 +109,13 @@ impl EventHandler for Bot {
             return;
         }
 
-        // Log the incoming message (session will be logged after it's created)
-
-        // TODO: Add input validation (length limits, content filtering)
-        // TODO: Add rate limiting per user
-
         // Get or create session for this Discord user
         let session = match t_koma_db::SessionRepository::get_or_create_active(
             self.state.db.pool(),
             &user_id,
-        ).await {
+        )
+        .await
+        {
             Ok(s) => {
                 info!("[session:{}] Active session for user {}", s.id, user_id);
                 s
@@ -126,65 +130,16 @@ impl EventHandler for Bot {
             }
         };
 
-        // Fetch conversation history
-        let history = match t_koma_db::SessionRepository::get_messages(
-            self.state.db.pool(),
-            &session.id,
-        ).await {
-            Ok(msgs) => msgs,
-            Err(e) => {
-                error!("Failed to fetch history for session {}: {}", session.id, e);
-                vec![]
-            }
-        };
-
-        // Save user message to database
-        let user_content = vec![t_koma_db::ContentBlock::Text {
-            text: clean_content.to_string(),
-        }];
-        if let Err(e) = t_koma_db::SessionRepository::add_message(
-            self.state.db.pool(),
-            &session.id,
-            t_koma_db::MessageRole::User,
-            user_content,
-            None,
-        ).await {
-            error!("Failed to save user message: {}", e);
-        }
-
-        // Build API messages from history
-        let api_messages = crate::models::anthropic::history::build_api_messages(
-            &history,
-            Some(50), // Limit to last 50 messages
-        );
-
-        // Build system prompt with tool instructions
-        let shell_tool = crate::tools::shell::ShellTool;
-        let file_edit_tool = crate::tools::file_edit::FileEditTool;
-        let tools: Vec<&dyn crate::tools::Tool> = vec![&shell_tool, &file_edit_tool];
-        let system_prompt = crate::prompt::SystemPrompt::with_tools(&tools);
-        let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
-
-        info!(
-            "Sending message to Claude for user {} in session {} ({} history messages)",
-            user_id,
-            session.id,
-            history.len()
-        );
-
-        // Call Claude using the shared state method
-        let model = "claude-sonnet-4-5-20250929";
-        let mut final_text = match self.state.send_conversation_with_tools(
-            &session.id,
-            system_blocks,
-            api_messages,
-            tools,
-            Some(clean_content),
-            model,
-        ).await {
+        // Send the message to the AI through the centralized chat interface
+        // This handles everything: history, system prompts, tools, tool loops
+        let mut final_text = match self
+            .state
+            .chat(&session.id, &user_id, clean_content)
+            .await
+        {
             Ok(text) => text,
             Err(e) => {
-                error!("[session:{}] Claude API error: {}", session.id, e);
+                error!("[session:{}] Chat error: {}", session.id, e);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, "Sorry, I encountered an error processing your request.")

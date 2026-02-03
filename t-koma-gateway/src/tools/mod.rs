@@ -1,5 +1,13 @@
 pub mod shell;
 pub mod file_edit;
+pub mod read_file;
+pub mod create_file;
+pub mod search;
+pub mod find_files;
+pub mod list_dir;
+pub mod manager;
+
+pub use manager::ToolManager;
 
 use serde_json::Value;
 

@@ -10,3 +10,4 @@
 
 pub mod file_operations;
 pub mod multi_turn;
+pub mod new_tools_workflow;

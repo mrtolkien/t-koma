@@ -428,6 +428,41 @@ impl SessionRepository {
 
         Ok(count)
     }
+
+    /// Get all tool uses for a session
+    ///
+    /// Returns a list of (tool_name, tool_input) tuples for all ToolUse content blocks
+    /// in assistant messages, ordered chronologically.
+    pub async fn get_tool_uses(
+        pool: &SqlitePool,
+        session_id: &str,
+    ) -> DbResult<Vec<(String, serde_json::Value)>> {
+        let messages = Self::get_messages(pool, session_id).await?;
+        let mut tool_uses = Vec::new();
+
+        for message in messages {
+            if message.role == MessageRole::Assistant {
+                for block in message.content {
+                    if let ContentBlock::ToolUse { name, input, .. } = block {
+                        tool_uses.push((name, input));
+                    }
+                }
+            }
+        }
+
+        Ok(tool_uses)
+    }
+
+    /// Get the most recent tool use for a session
+    ///
+    /// Returns the last (tool_name, tool_input) tuple, or None if no tools were used.
+    pub async fn get_last_tool_use(
+        pool: &SqlitePool,
+        session_id: &str,
+    ) -> DbResult<Option<(String, serde_json::Value)>> {
+        let tool_uses = Self::get_tool_uses(pool, session_id).await?;
+        Ok(tool_uses.into_iter().last())
+    }
 }
 
 // Internal row types for SQLx

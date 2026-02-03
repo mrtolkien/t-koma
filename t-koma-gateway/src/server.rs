@@ -334,16 +334,13 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
                         info!("Received chat message from {} in session {}: {}", 
                               client_id, session_id, content);
 
-                        // Verify the session belongs to this user
-                        let target_session = if session_id == "active" || session_id == session.id {
-                            &session
+                        // Determine the target session ID
+                        let target_session_id = if session_id == "active" || session_id == session.id {
+                            session.id.clone()
                         } else {
-                            // Fetch the specified session
+                            // Verify the specified session belongs to this user
                             match t_koma_db::SessionRepository::get_by_id(state.db.pool(), &session_id).await {
-                                Ok(Some(s)) if s.user_id == user_id => {
-                                    // Use this session
-                                    &session  // TODO: Handle session switching properly
-                                }
+                                Ok(Some(s)) if s.user_id == user_id => session_id,
                                 _ => {
                                     let error_response = WsResponse::Error {
                                         message: "Invalid session".to_string(),
@@ -356,82 +353,14 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
                             }
                         };
 
-                        // Fetch conversation history
-                        let history = match t_koma_db::SessionRepository::get_messages(
-                            state.db.pool(),
-                            &target_session.id,
-                        ).await {
-                            Ok(msgs) => msgs,
-                            Err(e) => {
-                                error!("Failed to fetch history: {}", e);
-                                vec![]
-                            }
-                        };
-
-                        // Save user message to database
-                        let user_content = vec![t_koma_db::ContentBlock::Text {
-                            text: content.clone(),
-                        }];
-                        if let Err(e) = t_koma_db::SessionRepository::add_message(
-                            state.db.pool(),
-                            &target_session.id,
-                            t_koma_db::MessageRole::User,
-                            user_content,
-                            None,
-                        ).await {
-                            error!("Failed to save user message: {}", e);
-                        }
-
-                        // Build API messages from history
-                        let api_messages = crate::models::anthropic::history::build_api_messages(
-                            &history,
-                            Some(50), // Limit to last 50 messages
-                        );
-
-                        // Build system prompt with tool instructions
-                        let shell_tool = crate::tools::shell::ShellTool;
-                        let file_edit_tool = crate::tools::file_edit::FileEditTool;
-                        let tools: Vec<&dyn crate::tools::Tool> = vec![&shell_tool, &file_edit_tool];
-                        let system_prompt = crate::prompt::SystemPrompt::with_tools(&tools);
-                        let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
-
-                        // Send to Anthropic with conversation history and tools
-                        match state.anthropic.send_conversation(
-                            Some(system_blocks),
-                            api_messages,
-                            tools,
-                            Some(&content),
-                            None, // message_limit - already applied in build_api_messages
-                            None, // tool_choice - let model decide
-                        ).await {
-                            Ok(response) => {
-                                let text = AnthropicClient::extract_text(&response)
-                                    .unwrap_or_else(|| "(no response)".to_string());
-
-                                // Save assistant response to database
-                                let assistant_content = vec![t_koma_db::ContentBlock::Text {
-                                    text: text.clone(),
-                                }];
-                                if let Err(e) = t_koma_db::SessionRepository::add_message(
-                                    state.db.pool(),
-                                    &target_session.id,
-                                    t_koma_db::MessageRole::Assistant,
-                                    assistant_content,
-                                    Some(&response.model),
-                                ).await {
-                                    error!("Failed to save assistant message: {}", e);
-                                }
-
+                        // Use the centralized chat interface - handles everything including tools
+                        match state.chat(&target_session_id, &user_id, &content).await {
+                            Ok(text) => {
                                 let ws_response = WsResponse::Response {
-                                    id: response.id,
+                                    id: format!("ws_{}", uuid::Uuid::new_v4()),
                                     content: text,
                                     done: true,
-                                    usage: response.usage.map(|u| t_koma_core::message::UsageInfo {
-                                        input_tokens: u.input_tokens,
-                                        output_tokens: u.output_tokens,
-                                        cache_read_tokens: Some(u.cache_read_tokens),
-                                        cache_creation_tokens: Some(u.cache_creation_tokens),
-                                    }),
+                                    usage: None, // TODO: Get usage from session_chat
                                 };
 
                                 let response_json = serde_json::to_string(&ws_response).unwrap();
@@ -444,9 +373,9 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
                                 }
                             }
                             Err(e) => {
-                                error!("Anthropic API error: {}", e);
+                                error!("Chat error: {}", e);
                                 let error_response = WsResponse::Error {
-                                    message: format!("API error: {}", e),
+                                    message: format!("Chat error: {}", e),
                                 };
                                 let error_json = serde_json::to_string(&error_response).unwrap();
                                 let _ = sender

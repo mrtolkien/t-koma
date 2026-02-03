@@ -1,0 +1,224 @@
+use serde_json::{json, Value};
+use tokio::fs;
+
+use super::Tool;
+
+pub struct ReadFileTool;
+
+/// Detailed instructions for using the read_file tool
+const READ_FILE_PROMPT: &str = r#"## Reading Files
+
+You have access to a `read_file` tool for reading file contents.
+
+**Guidelines:**
+1. Always use absolute paths when possible
+2. For large files, use `offset` and `limit` to read specific sections
+3. If you need to see the full file structure first, use `list_dir` or `find_files`
+
+**When to use:**
+- Before editing a file (to see current content)
+- To understand code structure
+- To verify changes after using `replace` tool
+- To read configuration files, logs, or documentation
+
+**Best practices:**
+- Read files in chunks for large files (>1000 lines)
+- Use line numbers shown in output to calculate offsets for subsequent reads
+- If a file doesn't exist, the tool will return an error
+"#;
+
+#[async_trait::async_trait]
+impl Tool for ReadFileTool {
+    fn name(&self) -> &str {
+        "read_file"
+    }
+
+    fn description(&self) -> &str {
+        "Reads the contents of a file. Returns the file content with line numbers. Supports reading specific line ranges with offset and limit parameters."
+    }
+
+    fn prompt(&self) -> Option<&'static str> {
+        Some(READ_FILE_PROMPT)
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file to read"
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Line number to start reading from (1-indexed). Defaults to 1.",
+                    "minimum": 1
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of lines to read. Defaults to 1000.",
+                    "minimum": 1,
+                    "maximum": 10000
+                }
+            },
+            "required": ["file_path"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> Result<String, String> {
+        let file_path = args["file_path"]
+            .as_str()
+            .ok_or_else(|| "Missing or invalid 'file_path' argument".to_string())?;
+
+        let offset = args["offset"].as_u64().unwrap_or(1) as usize;
+        let limit = args["limit"].as_u64().unwrap_or(1000) as usize;
+
+        // Validate limit
+        if limit == 0 || limit > 10000 {
+            return Err("Limit must be between 1 and 10000".to_string());
+        }
+
+        // Read file content
+        let content = fs::read_to_string(file_path)
+            .await
+            .map_err(|e| format!("Failed to read file '{}': {}", file_path, e))?;
+
+        let lines: Vec<&str> = content.lines().collect();
+        let total_lines = lines.len();
+
+        if total_lines == 0 {
+            return Ok(format!("File '{}' is empty.", file_path));
+        }
+
+        // Calculate start and end indices (0-indexed internally)
+        let start_idx = offset.saturating_sub(1);
+        if start_idx >= total_lines {
+            return Err(format!(
+                "Offset {} is beyond file length ({} lines)",
+                offset, total_lines
+            ));
+        }
+
+        let end_idx = (start_idx + limit).min(total_lines);
+        let selected_lines = &lines[start_idx..end_idx];
+
+        // Format output with line numbers
+        let mut result = String::new();
+        result.push_str(&format!(
+            "--- File: {} (lines {}-{} of {}) ---\n",
+            file_path,
+            start_idx + 1,
+            end_idx,
+            total_lines
+        ));
+
+        for (i, line) in selected_lines.iter().enumerate() {
+            let line_num = start_idx + i + 1;
+            result.push_str(&format!("{:>6} | {}\n", line_num, line));
+        }
+
+        // Add truncation notice if applicable
+        if end_idx < total_lines {
+            result.push_str(&format!(
+                "\n... ({} more lines, use offset={} to continue)\n",
+                total_lines - end_idx,
+                end_idx + 1
+            ));
+        }
+
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[tokio::test]
+    async fn test_read_file_success() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "Line 1").unwrap();
+        writeln!(temp_file, "Line 2").unwrap();
+        writeln!(temp_file, "Line 3").unwrap();
+        let path = temp_file.path().to_str().unwrap().to_string();
+
+        let tool = ReadFileTool;
+        let args = json!({ "file_path": path });
+
+        let result = tool.execute(args).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("Line 1"));
+        assert!(output.contains("Line 2"));
+        assert!(output.contains("Line 3"));
+        assert!(output.contains("lines 1-3 of 3"));
+    }
+
+    #[tokio::test]
+    async fn test_read_file_with_offset() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        for i in 1..=10 {
+            writeln!(temp_file, "Line {}", i).unwrap();
+        }
+        let path = temp_file.path().to_str().unwrap().to_string();
+
+        let tool = ReadFileTool;
+        let args = json!({ 
+            "file_path": path,
+            "offset": 5,
+            "limit": 3
+        });
+
+        let result = tool.execute(args).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("Line 5"));
+        assert!(output.contains("Line 6"));
+        assert!(output.contains("Line 7"));
+        assert!(!output.contains("Line 4"));
+        assert!(!output.contains("Line 8"));
+    }
+
+    #[tokio::test]
+    async fn test_read_file_not_found() {
+        let tool = ReadFileTool;
+        let args = json!({ "file_path": "/nonexistent/file.txt" });
+
+        let result = tool.execute(args).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read file"));
+    }
+
+    #[tokio::test]
+    async fn test_read_file_empty() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let path = temp_file.path().to_str().unwrap().to_string();
+
+        let tool = ReadFileTool;
+        let args = json!({ "file_path": path });
+
+        let result = tool.execute(args).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("is empty"));
+    }
+
+    #[tokio::test]
+    async fn test_read_file_offset_beyond_end() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "Only line").unwrap();
+        let path = temp_file.path().to_str().unwrap().to_string();
+
+        let tool = ReadFileTool;
+        let args = json!({ 
+            "file_path": path,
+            "offset": 10
+        });
+
+        let result = tool.execute(args).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("beyond file length"));
+    }
+}
