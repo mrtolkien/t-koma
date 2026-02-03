@@ -55,6 +55,30 @@ impl Config {
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", self.gateway_host, self.gateway_port)
     }
+
+    /// Get the skills directory path in the config directory.
+    ///
+    /// Uses XDG config directory: `~/.config/t-koma/skills/` on Linux,
+    /// `~/Library/Application Support/t-koma/skills/` on macOS,
+    /// `%APPDATA%\t-koma\skills\` on Windows.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(PathBuf)` if the config directory can be determined,
+    /// or `None` if it cannot (e.g., no home directory).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use t_koma_core::Config;
+    ///
+    /// if let Some(path) = Config::skills_config_path() {
+    ///     println!("Skills config path: {:?}", path);
+    /// }
+    /// ```
+    pub fn skills_config_path() -> Option<std::path::PathBuf> {
+        dirs::config_dir().map(|d| d.join("t-koma").join("skills"))
+    }
 }
 
 /// Configuration errors
