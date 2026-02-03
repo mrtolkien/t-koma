@@ -8,7 +8,10 @@
 //! **IMPORTANT**: These tests should only be run by human developers, not AI
 //! agents, as they require snapshot review and API access.
 
-// Client tests - direct Anthropic API interaction
+// Shared test helpers
+mod common;
+
+// Client tests - direct configured provider interaction
 mod client;
 
 // Conversation tests - full gateway stack with database

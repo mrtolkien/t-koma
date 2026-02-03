@@ -7,21 +7,16 @@
 //! Run with: cargo test --features live-tests conversation::file_operations
 
 #[cfg(feature = "live-tests")]
-use std::sync::Arc;
-
-#[cfg(feature = "live-tests")]
 use t_koma_db::{SessionRepository, UserRepository};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::{
-        history::build_api_messages,
-        prompt::build_anthropic_system_prompt,
-        AnthropicClient,
-    },
+    models::anthropic::{history::build_api_messages, prompt::build_anthropic_system_prompt},
     prompt::SystemPrompt,
-    state::AppState,
     tools::{file_edit::FileEditTool, shell::ShellTool, Tool},
 };
+
+#[cfg(feature = "live-tests")]
+use crate::common;
 
 /// Test file operations workflow:
 /// 1. Create a file with initial content
@@ -30,19 +25,13 @@ use t_koma_gateway::{
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_file_create_edit_delete_workflow() {
-    t_koma_core::load_dotenv();
-
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
     // Set up in-memory test database
     let db = t_koma_db::test_helpers::create_test_pool()
         .await
         .expect("Failed to create test database");
 
     // Create AppState
-    let anthropic_client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-    let state = Arc::new(AppState::new(anthropic_client, db.clone()));
+    let state = common::build_state_with_default_model(db.clone());
 
     // Create and approve a test user
     let user_id = "test_user_file_ops_001";
@@ -70,7 +59,7 @@ async fn test_file_create_edit_delete_workflow() {
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
     let system_prompt = SystemPrompt::with_tools(&tools);
     let system_blocks = build_anthropic_system_prompt(&system_prompt);
-    let model = "claude-sonnet-4-5-20250929";
+    let model = state.default_model().model.as_str();
 
     // === STEP 1: Create a file ===
     println!("\n=== STEP 1: Creating file ===");
@@ -99,6 +88,7 @@ async fn test_file_create_edit_delete_workflow() {
 
     let response1 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages1,
@@ -153,6 +143,7 @@ async fn test_file_create_edit_delete_workflow() {
 
     let response2 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages2,
@@ -205,6 +196,7 @@ async fn test_file_create_edit_delete_workflow() {
 
     let response3 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
             api_messages3,
@@ -240,19 +232,13 @@ async fn test_file_create_edit_delete_workflow() {
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_replace_tool_exact_match_requirement() {
-    t_koma_core::load_dotenv();
-
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
     // Set up in-memory test database
     let db = t_koma_db::test_helpers::create_test_pool()
         .await
         .expect("Failed to create test database");
 
     // Create AppState
-    let anthropic_client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-    let state = Arc::new(AppState::new(anthropic_client, db.clone()));
+    let state = common::build_state_with_default_model(db.clone());
 
     // Create and approve a test user
     let user_id = "test_user_file_ops_002";
@@ -284,9 +270,9 @@ async fn test_replace_tool_exact_match_requirement() {
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
     let system_prompt = SystemPrompt::with_tools(&tools);
     let system_blocks = build_anthropic_system_prompt(&system_prompt);
-    let model = "claude-sonnet-4-5-20250929";
+    let model = state.default_model().model.as_str();
 
-    // Ask Claude to edit the file
+    // Ask the model to edit the file
     let edit_message = format!(
         "Read the file at '{}' and change 'Line 2: World' to 'Line 2: Rust' \
          using the replace tool. Make sure to include enough context in old_string.",
@@ -312,6 +298,7 @@ async fn test_replace_tool_exact_match_requirement() {
 
     let response = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
             api_messages,

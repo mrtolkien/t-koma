@@ -6,6 +6,9 @@ use serde_json::Value;
 
 use crate::models::anthropic::history::{ApiContentBlock, ApiMessage};
 use crate::models::anthropic::prompt::SystemBlock;
+use crate::models::provider::{
+    Provider, ProviderContentBlock, ProviderError, ProviderResponse, ProviderUsage,
+};
 use crate::tools::Tool;
 
 /// Anthropic API client
@@ -95,6 +98,17 @@ pub enum AnthropicError {
     NoContent,
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+}
+
+impl From<AnthropicError> for ProviderError {
+    fn from(err: AnthropicError) -> Self {
+        match err {
+            AnthropicError::HttpError(e) => ProviderError::HttpError(e),
+            AnthropicError::ApiError { message } => ProviderError::ApiError { message },
+            AnthropicError::NoContent => ProviderError::NoContent,
+            AnthropicError::Serialization(e) => ProviderError::Serialization(e),
+        }
+    }
 }
 
 impl AnthropicClient {
@@ -273,6 +287,63 @@ impl AnthropicClient {
             .iter()
             .any(|block| matches!(block, ContentBlock::ToolUse { .. }))
     }
+
+    /// Convert MessagesResponse to ProviderResponse
+    fn to_provider_response(&self, response: MessagesResponse) -> ProviderResponse {
+        let content = response
+            .content
+            .into_iter()
+            .map(|block| match block {
+                ContentBlock::Text { text } => ProviderContentBlock::Text { text },
+                ContentBlock::ToolUse { id, name, input } => {
+                    ProviderContentBlock::ToolUse { id, name, input }
+                }
+            })
+            .collect();
+
+        ProviderResponse {
+            id: response.id,
+            model: response.model,
+            content,
+            usage: response.usage.map(|u| ProviderUsage {
+                input_tokens: u.input_tokens,
+                output_tokens: u.output_tokens,
+                cache_read_tokens: Some(u.cache_read_tokens),
+                cache_creation_tokens: Some(u.cache_creation_tokens),
+            }),
+            stop_reason: response.stop_reason,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Provider for AnthropicClient {
+    fn name(&self) -> &str {
+        "anthropic"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    async fn send_conversation(
+        &self,
+        system: Option<Vec<SystemBlock>>,
+        history: Vec<ApiMessage>,
+        tools: Vec<&dyn Tool>,
+        new_message: Option<&str>,
+        message_limit: Option<usize>,
+        _tool_choice: Option<String>,
+    ) -> Result<ProviderResponse, ProviderError> {
+        let response = self
+            .send_conversation(system, history, tools, new_message, message_limit, _tool_choice)
+            .await?;
+        Ok(self.to_provider_response(response))
+    }
+
+    fn clone_box(&self) -> Box<dyn Provider> {
+        Box::new(self.clone())
+    }
 }
 
 #[cfg(test)]
@@ -281,9 +352,9 @@ mod tests {
 
     #[test]
     fn test_anthropic_client_creation() {
-        let client = AnthropicClient::new("test-key", "claude-sonnet-4-5-20250929");
+        let client = AnthropicClient::new("test-key", "anthropic-model-a");
         assert_eq!(client.api_key, "test-key");
-        assert_eq!(client.model, "claude-sonnet-4-5-20250929");
+        assert_eq!(client.model, "anthropic-model-a");
         assert_eq!(client.base_url, "https://api.anthropic.com/v1");
     }
 
@@ -293,7 +364,7 @@ mod tests {
             id: "msg_001".to_string(),
             msg_type: "message".to_string(),
             role: "assistant".to_string(),
-            model: "claude-sonnet-4-5-20250929".to_string(),
+            model: "anthropic-model-a".to_string(),
             content: vec![
                 ContentBlock::Text {
                     text: "Hello, world!".to_string(),
@@ -321,7 +392,7 @@ mod tests {
             id: "msg_001".to_string(),
             msg_type: "message".to_string(),
             role: "assistant".to_string(),
-            model: "claude-sonnet-4-5-20250929".to_string(),
+            model: "anthropic-model-a".to_string(),
             content: vec![
                 ContentBlock::Text {
                     text: "I'll check that.".to_string(),

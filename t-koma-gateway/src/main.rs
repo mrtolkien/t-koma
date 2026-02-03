@@ -1,9 +1,10 @@
-use std::env;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 
-use t_koma_gateway::models::anthropic::AnthropicClient;
 use t_koma_gateway::discord::start_discord_bot;
+use t_koma_gateway::models::anthropic::AnthropicClient;
+use t_koma_gateway::models::openrouter::OpenRouterClient;
 use t_koma_gateway::server;
 use t_koma_gateway::state::AppState;
 
@@ -17,9 +18,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    // Load environment config
-    let env_config = t_koma_core::Config::from_env()?;
-    info!("Environment configuration loaded");
+    // Load configuration
+    let config = t_koma_core::Config::load()?;
+    info!(
+        "Configuration loaded (default model: {} -> {}/{})",
+        config.default_model_alias(),
+        config.default_provider(),
+        config.default_model_id()
+    );
 
     // Initialize database
     let db = t_koma_db::DbPool::new().await?;
@@ -37,22 +43,100 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Create Anthropic client
-    let anthropic_client = AnthropicClient::new(
-        env_config.anthropic_api_key.clone(),
-        env_config.anthropic_model.clone(),
+    // Create provider clients based on configured models
+    let mut models: HashMap<String, t_koma_gateway::state::ModelEntry> = HashMap::new();
+    for (alias, model_config) in &config.settings.models {
+        match model_config.provider.as_str() {
+            "anthropic" => {
+                if let Some(api_key) = config.anthropic_api_key() {
+                    let client = AnthropicClient::new(api_key, &model_config.model);
+                    info!(
+                        "Anthropic client created for alias '{}' with model: {}",
+                        alias,
+                        model_config.model
+                    );
+                    models.insert(
+                        alias.clone(),
+                        t_koma_gateway::state::ModelEntry {
+                            alias: alias.clone(),
+                            provider: model_config.provider.clone(),
+                            model: model_config.model.clone(),
+                            client: Arc::new(client),
+                        },
+                    );
+                } else {
+                    info!(
+                        "Skipping model '{}' (anthropic) - no ANTHROPIC_API_KEY configured",
+                        alias
+                    );
+                }
+            }
+            "openrouter" => {
+                if let Some(api_key) = config.openrouter_api_key() {
+                    let http_referer = config.settings.openrouter.http_referer.clone();
+                    let app_name = config.settings.openrouter.app_name.clone();
+                    let client = OpenRouterClient::new(
+                        api_key,
+                        &model_config.model,
+                        http_referer,
+                        app_name,
+                    );
+                    info!(
+                        "OpenRouter client created for alias '{}' with model: {}",
+                        alias,
+                        model_config.model
+                    );
+                    models.insert(
+                        alias.clone(),
+                        t_koma_gateway::state::ModelEntry {
+                            alias: alias.clone(),
+                            provider: model_config.provider.clone(),
+                            model: model_config.model.clone(),
+                            client: Arc::new(client),
+                        },
+                    );
+                } else {
+                    info!(
+                        "Skipping model '{}' (openrouter) - no OPENROUTER_API_KEY configured",
+                        alias
+                    );
+                }
+            }
+            other => {
+                info!(
+                    "Skipping model '{}' - unknown provider '{}'",
+                    alias,
+                    other
+                );
+            }
+        }
+    }
+
+    let default_model_alias = config.default_model_alias().to_string();
+    let default_model = models.get(&default_model_alias).ok_or_else(|| {
+        format!(
+            "Default model alias '{}' was not initialized (check API keys and config)",
+            default_model_alias
+        )
+    })?;
+    info!(
+        "Default model: {} -> {}/{}",
+        default_model.alias, default_model.provider, default_model.model
     );
-    info!("Anthropic client created with model: {}", env_config.anthropic_model);
 
     // Create shared application state
-    let state = Arc::new(AppState::new(anthropic_client, db));
+    let state = Arc::new(AppState::new(
+        default_model_alias,
+        models,
+        db,
+    ));
 
-    // Get Discord token (optional)
-    let discord_token = env::var("DISCORD_BOT_TOKEN").ok();
+    // Get Discord token from secrets
+    let discord_token = config.discord_bot_token().map(|s| s.to_string());
 
-    // Start Discord bot if token is present
-    let discord_client = if let Some(token) = discord_token {
-        match start_discord_bot(Some(token), Arc::clone(&state)).await? {
+    // Start Discord bot if enabled and token is present
+    let discord_client = if config.discord_enabled() {
+        match start_discord_bot(discord_token, Arc::clone(&state)).await? {
             Some(mut client) => {
                 info!("Discord bot started");
                 // Spawn Discord client in background
@@ -64,26 +148,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(discord_task)
             }
             None => {
-                info!("Discord bot not started (no token)");
+                info!("Discord bot not started");
                 None
             }
         }
     } else {
-        info!("Discord bot not configured (set DISCORD_BOT_TOKEN to enable)");
+        info!("Discord bot not configured (set DISCORD_BOT_TOKEN and enable in config to enable)");
         None
     };
 
     // Security: Verify localhost-only binding
-    if env_config.gateway_host != "127.0.0.1" && env_config.gateway_host != "localhost" {
+    if config.settings.gateway.host != "127.0.0.1" && config.settings.gateway.host != "localhost" {
         tracing::warn!(
             "Gateway binding to non-localhost address: {}. This may expose the API to remote access.",
-            env_config.gateway_host
+            config.settings.gateway.host
         );
     }
 
     // Start the HTTP server
-    let bind_addr = env_config.bind_addr();
-    info!("Starting gateway server on {} (localhost-only by default)", bind_addr);
+    let bind_addr = config.bind_addr();
+    info!(
+        "Starting gateway server on {} (localhost-only by default)",
+        bind_addr
+    );
 
     // Run server (this blocks)
     let server_result = server::run(state, &bind_addr).await;

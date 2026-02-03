@@ -6,17 +6,16 @@
 #[cfg(feature = "live-tests")]
 use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
-use std::sync::Arc;
-
-#[cfg(feature = "live-tests")]
 use t_koma_db::{SessionRepository, UserRepository};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     models::anthropic::{history::build_api_messages, prompt::build_anthropic_system_prompt},
     prompt::SystemPrompt,
-    state::AppState,
     tools::{shell::ShellTool, Tool},
 };
+
+#[cfg(feature = "live-tests")]
+use crate::common;
 
 /// Helper struct to capture conversation turn results
 #[cfg(feature = "live-tests")]
@@ -40,7 +39,7 @@ struct Conversation {
 }
 
 /// Test a multi-turn conversation where we:
-/// 1. Ask Claude to tell us a short story
+/// 1. Ask the model to tell us a short story
 /// 2. Ask it to repeat the same story
 ///
 /// This verifies that:
@@ -53,16 +52,11 @@ struct Conversation {
 async fn test_multi_turn_story_conversation() {
     t_koma_core::load_dotenv();
 
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
     // Set up in-memory test database
     let db = setup_test_db().await.expect("Failed to create test database");
 
     // Create AppState
-    let anthropic_client =
-        t_koma_gateway::models::anthropic::AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-    let state = Arc::new(AppState::new(anthropic_client, db.clone()));
+    let state = common::build_state_with_default_model(db.clone());
 
     // Create a test user
     let user_id = "test_user_001";
@@ -87,7 +81,7 @@ async fn test_multi_turn_story_conversation() {
     let system_blocks = build_anthropic_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
-    let model = "claude-sonnet-4-5-20250929";
+    let model = state.default_model().model.as_str();
 
     let mut conversation_turns = vec![];
 
@@ -113,9 +107,10 @@ async fn test_multi_turn_story_conversation() {
         .expect("Failed to get history");
     let api_messages1 = build_api_messages(&history1, Some(50));
 
-    // Send to Claude through AppState
+    // Send to model through AppState
     let response1 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages1,
@@ -163,9 +158,10 @@ async fn test_multi_turn_story_conversation() {
         .expect("Failed to get history");
     let api_messages2 = build_api_messages(&history2, Some(50));
 
-    // Send to Claude through AppState
+    // Send to model through AppState
     let response2 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages2,
@@ -213,9 +209,10 @@ async fn test_multi_turn_story_conversation() {
         .expect("Failed to get history");
     let api_messages3 = build_api_messages(&history3, Some(50));
 
-    // Send to Claude through AppState
+    // Send to model through AppState
     let response3 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
             api_messages3,
@@ -274,18 +271,11 @@ async fn test_multi_turn_story_conversation() {
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_multi_turn_with_tool_use() {
-    t_koma_core::load_dotenv();
-
-    let api_key =
-        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
-
     // Set up in-memory test database
     let db = setup_test_db().await.expect("Failed to create test database");
 
     // Create AppState
-    let anthropic_client =
-        t_koma_gateway::models::anthropic::AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
-    let state = Arc::new(AppState::new(anthropic_client, db.clone()));
+    let state = common::build_state_with_default_model(db.clone());
 
     // Create a test user
     let user_id = "test_user_tool_001";
@@ -307,7 +297,7 @@ async fn test_multi_turn_with_tool_use() {
     let system_blocks = build_anthropic_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
-    let model = "claude-sonnet-4-5-20250929";
+    let model = state.default_model().model.as_str();
 
     // === TURN 1: Ask to run pwd ===
     let turn1_message = "What directory are we in? Use the shell tool to find out.";
@@ -331,6 +321,7 @@ async fn test_multi_turn_with_tool_use() {
 
     let response1 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
             api_messages1,
@@ -371,6 +362,7 @@ async fn test_multi_turn_with_tool_use() {
 
     let response2 = state
         .send_conversation_with_tools(
+            state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
             api_messages2,
@@ -383,7 +375,7 @@ async fn test_multi_turn_with_tool_use() {
 
     println!("Turn 2 response (context check):\n{}\n", response2);
 
-    // Verify Claude remembers it used pwd
+    // Verify model remembers it used pwd
     assert!(
         response2.to_lowercase().contains("pwd")
             || response2.to_lowercase().contains("shell")
