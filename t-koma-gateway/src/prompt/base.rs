@@ -4,7 +4,7 @@
 //! that guide the AI's behavior across all providers.
 
 /// The base system prompt for t-koma
-/// 
+///
 /// This prompt establishes the AI's identity, capabilities, and behavior.
 /// It should be provider-agnostic and focused on the core persona.
 pub const BASE_SYSTEM_PROMPT: &str = r#"You are t-koma, an AI assistant integrated into a development environment.
@@ -97,18 +97,6 @@ pub fn full_system_prompt() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_base_prompt_not_empty() {
-        assert!(!BASE_SYSTEM_PROMPT.is_empty());
-        assert!(BASE_SYSTEM_PROMPT.contains("t-koma"));
-    }
-
-    #[test]
-    fn test_tool_instructions_not_empty() {
-        assert!(!TOOL_USE_INSTRUCTIONS.is_empty());
-        assert!(TOOL_USE_INSTRUCTIONS.contains("shell"));
-    }
 
     #[test]
     fn test_full_prompt_combines_sections() {

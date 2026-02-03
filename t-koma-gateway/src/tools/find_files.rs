@@ -1,5 +1,5 @@
 use ignore::WalkBuilder;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::Path;
 
 use super::Tool;
@@ -101,7 +101,7 @@ impl Tool for FindFilesTool {
             };
 
             let entry_path = entry.path();
-            
+
             // Only include files (not directories)
             if !entry_path.is_file() {
                 continue;
@@ -150,24 +150,20 @@ fn file_matches_pattern(path: &Path, pattern: &str) -> bool {
             return true;
         }
         // Also try matching just the file name
-        if let Some(file_name) = path.file_name() {
-            if let Some(name_str) = file_name.to_str() {
-                // Create a simple glob for just the filename
-                if let Ok(name_glob) = globset::Glob::new(pattern) {
-                    let name_matcher = name_glob.compile_matcher();
-                    if name_matcher.is_match(name_str) {
-                        return true;
-                    }
-                }
+        if let Some(file_name) = path.file_name()
+            && let Some(name_str) = file_name.to_str()
+            && let Ok(name_glob) = globset::Glob::new(pattern)
+        {
+            let name_matcher = name_glob.compile_matcher();
+            if name_matcher.is_match(name_str) {
+                return true;
             }
         }
     }
-    
+
     // Fallback to simple pattern matching
-    let file_name = path.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
     let path_str = path.to_string_lossy();
 
     // Handle different pattern types
@@ -192,7 +188,7 @@ fn file_matches_pattern(path: &Path, pattern: &str) -> bool {
             .replace(".", "\\.")
             .replace("*", ".*")
             .replace("?", ".");
-        
+
         if let Ok(regex) = regex::Regex::new(&format!("^{}$", regex_pattern)) {
             regex.is_match(file_name)
         } else {
@@ -236,7 +232,7 @@ mod tests {
     async fn test_find_files_recursive() {
         let temp_dir = TempDir::new().unwrap();
         fs::write(temp_dir.path().join("root.rs"), "").unwrap();
-        
+
         let sub_dir = temp_dir.path().join("src");
         fs::create_dir(&sub_dir).unwrap();
         fs::write(sub_dir.join("main.rs"), "").unwrap();
@@ -294,10 +290,10 @@ mod tests {
     #[tokio::test]
     async fn test_find_files_respects_gitignore() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create .gitignore
         fs::write(temp_dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
-        
+
         fs::write(temp_dir.path().join("regular.rs"), "").unwrap();
         fs::write(temp_dir.path().join("ignored.rs"), "").unwrap();
 
@@ -308,7 +304,11 @@ mod tests {
         });
 
         let result = tool.execute(args).await.unwrap();
-        assert!(result.contains("regular.rs"), "Should contain regular.rs: {}", result);
+        assert!(
+            result.contains("regular.rs"),
+            "Should contain regular.rs: {}",
+            result
+        );
         // Note: The ignore crate may or may not respect gitignore in this context
         // depending on whether it detects a git repository. This test may need adjustment.
     }

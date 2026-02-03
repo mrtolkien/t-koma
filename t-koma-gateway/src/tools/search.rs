@@ -1,7 +1,7 @@
 use grep::regex::RegexMatcher;
-use grep::searcher::sinks::UTF8;
 use grep::searcher::Searcher;
-use serde_json::{json, Value};
+use grep::searcher::sinks::UTF8;
+use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -127,7 +127,7 @@ impl Tool for SearchTool {
         // Run search in blocking thread since grep is synchronous
         let results_clone = results.clone();
         let path_owned = path.to_string();
-        
+
         tokio::task::spawn_blocking(move || {
             let mut searcher = Searcher::new();
 
@@ -156,7 +156,8 @@ impl Tool for SearchTool {
                     file_path,
                     UTF8(move |line_num, line| {
                         let line_clean = line.trim_end();
-                        let result_line = format!("{}:{}: {}", file_path.display(), line_num, line_clean);
+                        let result_line =
+                            format!("{}:{}: {}", file_path.display(), line_num, line_clean);
                         if let Ok(mut guard) = results_inner.lock() {
                             guard.push(result_line);
                         }
@@ -202,18 +203,16 @@ impl Tool for SearchTool {
 /// Check if a file is likely binary based on extension
 fn is_binary_file(path: &Path) -> bool {
     let binary_extensions = [
-        "exe", "dll", "so", "dylib", "bin", "o", "obj", "a", "lib",
-        "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg",
-        "mp3", "mp4", "wav", "avi", "mov", "webm",
-        "zip", "tar", "gz", "bz2", "xz", "7z", "rar",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "db", "sqlite", "sqlite3",
+        "exe", "dll", "so", "dylib", "bin", "o", "obj", "a", "lib", "png", "jpg", "jpeg", "gif",
+        "bmp", "ico", "svg", "mp3", "mp4", "wav", "avi", "mov", "webm", "zip", "tar", "gz", "bz2",
+        "xz", "7z", "rar", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "db", "sqlite",
+        "sqlite3",
     ];
 
-    if let Some(ext) = path.extension() {
-        if let Some(ext_str) = ext.to_str() {
-            return binary_extensions.contains(&ext_str.to_lowercase().as_str());
-        }
+    if let Some(ext) = path.extension()
+        && let Some(ext_str) = ext.to_str()
+    {
+        return binary_extensions.contains(&ext_str.to_lowercase().as_str());
     }
 
     false
@@ -297,7 +296,7 @@ mod tests {
         writeln!(file, "hello").unwrap();
 
         let tool = SearchTool;
-        
+
         // Case insensitive (default) - should find both
         let args = json!({
             "pattern": "hello",
@@ -320,7 +319,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_glob_filter() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let rs_path = temp_dir.path().join("test.rs");
         let mut rs_file = std::fs::File::create(&rs_path).unwrap();
         writeln!(rs_file, "fn main() {{}}").unwrap();
@@ -344,11 +343,11 @@ mod tests {
     #[tokio::test]
     async fn test_search_respects_gitignore() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create .gitignore
         let gitignore_path = temp_dir.path().join(".gitignore");
         std::fs::write(&gitignore_path, "ignored.txt\n").unwrap();
-        
+
         // Create regular file
         let file_path = temp_dir.path().join("regular.txt");
         std::fs::write(&file_path, "target").unwrap();

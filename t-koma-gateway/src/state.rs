@@ -1,5 +1,4 @@
 use tokio::sync::broadcast;
-use tracing::info;
 
 use crate::models::anthropic::AnthropicClient;
 use crate::session::{ChatError, SessionChat};
@@ -14,10 +13,7 @@ pub enum LogEntry {
         content: String,
     },
     /// AI response sent to Discord
-    DiscordResponse {
-        user: String,
-        content: String,
-    },
+    DiscordResponse { user: String, content: String },
     /// HTTP request handled
     HttpRequest {
         method: String,
@@ -25,14 +21,9 @@ pub enum LogEntry {
         status: u16,
     },
     /// WebSocket event
-    WebSocket {
-        event: String,
-        client_id: String,
-    },
+    WebSocket { event: String, client_id: String },
     /// General info message
-    Info {
-        message: String,
-    },
+    Info { message: String },
 }
 
 impl std::fmt::Display for LogEntry {
@@ -65,16 +56,10 @@ impl std::fmt::Display for LogEntry {
                 method,
                 path,
                 status,
-            } => write!(
-                f,
-                "[{}] [HTTP] {} {} {}",
-                timestamp, method, path, status
-            ),
-            LogEntry::WebSocket { event, client_id } => write!(
-                f,
-                "[{}] [WS] {} {}",
-                timestamp, event, client_id
-            ),
+            } => write!(f, "[{}] [HTTP] {} {} {}", timestamp, method, path, status),
+            LogEntry::WebSocket { event, client_id } => {
+                write!(f, "[{}] [WS] {} {}", timestamp, event, client_id)
+            }
             LogEntry::Info { message } => {
                 write!(f, "[{}] [INFO] {}", timestamp, message)
             }
@@ -102,7 +87,7 @@ impl AppState {
     pub fn new(anthropic: AnthropicClient, db: t_koma_db::DbPool) -> Self {
         let (log_tx, _) = broadcast::channel(100);
         let session_chat = SessionChat::new(db.clone(), anthropic.clone());
-        
+
         Self {
             anthropic,
             log_tx,
@@ -231,13 +216,21 @@ impl AppState {
             // Execute tools and get results
             let mut tool_results = Vec::new();
             for block in &response.content {
-                let crate::models::anthropic::ContentBlock::ToolUse { id, name, input } = block else {
+                let crate::models::anthropic::ContentBlock::ToolUse { id, name, input } = block
+                else {
                     continue;
                 };
 
-                info!("[session:{}] Executing tool: {} (id: {})", session_id, name, id);
+                info!(
+                    "[session:{}] Executing tool: {} (id: {})",
+                    session_id, name, id
+                );
 
-                let result = self.session_chat.tool_manager.execute(name, input.clone()).await;
+                let result = self
+                    .session_chat
+                    .tool_manager
+                    .execute(name, input.clone())
+                    .await;
 
                 let content = match result {
                     Ok(output) => output,
@@ -285,7 +278,11 @@ impl AppState {
         info!(
             "[session:{}] Claude final response: {}",
             session_id,
-            if text.len() > 100 { &text[..100] } else { &text }
+            if text.len() > 100 {
+                &text[..100]
+            } else {
+                &text
+            }
         );
 
         let final_content = vec![t_koma_db::ContentBlock::Text { text: text.clone() }];
