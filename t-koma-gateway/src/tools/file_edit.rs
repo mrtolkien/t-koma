@@ -4,9 +4,8 @@ use super::Tool;
 
 pub struct FileEditTool;
 
-impl FileEditTool {
-    pub const PROMPT: &'static str = r#"
-## File Editing
+/// Detailed instructions for using the replace tool
+const FILE_EDIT_PROMPT: &str = r#"## File Editing
 
 You have access to a `replace` tool for modifying files.
 When using this tool, you must follow these rules:
@@ -49,7 +48,6 @@ To change `x = 1` to `x = 2` inside a function:
 x = 1
 ```
 "#;
-}
 
 #[async_trait::async_trait]
 impl Tool for FileEditTool {
@@ -59,6 +57,10 @@ impl Tool for FileEditTool {
 
     fn description(&self) -> &str {
         "Replaces text within a file. By default, replaces a single occurrence, but can replace multiple occurrences when `expected_replacements` is specified. `old_string` must match the file content exactly, including whitespace and newlines."
+    }
+
+    fn prompt(&self) -> Option<&'static str> {
+        Some(FILE_EDIT_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

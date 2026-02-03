@@ -16,6 +16,11 @@ impl Tool for ShellTool {
         "Executes a shell command on the host system. Use with caution. Returns stdout and stderr."
     }
 
+    fn prompt(&self) -> Option<&'static str> {
+        // Shell tool doesn't need additional instructions
+        None
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

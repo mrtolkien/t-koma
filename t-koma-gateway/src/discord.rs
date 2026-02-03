@@ -158,13 +158,12 @@ impl EventHandler for Bot {
             Some(50), // Limit to last 50 messages
         );
 
-        // Get system prompt with caching
-        let system_prompt = crate::prompt::SystemPrompt::new();
-        let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
-
-        // Create shell tool for execution
+        // Build system prompt with tool instructions
         let shell_tool = crate::tools::shell::ShellTool;
-        let tools: Vec<&dyn crate::tools::Tool> = vec![&shell_tool];
+        let file_edit_tool = crate::tools::file_edit::FileEditTool;
+        let tools: Vec<&dyn crate::tools::Tool> = vec![&shell_tool, &file_edit_tool];
+        let system_prompt = crate::prompt::SystemPrompt::with_tools(&tools);
+        let system_blocks = crate::models::anthropic::prompt::build_anthropic_system_prompt(&system_prompt);
 
         info!(
             "Sending message to Claude for user {} in session {} ({} history messages)",

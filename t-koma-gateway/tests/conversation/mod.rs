@@ -8,4 +8,5 @@
 //!
 //! Run with: cargo test --features live-tests conversation
 
+pub mod file_operations;
 pub mod multi_turn;

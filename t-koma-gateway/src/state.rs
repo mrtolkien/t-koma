@@ -2,7 +2,6 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 
 use crate::models::anthropic::AnthropicClient;
-use crate::tools::Tool;
 
 /// Log entry for broadcasting events to listeners
 #[derive(Debug, Clone)]
@@ -139,115 +138,217 @@ impl AppState {
         new_message: Option<&str>,
         model: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::models::anthropic::{AnthropicClient, ContentBlock};
         use crate::models::anthropic::history::build_api_messages;
-        use t_koma_db::{ContentBlock as DbContentBlock, MessageRole, SessionRepository};
+        use t_koma_db::SessionRepository;
 
-        // Initial request
-        let mut response = self.anthropic.send_conversation(
-            Some(system_blocks.clone()),
-            api_messages.clone(),
-            tools.clone(),
-            new_message,
-            None,
-            None,
-        ).await?;
+        // Initial request to Claude
+        let mut response = self
+            .anthropic
+            .send_conversation(
+                Some(system_blocks.clone()),
+                api_messages.clone(),
+                tools.clone(),
+                new_message,
+                None,
+                None,
+            )
+            .await?;
 
         // Handle tool use loop (max 5 iterations to prevent infinite loops)
         for iteration in 0..5 {
-            let has_tool_use = response.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
-            
+            let has_tool_use = self.response_has_tool_use(&response);
+
             if !has_tool_use {
-                // No tool use, we're done
                 break;
             }
 
-            info!("[session:{}] Tool use detected (iteration {})", session_id, iteration + 1);
-
-            // Build content blocks for the assistant message (includes tool_use)
-            let assistant_content: Vec<DbContentBlock> = response.content.iter().map(|block| {
-                match block {
-                    ContentBlock::Text { text } => DbContentBlock::Text { text: text.clone() },
-                    ContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input: input.clone(),
-                    },
-                }
-            }).collect();
-
-            // Save assistant message with tool_use
-            if let Err(e) = SessionRepository::add_message(
-                self.db.pool(),
+            info!(
+                "[session:{}] Tool use detected (iteration {})",
                 session_id,
-                MessageRole::Assistant,
-                assistant_content,
-                Some(model),
-            ).await {
-                error!("[session:{}] Failed to save assistant message: {}", session_id, e);
-            }
+                iteration + 1
+            );
 
-            // Execute tools and build tool results
-            let mut tool_results = Vec::new();
-            for block in &response.content {
-                if let ContentBlock::ToolUse { id, name, input } = block {
-                    info!("[session:{}] Executing tool: {} (id: {})", session_id, name, id);
-                    
-                    // Find and execute the tool
-                    let result = if name == "run_shell_command" {
-                        let shell_tool = crate::tools::shell::ShellTool;
-                        shell_tool.execute(input.clone()).await
-                    } else {
-                        Err(format!("Unknown tool: {}", name))
-                    };
+            // Save assistant message with tool_use blocks
+            self.save_assistant_response(session_id, model, &response)
+                .await;
 
-                    let content = match result {
-                        Ok(output) => output,
-                        Err(e) => format!("Error: {}", e),
-                    };
+            // Execute tools and get results
+            let tool_results = self.execute_tools_from_response(session_id, &response).await;
 
-                    tool_results.push(DbContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
-                        content,
-                        is_error: None,
-                    });
-                }
-            }
-
-            // Save tool results
-            if let Err(e) = SessionRepository::add_message(
-                self.db.pool(),
-                session_id,
-                MessageRole::User,
-                tool_results.clone(),
-                None,
-            ).await {
-                error!("[session:{}] Failed to save tool results: {}", session_id, e);
-            }
+            // Save tool results to database
+            self.save_tool_results(session_id, &tool_results).await;
 
             // Build new API messages including the tool results
             let history = SessionRepository::get_messages(self.db.pool(), session_id).await?;
             let new_api_messages = build_api_messages(&history, Some(50));
 
             // Send tool results back to Claude
-            response = self.anthropic.send_conversation(
-                Some(system_blocks.clone()),
-                new_api_messages,
-                tools.clone(),
-                None, // No new user message, just continuing with tool results
-                None,
-                None,
-            ).await?;
+            response = self
+                .anthropic
+                .send_conversation(
+                    Some(system_blocks.clone()),
+                    new_api_messages,
+                    tools.clone(),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
         }
 
-        // Extract final text response
-        let text = AnthropicClient::extract_all_text(&response);
+        // Extract and save final text response
+        let text = self.finalize_response(session_id, model, &response).await;
 
-        info!("[session:{}] Claude final response: {}",
+        Ok(text)
+    }
+
+    /// Check if a response contains any tool use blocks
+    fn response_has_tool_use(
+        &self,
+        response: &crate::models::anthropic::MessagesResponse,
+    ) -> bool {
+        use crate::models::anthropic::ContentBlock;
+        response
+            .content
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+    }
+
+    /// Save an assistant response (with tool_use blocks) to the database
+    async fn save_assistant_response(
+        &self,
+        session_id: &str,
+        model: &str,
+        response: &crate::models::anthropic::MessagesResponse,
+    ) {
+        use crate::models::anthropic::ContentBlock;
+        use t_koma_db::{ContentBlock as DbContentBlock, MessageRole, SessionRepository};
+
+        let assistant_content: Vec<DbContentBlock> = response
+            .content
+            .iter()
+            .map(|block| match block {
+                ContentBlock::Text { text } => DbContentBlock::Text { text: text.clone() },
+                ContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
+                    id: id.clone(),
+                    name: name.clone(),
+                    input: input.clone(),
+                },
+            })
+            .collect();
+
+        if let Err(e) = SessionRepository::add_message(
+            self.db.pool(),
             session_id,
-            if text.len() > 100 { &text[..100] } else { &text });
+            MessageRole::Assistant,
+            assistant_content,
+            Some(model),
+        )
+        .await
+        {
+            error!("[session:{}] Failed to save assistant message: {}", session_id, e);
+        }
+    }
 
-        // Save final assistant response
+    /// Execute all tool_use blocks from a response and return the results
+    async fn execute_tools_from_response(
+        &self,
+        session_id: &str,
+        response: &crate::models::anthropic::MessagesResponse,
+    ) -> Vec<t_koma_db::ContentBlock> {
+        use crate::models::anthropic::ContentBlock;
+        use t_koma_db::ContentBlock as DbContentBlock;
+
+        let mut tool_results = Vec::new();
+
+        for block in &response.content {
+            let ContentBlock::ToolUse { id, name, input } = block else {
+                continue;
+            };
+
+            info!("[session:{}] Executing tool: {} (id: {})", session_id, name, id);
+
+            let result = self.execute_tool_by_name(name.as_str(), input.clone()).await;
+
+            let content = match result {
+                Ok(output) => output,
+                Err(e) => format!("Error: {}", e),
+            };
+
+            tool_results.push(DbContentBlock::ToolResult {
+                tool_use_id: id.clone(),
+                content,
+                is_error: None,
+            });
+        }
+
+        tool_results
+    }
+
+    /// Execute a tool by name with the given input
+    async fn execute_tool_by_name(
+        &self,
+        name: &str,
+        input: serde_json::Value,
+    ) -> Result<String, String> {
+        use crate::tools::{file_edit::FileEditTool, shell::ShellTool, Tool};
+
+        match name {
+            "run_shell_command" => {
+                let tool = ShellTool;
+                tool.execute(input).await
+            }
+            "replace" => {
+                let tool = FileEditTool;
+                tool.execute(input).await
+            }
+            _ => Err(format!("Unknown tool: {}", name)),
+        }
+    }
+
+    /// Save tool results to the database
+    async fn save_tool_results(
+        &self,
+        session_id: &str,
+        tool_results: &[t_koma_db::ContentBlock],
+    ) {
+        use t_koma_db::{MessageRole, SessionRepository};
+
+        if let Err(e) = SessionRepository::add_message(
+            self.db.pool(),
+            session_id,
+            MessageRole::User,
+            tool_results.to_vec(),
+            None,
+        )
+        .await
+        {
+            error!("[session:{}] Failed to save tool results: {}", session_id, e);
+        }
+    }
+
+    /// Extract final text response and save it to the database
+    async fn finalize_response(
+        &self,
+        session_id: &str,
+        model: &str,
+        response: &crate::models::anthropic::MessagesResponse,
+    ) -> String {
+        use crate::models::anthropic::AnthropicClient;
+        use t_koma_db::{ContentBlock as DbContentBlock, MessageRole, SessionRepository};
+
+        let text = AnthropicClient::extract_all_text(response);
+
+        info!(
+            "[session:{}] Claude final response: {}",
+            session_id,
+            if text.len() > 100 {
+                &text[..100]
+            } else {
+                &text
+            }
+        );
+
         let final_content = vec![DbContentBlock::Text { text: text.clone() }];
         if let Err(e) = SessionRepository::add_message(
             self.db.pool(),
@@ -255,11 +356,16 @@ impl AppState {
             MessageRole::Assistant,
             final_content,
             Some(model),
-        ).await {
-            error!("[session:{}] Failed to save final assistant message: {}", session_id, e);
+        )
+        .await
+        {
+            error!(
+                "[session:{}] Failed to save final assistant message: {}",
+                session_id, e
+            );
         }
 
-        Ok(text)
+        text
     }
 }
 
