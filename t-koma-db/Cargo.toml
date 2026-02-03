@@ -34,6 +34,9 @@ dirs = "5.0"
 # Tracing
 tracing = { workspace = true }
 
+# UUIDs
+uuid = { version = "1.12", features = ["v4"] }
+
 [features]
 default = []
 test-helpers = []

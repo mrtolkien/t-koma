@@ -97,7 +97,7 @@ impl SessionRepository {
         user_id: &str,
         title: Option<&str>,
     ) -> DbResult<Session> {
-        let id = format!("sess_{}", uuid::new_v4());
+        let id = format!("sess_{}", uuid::Uuid::new_v4());
         let title = title.unwrap_or("New Session").to_string();
         let now = Utc::now();
 
@@ -321,7 +321,7 @@ impl SessionRepository {
         content: Vec<ContentBlock>,
         model: Option<&str>,
     ) -> DbResult<Message> {
-        let id = format!("msg_{}", uuid::new_v4());
+        let id = format!("msg_{}", uuid::Uuid::new_v4());
         let now = Utc::now();
         let content_json = serde_json::to_string(&content)
             .map_err(|e| DbError::Serialization(e.to_string()))?;
@@ -550,17 +550,6 @@ impl std::str::FromStr for MessageRole {
             "assistant" => Ok(MessageRole::Assistant),
             _ => Err(()),
         }
-    }
-}
-
-// UUID generation helper
-mod uuid {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(1);
-
-    pub fn new_v4() -> String {
-        format!("{:016x}", COUNTER.fetch_add(1, Ordering::SeqCst))
     }
 }
 

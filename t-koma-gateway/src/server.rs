@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{ws::WebSocketUpgrade, State},
+    extract::{ws::WebSocketUpgrade, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use crate::state::{AppState, LogEntry};
-use crate::models::anthropic::AnthropicClient;
+use crate::models::provider::extract_text;
 
 /// Chat request from HTTP API
 #[derive(Debug, Deserialize)]
@@ -56,6 +56,11 @@ pub struct UserStatusResponse {
     pub user_id: String,
     pub status: String,
     pub allowed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WsQuery {
+    pub client: Option<String>,
 }
 
 /// Run the HTTP server
@@ -155,9 +160,12 @@ async fn chat_handler(
         Err(response) => return response.into_response(),
     };
 
-    match state.anthropic.send_message(&request.content).await {
+    let model_entry = state.default_model();
+    let provider = model_entry.client.as_ref();
+
+    match provider.send_message(&request.content).await {
         Ok(response) => {
-            let content = AnthropicClient::extract_text(&response)
+            let content = extract_text(&response)
                 .unwrap_or_else(|| "(no response)".to_string());
 
             let chat_response = ChatResponse {
@@ -180,7 +188,7 @@ async fn chat_handler(
             (StatusCode::OK, Json(Ok::<_, ErrorResponse>(chat_response))).into_response()
         }
         Err(e) => {
-            error!("Anthropic API error: {}", e);
+            error!("Provider API error: {}", e);
             
             // Log the error
             state.log(LogEntry::HttpRequest {
@@ -190,7 +198,7 @@ async fn chat_handler(
             }).await;
 
             let error_response = ErrorResponse {
-                error: format!("Anthropic API error: {}", e),
+                error: format!("Provider API error: {}", e),
             };
             (StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
         }
@@ -201,8 +209,9 @@ async fn chat_handler(
 async fn ws_handler(
     State(state): State<Arc<AppState>>,
     ws: WebSocketUpgrade,
+    Query(query): Query<WsQuery>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_websocket(socket, state))
+    ws.on_upgrade(move |socket| handle_websocket(socket, state, query.client))
 }
 
 /// WebSocket upgrade handler for logs
@@ -214,7 +223,11 @@ async fn logs_ws_handler(
 }
 
 /// Handle chat WebSocket connection
-async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppState>) {
+async fn handle_websocket(
+    socket: axum::extract::ws::WebSocket,
+    state: Arc<AppState>,
+    client_type: Option<String>,
+) {
     use axum::extract::ws::Message;
     use futures::{sink::SinkExt, stream::StreamExt};
     use t_koma_core::{WsMessage, WsResponse};
@@ -229,17 +242,25 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
     }).await;
 
     let (mut sender, mut receiver) = socket.split();
+    
+    // Track selected provider for this connection (defaults to gateway default)
+    let default_model = state.default_model();
+    let mut selected_model_alias: String = default_model.alias.clone();
 
     // Get or create user for this WebSocket connection
     // For WebSocket, we use the client_id as the user_id
     let user_id = client_id.clone();
     let user_name = format!("WS Client {}", &client_id[..8]);
+    let platform = match client_type.as_deref() {
+        Some("cli") => t_koma_db::Platform::Cli,
+        _ => t_koma_db::Platform::Api,
+    };
     
     let user = match t_koma_db::UserRepository::get_or_create(
         state.db.pool(),
         &user_id,
         &user_name,
-        t_koma_db::Platform::Api,
+        platform,
     ).await {
         Ok(u) => u,
         Err(e) => {
@@ -254,8 +275,10 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
         }
     };
 
-    // Check if user is approved
-    if user.status != t_koma_db::UserStatus::Approved {
+    // Check if user is approved (CLI connections are allowed without approval)
+    if platform != t_koma_db::Platform::Cli
+        && user.status != t_koma_db::UserStatus::Approved
+    {
         let status_msg = match user.status {
             t_koma_db::UserStatus::Pending => "Your access request is pending approval".to_string(),
             t_koma_db::UserStatus::Denied => "Your access request was denied".to_string(),
@@ -323,6 +346,70 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
         match msg {
             Message::Text(text) => {
                 match serde_json::from_str::<WsMessage>(&text) {
+                    Ok(WsMessage::SelectProvider { provider, model }) => {
+                        let provider_name = provider.as_str();
+                        
+                        let entry = match state.get_model_by_provider_and_id(provider_name, &model) {
+                            Some(entry) => entry,
+                            None => {
+                                let error_response = WsResponse::Error {
+                                    message: format!(
+                                        "Model '{}' for provider '{}' is not configured",
+                                        model, provider_name
+                                    ),
+                                };
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&error_response).unwrap().into(),
+                                    ))
+                                    .await;
+                                continue;
+                            }
+                        };
+
+                        selected_model_alias = entry.alias.clone();
+                        
+                        info!(
+                            "Client {} selected provider: {} with model: {}",
+                            client_id, entry.provider, entry.model
+                        );
+                        
+                        let response = WsResponse::ProviderSelected {
+                            provider: entry.provider.clone(),
+                            model: entry.model.clone(),
+                        };
+                        let _ = sender.send(Message::Text(
+                            serde_json::to_string(&response).unwrap().into()
+                        )).await;
+                    }
+                    Ok(WsMessage::ListAvailableModels { provider }) => {
+                        let provider_name = provider.as_str();
+                        let models = state.list_models_for_provider(provider_name);
+                        if models.is_empty() {
+                            let error_response = WsResponse::Error {
+                                message: format!(
+                                    "No models configured for provider '{}'",
+                                    provider_name
+                                ),
+                            };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+
+                        let response = WsResponse::AvailableModels {
+                            provider: provider_name.to_string(),
+                            models,
+                        };
+                        let _ = sender
+                            .send(Message::Text(
+                                serde_json::to_string(&response).unwrap().into(),
+                            ))
+                            .await;
+                    }
                     Ok(WsMessage::Ping) => {
                         let pong = WsResponse::Pong;
                         let pong_json = serde_json::to_string(&pong).unwrap();
@@ -373,7 +460,7 @@ async fn handle_websocket(socket: axum::extract::ws::WebSocket, state: Arc<AppSt
                                 }
                             }
                             Err(e) => {
-                                error!("Chat error: {}", e);
+                                error!("Provider API error: {}", e);
                                 let error_response = WsResponse::Error {
                                     message: format!("Chat error: {}", e),
                                 };
