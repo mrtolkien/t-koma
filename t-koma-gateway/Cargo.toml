@@ -49,6 +49,17 @@ uuid = { version = "1.12", features = ["v4"] }
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
 async-trait = "0.1.89"
 
+# Search functionality (ripgrep core)
+grep = "0.3"
+grep-regex = "0.1"
+
+# File finding (fd-find uses this)
+ignore = "0.4"
+
+# Regex for glob matching
+regex = "1"
+globset = "0.4"
+
 [dev-dependencies]
 # For snapshot testing
 insta = { version = "1.42", features = ["json", "redactions"] }

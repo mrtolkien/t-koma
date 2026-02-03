@@ -96,12 +96,71 @@ Gateway server with both library and binary targets:
   - `context.rs`: `PromptContext` for environment and project info
 - `src/tools/`: Model-agnostic tool implementations
   - `mod.rs`: `Tool` trait with `prompt()` method for tool-specific instructions
+  - `manager.rs`: `ToolManager` - central registry for all tools
   - `shell.rs`: Shell command execution tool
   - `file_edit.rs`: File editing tool with `replace` functionality
+  - `read_file.rs`: Read file contents with line numbers and offset/limit
+  - `create_file.rs`: Create new files (fails if exists)
+  - `search.rs`: Ripgrep-based code search with regex support
+  - `find_files.rs`: fd-find style file finding with glob patterns
+  - `list_dir.rs`: List directory contents with file sizes
+- `src/session.rs`: `SessionChat` - high-level chat interface that handles ALL
+  conversation logic including tools, system prompts, and tool use loops.
+  This is the interface used by WebSocket and Discord - they don't know about tools.
 - `src/state.rs`: `AppState` with broadcast channel for logs, `LogEntry` enum,
-  and `DbPool` for database access
+  `DbPool` for database access, and `SessionChat` for chat operations
 - `src/discord.rs`: Discord bot integration using serenity, checks user approval
-  status before processing messages
+  status before processing messages. Delegates all chat to `SessionChat.chat()`.
+
+## Architecture Pattern: Session-based Chat Interface
+
+The gateway uses a **Session-based Chat Interface** pattern to keep transport layers
+(WebSocket, Discord) completely decoupled from conversation logic.
+
+### The Problem (Old Architecture)
+
+Previously, both `server.rs` and `discord.rs` knew about tools:
+```rust
+// OLD: Both interfaces knew about tools - BAD
+let shell_tool = ShellTool;
+let file_edit_tool = FileEditTool;
+let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
+let system_prompt = SystemPrompt::with_tools(&tools);
+state.send_conversation_with_tools(..., tools).await
+```
+
+This meant:
+- Adding a tool required updating multiple files
+- Interface code was polluted with tool logic
+- Hard to add new interfaces (Slack, Matrix, HTTP API)
+
+### The Solution (New Architecture)
+
+Now, transport layers simply call `state.chat()`:
+```rust
+// NEW: Clean interface - transport just sends messages
+let response = state.chat(&session_id, &user_id, message).await;
+```
+
+All complexity is hidden in `SessionChat`:
+- History management
+- System prompt building with tools
+- Tool use loop handling
+- Database persistence
+
+### Benefits
+
+1. **Single Source of Truth**: Tools defined in one place (`ToolManager`)
+2. **Plug & Play**: New interfaces just call `state.chat()`
+3. **Testable**: `SessionChat` can be unit tested independently
+4. **DRY**: No duplication of tool/conversation logic
+
+### For Developers
+
+When adding a new interface (Slack, Matrix, HTTP API):
+1. Create the transport handler
+2. Call `state.chat(session_id, user_id, message).await`
+3. That's it - all tool/conversation logic is handled automatically
 
 ## API Endpoints
 
@@ -392,6 +451,33 @@ feature for dev-dependencies.
 
 ### Adding a New Tool
 
+#### Architecture Overview
+
+Tools are centrally managed by `ToolManager` in `src/tools/manager.rs`. The interfaces
+(Discord, WebSocket) don't know about individual tools - they use `SessionChat.chat()`
+which handles all tool logic internally.
+
+```
+┌─────────────┐     ┌─────────────┐     ┌──────────────────┐
+│  Discord    │     │  WebSocket  │     │  Future: HTTP,   │
+│  (discord)  │     │  (server)   │     │  Slack, etc.     │
+└──────┬──────┘     └──────┬──────┘     └──────────────────┘
+       │                   │
+       └───────────────────┘
+               │
+               ▼
+       ┌───────────────┐
+       │  SessionChat  │
+       │  (session.rs) │  <-- All conversation/tool logic here
+       └───────┬───────┘
+               │
+               ▼
+       ┌───────────────┐
+       │  ToolManager  │
+       │  (tools/)     │  <-- Tool registry
+       └───────────────┘
+```
+
 #### Basic Implementation
 
 1. Create a new file in `t-koma-gateway/src/tools/` (e.g., `my_tool.rs`)
@@ -416,11 +502,26 @@ feature for dev-dependencies.
    }
    ```
 3. Add the tool to `t-koma-gateway/src/tools/mod.rs`
-4. Register the tool in:
-   - `server.rs`: Add to the tools vector in WebSocket handler
-   - `discord.rs`: Add to the tools vector in message handler
-   - `state.rs`: Add case to `execute_tool_by_name()` match statement
-5. Tool prompts are automatically composed into the system prompt via `SystemPrompt::with_tools()`
+4. **Register the tool in `ToolManager`**:
+   ```rust
+   // In t-koma-gateway/src/tools/manager.rs
+   use super::{
+       // ... existing imports ...
+       my_tool::MyTool,  // Add your new tool
+   };
+
+   impl ToolManager {
+       pub fn new() -> Self {
+           let tools: Vec<Box<dyn Tool>> = vec![
+               // ... existing tools ...
+               Box::new(MyTool),  // Register here
+           ];
+           Self { tools }
+       }
+   }
+   ```
+5. That's it! `ToolManager` exposes tools to `SessionChat`, which handles everything.
+   No changes needed in `server.rs`, `discord.rs`, or `state.rs`.
 
 #### Best Practices
 

@@ -1,7 +1,8 @@
 use tokio::sync::broadcast;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::models::anthropic::AnthropicClient;
+use crate::session::{ChatError, SessionChat};
 
 /// Log entry for broadcasting events to listeners
 #[derive(Debug, Clone)]
@@ -82,6 +83,9 @@ impl std::fmt::Display for LogEntry {
 }
 
 /// Shared application state
+///
+/// This holds all shared resources and provides the main interface for
+/// handling chat conversations through `session_chat`.
 pub struct AppState {
     /// Anthropic API client
     pub anthropic: AnthropicClient,
@@ -89,15 +93,21 @@ pub struct AppState {
     log_tx: broadcast::Sender<LogEntry>,
     /// Database pool
     pub db: t_koma_db::DbPool,
+    /// High-level chat interface - handles all conversation logic including tools
+    pub session_chat: SessionChat,
 }
 
 impl AppState {
+    /// Create a new AppState with the given Anthropic client and database
     pub fn new(anthropic: AnthropicClient, db: t_koma_db::DbPool) -> Self {
         let (log_tx, _) = broadcast::channel(100);
+        let session_chat = SessionChat::new(db.clone(), anthropic.clone());
+        
         Self {
             anthropic,
             log_tx,
             db,
+            session_chat,
         }
     }
 
@@ -111,13 +121,31 @@ impl AppState {
         let _ = self.log_tx.send(entry);
     }
 
-    /// Send a conversation to Claude with full tool use loop support
+    /// Send a chat message and get the AI response
     ///
-    /// This is the main entry point for AI conversations - it handles:
-    /// 1. Sending the conversation to Claude
-    /// 2. Detecting if Claude wants to use tools
-    /// 3. Executing tools and sending results back
-    /// 4. Returning the final text response
+    /// This is a convenience method that delegates to `session_chat.chat()`.
+    /// All conversation logic (history, tools, system prompts) is handled internally.
+    ///
+    /// # Arguments
+    /// * `session_id` - The session ID to chat in
+    /// * `user_id` - The user ID (for session ownership verification)
+    /// * `message` - The user's message content
+    ///
+    /// # Returns
+    /// The final text response from Claude
+    pub async fn chat(
+        &self,
+        session_id: &str,
+        user_id: &str,
+        message: &str,
+    ) -> Result<String, ChatError> {
+        self.session_chat.chat(session_id, user_id, message).await
+    }
+
+    /// Low-level conversation method with full tool use loop support
+    ///
+    /// This is primarily intended for integration tests that need explicit control
+    /// over the conversation flow. Normal interfaces should use `chat()` instead.
     ///
     /// # Arguments
     /// * `session_id` - The session ID for logging
@@ -129,6 +157,7 @@ impl AppState {
     ///
     /// # Returns
     /// The final text response from Claude after all tool use is complete
+    #[cfg(feature = "live-tests")]
     pub async fn send_conversation_with_tools(
         &self,
         session_id: &str,
@@ -140,6 +169,7 @@ impl AppState {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         use crate::models::anthropic::history::build_api_messages;
         use t_koma_db::SessionRepository;
+        use tracing::info;
 
         // Initial request to Claude
         let mut response = self
@@ -156,7 +186,10 @@ impl AppState {
 
         // Handle tool use loop (max 5 iterations to prevent infinite loops)
         for iteration in 0..5 {
-            let has_tool_use = self.response_has_tool_use(&response);
+            let has_tool_use = response
+                .content
+                .iter()
+                .any(|b| matches!(b, crate::models::anthropic::ContentBlock::ToolUse { .. }));
 
             if !has_tool_use {
                 break;
@@ -169,14 +202,64 @@ impl AppState {
             );
 
             // Save assistant message with tool_use blocks
-            self.save_assistant_response(session_id, model, &response)
-                .await;
+            let assistant_content: Vec<t_koma_db::ContentBlock> = response
+                .content
+                .iter()
+                .map(|block| match block {
+                    crate::models::anthropic::ContentBlock::Text { text } => {
+                        t_koma_db::ContentBlock::Text { text: text.clone() }
+                    }
+                    crate::models::anthropic::ContentBlock::ToolUse { id, name, input } => {
+                        t_koma_db::ContentBlock::ToolUse {
+                            id: id.clone(),
+                            name: name.clone(),
+                            input: input.clone(),
+                        }
+                    }
+                })
+                .collect();
+
+            let _ = SessionRepository::add_message(
+                self.db.pool(),
+                session_id,
+                t_koma_db::MessageRole::Assistant,
+                assistant_content,
+                Some(model),
+            )
+            .await;
 
             // Execute tools and get results
-            let tool_results = self.execute_tools_from_response(session_id, &response).await;
+            let mut tool_results = Vec::new();
+            for block in &response.content {
+                let crate::models::anthropic::ContentBlock::ToolUse { id, name, input } = block else {
+                    continue;
+                };
+
+                info!("[session:{}] Executing tool: {} (id: {})", session_id, name, id);
+
+                let result = self.session_chat.tool_manager.execute(name, input.clone()).await;
+
+                let content = match result {
+                    Ok(output) => output,
+                    Err(e) => format!("Error: {}", e),
+                };
+
+                tool_results.push(t_koma_db::ContentBlock::ToolResult {
+                    tool_use_id: id.clone(),
+                    content,
+                    is_error: None,
+                });
+            }
 
             // Save tool results to database
-            self.save_tool_results(session_id, &tool_results).await;
+            let _ = SessionRepository::add_message(
+                self.db.pool(),
+                session_id,
+                t_koma_db::MessageRole::User,
+                tool_results,
+                None,
+            )
+            .await;
 
             // Build new API messages including the tool results
             let history = SessionRepository::get_messages(self.db.pool(), session_id).await?;
@@ -197,175 +280,25 @@ impl AppState {
         }
 
         // Extract and save final text response
-        let text = self.finalize_response(session_id, model, &response).await;
-
-        Ok(text)
-    }
-
-    /// Check if a response contains any tool use blocks
-    fn response_has_tool_use(
-        &self,
-        response: &crate::models::anthropic::MessagesResponse,
-    ) -> bool {
-        use crate::models::anthropic::ContentBlock;
-        response
-            .content
-            .iter()
-            .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
-    }
-
-    /// Save an assistant response (with tool_use blocks) to the database
-    async fn save_assistant_response(
-        &self,
-        session_id: &str,
-        model: &str,
-        response: &crate::models::anthropic::MessagesResponse,
-    ) {
-        use crate::models::anthropic::ContentBlock;
-        use t_koma_db::{ContentBlock as DbContentBlock, MessageRole, SessionRepository};
-
-        let assistant_content: Vec<DbContentBlock> = response
-            .content
-            .iter()
-            .map(|block| match block {
-                ContentBlock::Text { text } => DbContentBlock::Text { text: text.clone() },
-                ContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
-                    id: id.clone(),
-                    name: name.clone(),
-                    input: input.clone(),
-                },
-            })
-            .collect();
-
-        if let Err(e) = SessionRepository::add_message(
-            self.db.pool(),
-            session_id,
-            MessageRole::Assistant,
-            assistant_content,
-            Some(model),
-        )
-        .await
-        {
-            error!("[session:{}] Failed to save assistant message: {}", session_id, e);
-        }
-    }
-
-    /// Execute all tool_use blocks from a response and return the results
-    async fn execute_tools_from_response(
-        &self,
-        session_id: &str,
-        response: &crate::models::anthropic::MessagesResponse,
-    ) -> Vec<t_koma_db::ContentBlock> {
-        use crate::models::anthropic::ContentBlock;
-        use t_koma_db::ContentBlock as DbContentBlock;
-
-        let mut tool_results = Vec::new();
-
-        for block in &response.content {
-            let ContentBlock::ToolUse { id, name, input } = block else {
-                continue;
-            };
-
-            info!("[session:{}] Executing tool: {} (id: {})", session_id, name, id);
-
-            let result = self.execute_tool_by_name(name.as_str(), input.clone()).await;
-
-            let content = match result {
-                Ok(output) => output,
-                Err(e) => format!("Error: {}", e),
-            };
-
-            tool_results.push(DbContentBlock::ToolResult {
-                tool_use_id: id.clone(),
-                content,
-                is_error: None,
-            });
-        }
-
-        tool_results
-    }
-
-    /// Execute a tool by name with the given input
-    async fn execute_tool_by_name(
-        &self,
-        name: &str,
-        input: serde_json::Value,
-    ) -> Result<String, String> {
-        use crate::tools::{file_edit::FileEditTool, shell::ShellTool, Tool};
-
-        match name {
-            "run_shell_command" => {
-                let tool = ShellTool;
-                tool.execute(input).await
-            }
-            "replace" => {
-                let tool = FileEditTool;
-                tool.execute(input).await
-            }
-            _ => Err(format!("Unknown tool: {}", name)),
-        }
-    }
-
-    /// Save tool results to the database
-    async fn save_tool_results(
-        &self,
-        session_id: &str,
-        tool_results: &[t_koma_db::ContentBlock],
-    ) {
-        use t_koma_db::{MessageRole, SessionRepository};
-
-        if let Err(e) = SessionRepository::add_message(
-            self.db.pool(),
-            session_id,
-            MessageRole::User,
-            tool_results.to_vec(),
-            None,
-        )
-        .await
-        {
-            error!("[session:{}] Failed to save tool results: {}", session_id, e);
-        }
-    }
-
-    /// Extract final text response and save it to the database
-    async fn finalize_response(
-        &self,
-        session_id: &str,
-        model: &str,
-        response: &crate::models::anthropic::MessagesResponse,
-    ) -> String {
-        use crate::models::anthropic::AnthropicClient;
-        use t_koma_db::{ContentBlock as DbContentBlock, MessageRole, SessionRepository};
-
-        let text = AnthropicClient::extract_all_text(response);
+        let text = crate::models::anthropic::AnthropicClient::extract_all_text(&response);
 
         info!(
             "[session:{}] Claude final response: {}",
             session_id,
-            if text.len() > 100 {
-                &text[..100]
-            } else {
-                &text
-            }
+            if text.len() > 100 { &text[..100] } else { &text }
         );
 
-        let final_content = vec![DbContentBlock::Text { text: text.clone() }];
-        if let Err(e) = SessionRepository::add_message(
+        let final_content = vec![t_koma_db::ContentBlock::Text { text: text.clone() }];
+        let _ = SessionRepository::add_message(
             self.db.pool(),
             session_id,
-            MessageRole::Assistant,
+            t_koma_db::MessageRole::Assistant,
             final_content,
             Some(model),
         )
-        .await
-        {
-            error!(
-                "[session:{}] Failed to save final assistant message: {}",
-                session_id, e
-            );
-        }
+        .await;
 
-        text
+        Ok(text)
     }
 }
 
