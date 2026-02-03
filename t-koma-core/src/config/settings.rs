@@ -38,6 +38,10 @@ pub struct Settings {
     /// OpenRouter-specific settings
     #[serde(default)]
     pub openrouter: OpenRouterSettings,
+
+    /// Tooling configuration
+    #[serde(default)]
+    pub tools: ToolsSettings,
 }
 
 /// Model configuration entry
@@ -97,6 +101,86 @@ pub struct LoggingSettings {
     pub file_path: Option<String>,
 }
 
+/// Tooling settings
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ToolsSettings {
+    /// Web tools settings
+    #[serde(default)]
+    pub web: WebToolsSettings,
+}
+
+/// Web tools configuration
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WebToolsSettings {
+    /// Enable all web tools
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Web search settings
+    #[serde(default)]
+    pub search: WebSearchSettings,
+
+    /// Web fetch settings
+    #[serde(default)]
+    pub fetch: WebFetchSettings,
+}
+
+/// Web search settings
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WebSearchSettings {
+    /// Enable web search tool
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Provider name (currently only "brave")
+    #[serde(default = "default_web_search_provider")]
+    pub provider: String,
+
+    /// Maximum results to return
+    #[serde(default = "default_web_search_max_results")]
+    pub max_results: usize,
+
+    /// Request timeout in seconds
+    #[serde(default = "default_web_search_timeout_seconds")]
+    pub timeout_seconds: u64,
+
+    /// Cache TTL in minutes
+    #[serde(default = "default_web_search_cache_ttl_minutes")]
+    pub cache_ttl_minutes: u64,
+
+    /// Minimum interval between requests in milliseconds
+    #[serde(default = "default_web_search_min_interval_ms")]
+    pub min_interval_ms: u64,
+}
+
+/// Web fetch settings
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WebFetchSettings {
+    /// Enable web fetch tool
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Provider name (currently only "http")
+    #[serde(default = "default_web_fetch_provider")]
+    pub provider: String,
+
+    /// Output mode ("text" or "markdown")
+    #[serde(default = "default_web_fetch_mode")]
+    pub mode: String,
+
+    /// Max content length in characters
+    #[serde(default = "default_web_fetch_max_chars")]
+    pub max_chars: usize,
+
+    /// Request timeout in seconds
+    #[serde(default = "default_web_fetch_timeout_seconds")]
+    pub timeout_seconds: u64,
+
+    /// Cache TTL in minutes
+    #[serde(default = "default_web_fetch_cache_ttl_minutes")]
+    pub cache_ttl_minutes: u64,
+}
+
 // Default value functions
 
 fn default_gateway_host() -> String {
@@ -109,6 +193,46 @@ fn default_gateway_port() -> u16 {
 
 fn default_log_level() -> String {
     "info".to_string()
+}
+
+fn default_web_search_provider() -> String {
+    "brave".to_string()
+}
+
+fn default_web_search_max_results() -> usize {
+    5
+}
+
+fn default_web_search_timeout_seconds() -> u64 {
+    30
+}
+
+fn default_web_search_cache_ttl_minutes() -> u64 {
+    15
+}
+
+fn default_web_search_min_interval_ms() -> u64 {
+    1000
+}
+
+fn default_web_fetch_provider() -> String {
+    "http".to_string()
+}
+
+fn default_web_fetch_mode() -> String {
+    "markdown".to_string()
+}
+
+fn default_web_fetch_max_chars() -> usize {
+    20000
+}
+
+fn default_web_fetch_timeout_seconds() -> u64 {
+    30
+}
+
+fn default_web_fetch_cache_ttl_minutes() -> u64 {
+    15
 }
 
 impl Default for GatewaySettings {
@@ -127,6 +251,32 @@ impl Default for LoggingSettings {
             level: default_log_level(),
             file_enabled: false,
             file_path: None,
+        }
+    }
+}
+
+impl Default for WebSearchSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_web_search_provider(),
+            max_results: default_web_search_max_results(),
+            timeout_seconds: default_web_search_timeout_seconds(),
+            cache_ttl_minutes: default_web_search_cache_ttl_minutes(),
+            min_interval_ms: default_web_search_min_interval_ms(),
+        }
+    }
+}
+
+impl Default for WebFetchSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_web_fetch_provider(),
+            mode: default_web_fetch_mode(),
+            max_chars: default_web_fetch_max_chars(),
+            timeout_seconds: default_web_fetch_timeout_seconds(),
+            cache_ttl_minutes: default_web_fetch_cache_ttl_minutes(),
         }
     }
 }
@@ -279,6 +429,25 @@ enabled = false
 level = "info"
 file_enabled = false
 # file_path = "/var/log/t-koma.log"
+
+[tools.web]
+enabled = false
+
+[tools.web.search]
+enabled = false
+provider = "brave"
+max_results = 5
+timeout_seconds = 30
+cache_ttl_minutes = 15
+min_interval_ms = 1000
+
+[tools.web.fetch]
+enabled = false
+provider = "http"
+mode = "markdown"
+max_chars = 20000
+timeout_seconds = 30
+cache_ttl_minutes = 15
 "#;
 
 #[cfg(test)]
@@ -303,6 +472,15 @@ mod tests {
 
         assert!(settings.openrouter.http_referer.is_none());
         assert!(settings.openrouter.app_name.is_none());
+
+        assert!(!settings.tools.web.enabled);
+        assert!(!settings.tools.web.search.enabled);
+        assert_eq!(settings.tools.web.search.provider, "brave");
+        assert_eq!(settings.tools.web.search.max_results, 5);
+        assert_eq!(settings.tools.web.search.min_interval_ms, 1000);
+        assert!(!settings.tools.web.fetch.enabled);
+        assert_eq!(settings.tools.web.fetch.provider, "http");
+        assert_eq!(settings.tools.web.fetch.mode, "markdown");
     }
 
     #[test]
@@ -351,6 +529,25 @@ enabled = true
 
 [logging]
 level = "debug"
+
+[tools.web]
+enabled = true
+
+[tools.web.search]
+enabled = true
+provider = "brave"
+max_results = 3
+timeout_seconds = 10
+cache_ttl_minutes = 5
+min_interval_ms = 1000
+
+[tools.web.fetch]
+enabled = true
+provider = "http"
+mode = "text"
+max_chars = 10000
+timeout_seconds = 12
+cache_ttl_minutes = 2
 "#;
 
         let settings = Settings::from_toml(toml).unwrap();
@@ -379,6 +576,14 @@ level = "debug"
         assert!(settings.discord.enabled);
 
         assert_eq!(settings.logging.level, "debug");
+
+        assert!(settings.tools.web.enabled);
+        assert!(settings.tools.web.search.enabled);
+        assert_eq!(settings.tools.web.search.max_results, 3);
+        assert_eq!(settings.tools.web.search.cache_ttl_minutes, 5);
+        assert!(settings.tools.web.fetch.enabled);
+        assert_eq!(settings.tools.web.fetch.mode, "text");
+        assert_eq!(settings.tools.web.fetch.max_chars, 10000);
     }
 
     #[test]

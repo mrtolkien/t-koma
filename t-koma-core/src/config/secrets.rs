@@ -19,6 +19,9 @@ pub struct Secrets {
     
     /// Discord bot token (env: DISCORD_BOT_TOKEN)
     pub discord_bot_token: Option<String>,
+
+    /// Brave Search API key (env: BRAVE_API_KEY)
+    pub brave_api_key: Option<String>,
 }
 
 /// Errors that can occur when loading secrets
@@ -49,6 +52,7 @@ impl Secrets {
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
             openrouter_api_key: env::var("OPENROUTER_API_KEY").ok(),
             discord_bot_token: env::var("DISCORD_BOT_TOKEN").ok(),
+            brave_api_key: env::var("BRAVE_API_KEY").ok(),
         };
         
         // Validate that at least one provider is configured
@@ -94,6 +98,7 @@ mod tests {
             env::remove_var("ANTHROPIC_API_KEY");
             env::remove_var("OPENROUTER_API_KEY");
             env::remove_var("DISCORD_BOT_TOKEN");
+            env::remove_var("BRAVE_API_KEY");
         }
     }
     
@@ -140,12 +145,14 @@ mod tests {
             env::set_var("ANTHROPIC_API_KEY", "sk-ant");
             env::set_var("OPENROUTER_API_KEY", "sk-or");
             env::set_var("DISCORD_BOT_TOKEN", "discord-token");
+            env::set_var("BRAVE_API_KEY", "brave-token");
         }
         
         let secrets = Secrets::from_env_inner().unwrap();
         assert!(secrets.anthropic_api_key.is_some());
         assert!(secrets.openrouter_api_key.is_some());
         assert_eq!(secrets.discord_bot_token, Some("discord-token".to_string()));
+        assert_eq!(secrets.brave_api_key, Some("brave-token".to_string()));
         
         let providers = secrets.available_providers();
         assert_eq!(providers.len(), 2);

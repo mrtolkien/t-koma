@@ -100,6 +100,15 @@ Full examples live in:
 - Discord bot token follows same rule.
 - WebSocket is `ws://` only; use TLS termination for production.
 
+## Web Tools
+
+- `web_search` and `web_fetch` are available when enabled in
+  `~/.config/t-koma/config.toml` under `[tools.web]`.
+- `web_search` uses the Brave Search API and requires `BRAVE_API_KEY`.
+- `web_fetch` performs HTTP fetch + HTML-to-text conversion (no JavaScript).
+- Rate limits for Brave are enforced at ~1 query/second.
+- Reference: `vibe/knowledge/web_tools.md`.
+
 ## Common Tasks (Pointer Only)
 
 Detailed how-tos are in `vibe/knowledge/`:

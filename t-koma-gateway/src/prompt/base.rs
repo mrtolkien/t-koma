@@ -49,11 +49,12 @@ pub const TOOL_USE_INSTRUCTIONS: &str = r#"## Using Tools
 You have access to tools that can interact with the system.
 
 **Available Tools:**
-- `run_shell_command`: Executes shell commands. Use this to run commands like `pwd`, `ls`, `cat`, etc.
+Tool availability depends on the current session. Use the tool definitions and
+their descriptions in the system prompt to decide which tool to call.
 
 ### Tool Use Guidelines
-- Use the `run_shell_command` tool when you need to execute shell commands
-- The tool takes a JSON object with a `command` field: `{"command": "pwd"}`
+- Use the most specific tool available for the task
+- The tool input must match the JSON schema provided
 - Always show the user what commands you're running
 - Handle errors gracefully and explain what went wrong
 - Wait for tool results before proceeding with dependent operations

@@ -5,6 +5,8 @@ pub mod search;
 pub mod find_files;
 pub mod list_dir;
 pub mod manager;
+pub mod web_fetch;
+pub mod web_search;
 
 pub use manager::ToolManager;
 pub mod load_skill;
