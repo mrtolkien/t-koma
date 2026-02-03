@@ -8,6 +8,15 @@ use tracing::{error, info};
 
 use crate::state::AppState;
 
+const INTERFACE_PROMPT: &str = "┌───────────────────────────────────────────────┐\n│ T-KOMA (ティーコマ) // INTERFACE BINDING       │\n├───────────────────────────────────────────────┤\n│ This interface must belong to:                │\n│   - an EXISTING OPERATOR (オペレータ)          │\n│   - a NEW OPERATOR (オペレータ)                │\n│                                               │\n│ Reply with:                                   │\n│   NEW  -> create a new operator               │\n│   EXISTING -> link to an existing operator    │\n└───────────────────────────────────────────────┘";
+
+const EXISTING_OPERATOR_TODO: &str =
+    "Linking an existing operator is not implemented yet. TODO.";
+
+const GHOST_NAME_PROMPT: &str = "┌───────────────────────────────────────────────┐\n│ T-KOMA (ティーコマ) // GHOST INITIALIZATION    │\n├───────────────────────────────────────────────┤\n│ PUPPET MASTER ACCESS WARNING                   │\n│ The Puppet Master has full access to this     │\n│ GHOST (ゴースト)'s memory and workspace.      │\n│                                               │\n│ Only proceed if you trust the Puppet Master.  │\n├───────────────────────────────────────────────┤\n│ Enter a GHOST name (ASCII letters/numbers,    │\n│ spaces, '-' or '_'). Example: ALPHA-01        │\n└───────────────────────────────────────────────┘";
+
+const GHOST_CREATED_HEADER: &str = "┌───────────────────────────────┐\n│ GHOST (ゴースト) ONLINE        │\n└───────────────────────────────┘";
+
 /// Discord bot handler
 ///
 /// This handler is completely decoupled from tool/conversation logic.
@@ -20,6 +29,31 @@ impl Bot {
     pub fn new(state: Arc<AppState>) -> Self {
         Self { state }
     }
+}
+
+fn parse_ghost_selection(content: &str) -> Option<String> {
+    let trimmed = content.trim();
+    let lower = trimmed.to_lowercase();
+    if lower.starts_with("ghost:") || lower.starts_with("ghost ") {
+        Some(trimmed[6..].trim().to_string())
+    } else {
+        None
+    }
+}
+
+fn format_ghost_list(ghosts: &[t_koma_db::Ghost]) -> String {
+    let mut lines = vec![
+        "┌───────────────────────────────┐".to_string(),
+        "│ AVAILABLE GHOSTS (ゴースト)   │".to_string(),
+        "├───────────────────────────────┤".to_string(),
+    ];
+
+    for ghost in ghosts {
+        lines.push(format!("│ - {}", ghost.name));
+    }
+
+    lines.push("└───────────────────────────────┘".to_string());
+    lines.join("\n")
 }
 
 #[async_trait]
@@ -38,68 +72,14 @@ impl EventHandler for Bot {
             return;
         }
 
-        let user_id = msg.author.id.to_string();
-        let user_name = msg.author.name.clone();
+        let operator_external_id = msg.author.id.to_string();
+        let operator_name = msg.author.name.clone();
+        let platform = t_koma_db::Platform::Discord;
 
         info!(
             "[session:-] Discord message from {} ({}): {}",
-            user_name, user_id, msg.content
+            operator_name, operator_external_id, msg.content
         );
-
-        // Get or create user in database
-        let user = match t_koma_db::UserRepository::get_or_create(
-            self.state.db.pool(),
-            &user_id,
-            &user_name,
-            t_koma_db::Platform::Discord,
-        )
-        .await
-        {
-            Ok(u) => u,
-            Err(e) => {
-                error!("Failed to get/create user {}: {}", user_id, e);
-                let _ = msg
-                    .channel_id
-                    .say(&ctx.http, "Sorry, an error occurred. Please try again later.")
-                    .await;
-                return;
-            }
-        };
-
-        // Check user status
-        match user.status {
-            t_koma_db::UserStatus::Pending => {
-                let _ = msg
-                    .channel_id
-                    .say(
-                        &ctx.http,
-                        "Your access request is pending approval. The bot owner will review it.",
-                    )
-                    .await;
-                return;
-            }
-            t_koma_db::UserStatus::Denied => {
-                let _ = msg
-                    .channel_id
-                    .say(&ctx.http, "Your access request was denied.")
-                    .await;
-                return;
-            }
-            t_koma_db::UserStatus::Approved => {
-                // User is approved - continue processing
-            }
-        }
-
-        // Check if this is the first message after approval (need to send welcome)
-        let need_welcome = !user.welcomed;
-        if need_welcome {
-            // Mark as welcomed
-            if let Err(e) =
-                t_koma_db::UserRepository::mark_welcomed(self.state.db.pool(), &user_id).await
-            {
-                error!("Failed to mark user {} as welcomed: {}", user_id, e);
-            }
-        }
 
         // Extract the actual message content (remove mention if present)
         let content = msg.content.clone();
@@ -109,19 +89,346 @@ impl EventHandler for Bot {
             return;
         }
 
-        // Get or create session for this Discord user
-        let session = match t_koma_db::SessionRepository::get_or_create_active(
-            self.state.db.pool(),
-            &user_id,
+        let interface = match t_koma_db::InterfaceRepository::get_by_external_id(
+            self.state.koma_db.pool(),
+            platform,
+            &operator_external_id,
         )
         .await
         {
-            Ok(s) => {
-                info!("[session:{}] Active session for user {}", s.id, user_id);
-                s
+            Ok(found) => found,
+            Err(e) => {
+                error!("Failed to load interface {}: {}", operator_external_id, e);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Sorry, an error occurred. Please try again later.")
+                    .await;
+                return;
+            }
+        };
+
+        if interface.is_none() {
+            if !self
+                .state
+                .is_interface_pending(platform, &operator_external_id)
+                .await
+            {
+                self.state
+                    .set_interface_pending(platform, &operator_external_id)
+                    .await;
+                let _ = msg.channel_id.say(&ctx.http, INTERFACE_PROMPT).await;
+                return;
+            }
+
+            let choice = clean_content.to_lowercase();
+            if choice == "existing" {
+                // TODO: Implement existing-operator flow
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, EXISTING_OPERATOR_TODO)
+                    .await;
+                return;
+            }
+
+            if choice != "new" {
+                let _ = msg.channel_id.say(&ctx.http, INTERFACE_PROMPT).await;
+                return;
+            }
+
+            let operator = match t_koma_db::OperatorRepository::create_new(
+                self.state.koma_db.pool(),
+                &operator_name,
+                platform,
+            )
+            .await
+            {
+                Ok(op) => op,
+                Err(e) => {
+                    error!("Failed to create operator: {}", e);
+                    let _ = msg
+                        .channel_id
+                        .say(&ctx.http, "Failed to create operator.")
+                        .await;
+                    return;
+                }
+            };
+
+            if let Err(e) = t_koma_db::InterfaceRepository::create(
+                self.state.koma_db.pool(),
+                &operator.id,
+                platform,
+                &operator_external_id,
+                &operator_name,
+            )
+            .await
+            {
+                error!("Failed to create interface: {}", e);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Failed to create interface.")
+                    .await;
+                return;
+            }
+
+            self.state
+                .clear_interface_pending(platform, &operator_external_id)
+                .await;
+
+            let _ = msg
+                .channel_id
+                .say(
+                    &ctx.http,
+                    "Operator created. Awaiting approval via management CLI.",
+                )
+                .await;
+            return;
+        }
+
+        let interface = interface.expect("checked above");
+        let operator = match t_koma_db::OperatorRepository::get_by_id(
+            self.state.koma_db.pool(),
+            &interface.operator_id,
+        )
+        .await
+        {
+            Ok(Some(op)) => op,
+            Ok(None) => {
+                error!("Interface references missing operator {}", interface.operator_id);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Interface is not linked to a valid operator.")
+                    .await;
+                return;
             }
             Err(e) => {
-                error!("Failed to create session for user {}: {}", user_id, e);
+                error!("Failed to load operator {}: {}", interface.operator_id, e);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Failed to load operator.")
+                    .await;
+                return;
+            }
+        };
+
+        // Check operator status
+        match operator.status {
+            t_koma_db::OperatorStatus::Pending => {
+                let _ = msg
+                    .channel_id
+                    .say(
+                        &ctx.http,
+                        "Your access request is pending approval. The Puppet Master will review it.",
+                    )
+                    .await;
+                return;
+            }
+            t_koma_db::OperatorStatus::Denied => {
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Your access request was denied.")
+                    .await;
+                return;
+            }
+            t_koma_db::OperatorStatus::Approved => {
+                // Operator is approved - continue processing
+            }
+        }
+
+        let operator_id = operator.id.clone();
+
+        // Load operator's ghosts
+        let ghosts = match t_koma_db::GhostRepository::list_by_operator(
+            self.state.koma_db.pool(),
+            &operator_id,
+        )
+        .await
+        {
+            Ok(list) => list,
+            Err(e) => {
+                error!("Failed to list ghosts for operator {}: {}", operator_id, e);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Sorry, I failed to load your ghosts.")
+                    .await;
+                return;
+            }
+        };
+
+        // No ghosts yet: prompt or create
+        if ghosts.is_empty() {
+            if !operator.welcomed {
+                if let Err(e) = t_koma_db::OperatorRepository::mark_welcomed(
+                    self.state.koma_db.pool(),
+                    &operator_id,
+                )
+                .await
+                {
+                    error!("Failed to mark operator {} as welcomed: {}", operator_id, e);
+                }
+
+                let _ = msg.channel_id.say(&ctx.http, GHOST_NAME_PROMPT).await;
+                return;
+            }
+
+            let ghost = match t_koma_db::GhostRepository::create(
+                self.state.koma_db.pool(),
+                &operator_id,
+                clean_content,
+            )
+            .await
+            {
+                Ok(ghost) => ghost,
+                Err(e) => {
+                    let _ = msg
+                        .channel_id
+                        .say(
+                            &ctx.http,
+                            format!(
+                                "Invalid ghost name. {}\n\n{}",
+                                e, GHOST_NAME_PROMPT
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+            };
+
+            let ghost_db = match self.state.get_or_init_ghost_db(&ghost.name).await {
+                Ok(db) => db,
+                Err(e) => {
+                    error!("Failed to initialize ghost DB: {}", e);
+                    let _ = msg
+                        .channel_id
+                        .say(&ctx.http, "Failed to initialize ghost storage.")
+                        .await;
+                    return;
+                }
+            };
+
+            let session = match t_koma_db::SessionRepository::create(
+                ghost_db.pool(),
+                &operator_id,
+                Some("Bootstrap Session"),
+            )
+            .await
+            {
+                Ok(session) => session,
+                Err(e) => {
+                    error!("Failed to create session: {}", e);
+                    let _ = msg
+                        .channel_id
+                        .say(&ctx.http, "Failed to create a session for your ghost.")
+                        .await;
+                    return;
+                }
+            };
+
+            let bootstrap = match std::fs::read_to_string("default-prompts/BOOTSTRAP.md") {
+                Ok(contents) => contents,
+                Err(e) => {
+                    error!("Failed to read default-prompts/BOOTSTRAP.md: {}", e);
+                    let _ = msg
+                        .channel_id
+                        .say(
+                            &ctx.http,
+                            "default-prompts/BOOTSTRAP.md missing; cannot initialize ghost.",
+                        )
+                        .await;
+                    return;
+                }
+            };
+
+            let ghost_response = match self
+                .state
+                .chat(&ghost.name, &session.id, &operator_id, &bootstrap)
+                .await
+            {
+                Ok(text) => text,
+                Err(e) => {
+                    error!("[session:{}] Chat error: {}", session.id, e);
+                    let _ = msg
+                        .channel_id
+                        .say(&ctx.http, "Ghost failed to boot. Try again later.")
+                        .await;
+                    return;
+                }
+            };
+
+            self.state
+                .set_active_ghost(&operator_id, &ghost.name)
+                .await;
+
+            let response = format!(
+                "{}\nGHOST: {}\n\n{}",
+                GHOST_CREATED_HEADER, ghost.name, ghost_response
+            );
+            if let Err(e) = msg.channel_id.say(&ctx.http, &response).await {
+                error!("[session:{}] Failed to send Discord message: {}", session.id, e);
+            }
+
+            return;
+        }
+
+        // Ghost selection: use command to switch active ghost
+        if let Some(selection) = parse_ghost_selection(clean_content) {
+            if let Some(ghost) = ghosts.iter().find(|g| g.name == selection) {
+                self.state
+                    .set_active_ghost(&operator_id, &ghost.name)
+                    .await;
+                let response = format!(
+                    "Active GHOST set to: {}\n\n{}",
+                    ghost.name,
+                    GHOST_CREATED_HEADER
+                );
+                let _ = msg.channel_id.say(&ctx.http, response).await;
+                return;
+            }
+
+            let list = format_ghost_list(&ghosts);
+            let _ = msg
+                .channel_id
+                .say(&ctx.http, format!("Unknown GHOST name.\n\n{}", list))
+                .await;
+            return;
+        }
+
+        let ghost_name = if ghosts.len() == 1 {
+            ghosts[0].name.clone()
+        } else if let Some(active) = self.state.get_active_ghost(&operator_id).await {
+            active
+        } else {
+            let list = format_ghost_list(&ghosts);
+            let _ = msg
+                .channel_id
+                .say(
+                    &ctx.http,
+                    format!("Select a GHOST by typing: `ghost: NAME`\n\n{}", list),
+                )
+                .await;
+            return;
+        };
+
+        let ghost_db = match self.state.get_or_init_ghost_db(&ghost_name).await {
+            Ok(db) => db,
+            Err(e) => {
+                error!("Failed to init ghost DB: {}", e);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, "Failed to initialize ghost storage.")
+                    .await;
+                return;
+            }
+        };
+
+        let session = match t_koma_db::SessionRepository::get_or_create_active(
+            ghost_db.pool(),
+            &operator_id,
+        )
+        .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to create session for operator {}: {}", operator_id, e);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, "Sorry, an error occurred initializing your session.")
@@ -131,10 +438,9 @@ impl EventHandler for Bot {
         };
 
         // Send the message to the AI through the centralized chat interface
-        // This handles everything: history, system prompts, tools, tool loops
-        let mut final_text = match self
+        let final_text = match self
             .state
-            .chat(&session.id, &user_id, clean_content)
+            .chat(&ghost_name, &session.id, &operator_id, clean_content)
             .await
         {
             Ok(text) => text,
@@ -148,15 +454,10 @@ impl EventHandler for Bot {
             }
         };
 
-        // Prepend welcome message if first interaction
-        if need_welcome {
-            final_text = format!("Hello! You now have access to t-koma.\n\n{}", final_text);
-        }
-
         // Log the response
         self.state
             .log(crate::LogEntry::DiscordResponse {
-                user: user_name.clone(),
+                user: operator_name.clone(),
                 content: final_text.clone(),
             })
             .await;

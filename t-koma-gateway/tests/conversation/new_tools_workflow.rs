@@ -11,7 +11,7 @@
 //! Run with: cargo test --features live-tests conversation::new_tools_workflow
 
 #[cfg(feature = "live-tests")]
-use t_koma_db::{SessionRepository, UserRepository};
+use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     models::anthropic::history::build_api_messages,
@@ -19,6 +19,8 @@ use t_koma_gateway::{
     prompt::SystemPrompt,
     tools::manager::ToolManager,
 };
+#[cfg(feature = "live-tests")]
+use uuid::Uuid;
 
 #[cfg(feature = "live-tests")]
 use crate::common;
@@ -114,27 +116,22 @@ async fn assert_tool_used_since(
 async fn test_comprehensive_coding_workflow() {
     t_koma_core::load_dotenv();
 
-    // Set up in-memory test database
-    let db = t_koma_db::test_helpers::create_test_pool()
+    let ghost_name = format!("test-ghost-{}", Uuid::new_v4());
+    let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
-        .expect("Failed to create test database");
-
-    // Create AppState
+        .expect("Failed to set up test environment");
     let default_model = common::load_default_model();
-    let state = common::build_state_with_default_model(db.clone());
-
-    // Create and approve a test user
-    let user_id = "test_user_new_tools_001";
-    UserRepository::get_or_create(db.pool(), user_id, "Test User", t_koma_db::Platform::Api)
-        .await
-        .expect("Failed to create user");
-
-    UserRepository::approve(db.pool(), user_id)
-        .await
-        .expect("Failed to approve user");
+    let state = common::build_state_with_default_model(env.koma_db.clone());
+    let ghost_db = env.ghost_db;
+    let operator = env.operator;
+    let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(db.pool(), user_id, Some("New Tools Workflow Test"))
+    let session = SessionRepository::create(
+        ghost_db.pool(),
+        &operator.id,
+        Some("New Tools Workflow Test"),
+    )
         .await
         .expect("Failed to create session");
 
@@ -187,9 +184,9 @@ async fn test_comprehensive_coding_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: list_message.clone(),
         }],
@@ -198,13 +195,14 @@ async fn test_comprehensive_coding_workflow() {
     .await
     .expect("Failed to save list message");
 
-    let history1 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages1 = build_api_messages(&history1, Some(50));
 
     let _response1 = state
         .send_conversation_with_tools(
+            &ghost.name,
             default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -217,7 +215,7 @@ async fn test_comprehensive_coding_workflow() {
         .expect("Failed to list directory");
 
     // Verify: Check database for tool use
-    assert_last_tool_used(db.pool(), &session.id, "list_dir", Some(&temp_dir)).await;
+    assert_last_tool_used(ghost_db.pool(), &session.id, "list_dir", Some(&temp_dir)).await;
     println!("✅ list_dir tool was used correctly");
 
     // === STEP 2: Find all Rust files ===
@@ -228,9 +226,9 @@ async fn test_comprehensive_coding_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: find_message.clone(),
         }],
@@ -239,13 +237,14 @@ async fn test_comprehensive_coding_workflow() {
     .await
     .expect("Failed to save find message");
 
-    let history2 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages2 = build_api_messages(&history2, Some(50));
 
     let _response2 = state
         .send_conversation_with_tools(
+            &ghost.name,
             default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -258,7 +257,7 @@ async fn test_comprehensive_coding_workflow() {
         .expect("Failed to find files");
 
     // Verify: Check database for tool use
-    assert_last_tool_used(db.pool(), &session.id, "find_files", Some("*.rs")).await;
+    assert_last_tool_used(ghost_db.pool(), &session.id, "find_files", Some("*.rs")).await;
     println!("✅ find_files tool was used correctly");
 
     // === STEP 3: Read an existing file ===
@@ -269,9 +268,9 @@ async fn test_comprehensive_coding_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: read_message.clone(),
         }],
@@ -280,13 +279,14 @@ async fn test_comprehensive_coding_workflow() {
     .await
     .expect("Failed to save read message");
 
-    let history3 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages3 = build_api_messages(&history3, Some(50));
 
     let _response3 = state
         .send_conversation_with_tools(
+            &ghost.name,
             default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -299,7 +299,7 @@ async fn test_comprehensive_coding_workflow() {
         .expect("Failed to read file");
 
     // Verify: Check database for tool use
-    assert_last_tool_used(db.pool(), &session.id, "read_file", Some(&utils_rs)).await;
+    assert_last_tool_used(ghost_db.pool(), &session.id, "read_file", Some(&utils_rs)).await;
     println!("✅ read_file tool was used correctly");
 
     // === STEP 4: Search for function definitions ===
@@ -310,9 +310,9 @@ async fn test_comprehensive_coding_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: search_message.clone(),
         }],
@@ -321,13 +321,14 @@ async fn test_comprehensive_coding_workflow() {
     .await
     .expect("Failed to save search message");
 
-    let history4 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history4 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages4 = build_api_messages(&history4, Some(50));
 
     let _response4 = state
         .send_conversation_with_tools(
+            &ghost.name,
             default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -340,7 +341,7 @@ async fn test_comprehensive_coding_workflow() {
         .expect("Failed to search");
 
     // Verify: Check database for tool use
-    assert_last_tool_used(db.pool(), &session.id, "search", Some(&src_dir)).await;
+    assert_last_tool_used(ghost_db.pool(), &session.id, "search", Some(&src_dir)).await;
     println!("✅ search tool was used correctly");
 
     // === STEP 5: Create a new file ===
@@ -354,9 +355,9 @@ async fn test_comprehensive_coding_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: create_message.clone(),
         }],
@@ -365,13 +366,14 @@ async fn test_comprehensive_coding_workflow() {
     .await
     .expect("Failed to save create message");
 
-    let history5 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history5 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages5 = build_api_messages(&history5, Some(50));
 
     let _response5 = state
         .send_conversation_with_tools(
+            &ghost.name,
             default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -384,7 +386,7 @@ async fn test_comprehensive_coding_workflow() {
         .expect("Failed to create file");
 
     // Verify: Check database for tool use
-    assert_last_tool_used(db.pool(), &session.id, "create_file", Some(&new_module)).await;
+    assert_last_tool_used(ghost_db.pool(), &session.id, "create_file", Some(&new_module)).await;
 
     // Also verify the file was actually created on disk
     let math_content = tokio::fs::read_to_string(&new_module).await;
@@ -406,15 +408,15 @@ async fn test_comprehensive_coding_workflow() {
         utils_rs
     );
 
-    let tool_uses_before_edit = SessionRepository::get_tool_uses(db.pool(), &session.id)
+    let tool_uses_before_edit = SessionRepository::get_tool_uses(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get tool uses before edit")
         .len();
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: edit_message.clone(),
         }],
@@ -423,13 +425,14 @@ async fn test_comprehensive_coding_workflow() {
     .await
     .expect("Failed to save edit message");
 
-    let history6 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history6 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages6 = build_api_messages(&history6, Some(50));
 
     let _response6 = state
         .send_conversation_with_tools(
+            &ghost.name,
             default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -443,7 +446,7 @@ async fn test_comprehensive_coding_workflow() {
 
     // Verify: replace should have been used during this step, even if a read follows.
     assert_tool_used_since(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
         "replace",
         tool_uses_before_edit,
@@ -466,9 +469,9 @@ async fn test_comprehensive_coding_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: search_new_fn_message.clone(),
         }],
@@ -477,13 +480,14 @@ async fn test_comprehensive_coding_workflow() {
     .await
     .expect("Failed to save search message");
 
-    let history7 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history7 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages7 = build_api_messages(&history7, Some(50));
 
     let _response7 = state
         .send_conversation_with_tools(
+            &ghost.name,
             default_model.client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -496,12 +500,12 @@ async fn test_comprehensive_coding_workflow() {
         .expect("Failed to search for new function");
 
     // Verify: Check database for tool use
-    assert_last_tool_used(db.pool(), &session.id, "search", Some("goodbye")).await;
+    assert_last_tool_used(ghost_db.pool(), &session.id, "search", Some("goodbye")).await;
     println!("✅ search tool was used to find the new function");
 
     // === Final verification: List all tools used in this session ===
     println!("\n=== Final verification: All tools used in session ===");
-    let all_tool_uses = SessionRepository::get_tool_uses(db.pool(), &session.id)
+    let all_tool_uses = SessionRepository::get_tool_uses(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get all tool uses");
 
@@ -511,12 +515,12 @@ async fn test_comprehensive_coding_workflow() {
     }
 
     // Verify all expected tools were used
-    assert_tool_used(db.pool(), &session.id, "list_dir").await;
-    assert_tool_used(db.pool(), &session.id, "find_files").await;
-    assert_tool_used(db.pool(), &session.id, "read_file").await;
-    assert_tool_used(db.pool(), &session.id, "search").await;
-    assert_tool_used(db.pool(), &session.id, "create_file").await;
-    assert_tool_used(db.pool(), &session.id, "replace").await;
+    assert_tool_used(ghost_db.pool(), &session.id, "list_dir").await;
+    assert_tool_used(ghost_db.pool(), &session.id, "find_files").await;
+    assert_tool_used(ghost_db.pool(), &session.id, "read_file").await;
+    assert_tool_used(ghost_db.pool(), &session.id, "search").await;
+    assert_tool_used(ghost_db.pool(), &session.id, "create_file").await;
+    assert_tool_used(ghost_db.pool(), &session.id, "replace").await;
 
     assert!(
         all_tool_uses.len() >= 7,
@@ -542,4 +546,5 @@ async fn test_comprehensive_coding_workflow() {
     println!("  - create_file: Created new math.rs module");
     println!("  - replace: Added function to existing file");
     println!("========================================");
+    println!("Ghost: {}", ghost.name);
 }

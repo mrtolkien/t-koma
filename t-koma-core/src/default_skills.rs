@@ -21,7 +21,7 @@ pub struct DefaultSkill {
 /// Default skills embedded at compile time.
 pub const DEFAULT_SKILLS: &[DefaultSkill] = &[DefaultSkill {
     name: "skill-creator",
-    content: include_str!("../../skills/skill-creator/SKILL.md"),
+    content: include_str!("../../default-prompts/skills/skill-creator/SKILL.md"),
 }];
 
 /// Manager for default skills.

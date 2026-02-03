@@ -1,22 +1,22 @@
-//! Database connection pool and initialization.
+//! T-KOMA (ティーコマ) database connection pool and initialization.
 
 use std::path::PathBuf;
 
 use sqlx::{
-    SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
 };
 use tracing::info;
 
 use crate::error::{DbError, DbResult};
 
-/// Database pool wrapper
+/// T-KOMA database pool wrapper
 #[derive(Debug, Clone)]
-pub struct DbPool {
+pub struct KomaDbPool {
     pool: SqlitePool,
 }
 
-impl DbPool {
+impl KomaDbPool {
     /// Initialize database with migrations
     ///
     /// This function:
@@ -26,24 +26,20 @@ impl DbPool {
     /// 4. Runs migrations
     pub async fn new() -> DbResult<Self> {
         let db_path = Self::db_path()?;
-        info!("Initializing database at: {}", db_path.display());
+        info!("Initializing T-KOMA database at: {}", db_path.display());
 
-        // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Initialize sqlite-vec extension globally
         Self::init_sqlite_vec()?;
 
-        // Create connection pool with optimal settings
         let db_url = format!("sqlite:{}", db_path.display());
         let pool = Self::create_pool(&db_url).await?;
 
-        // Run migrations
         Self::run_migrations(&pool).await?;
 
-        info!("Database initialized successfully");
+        info!("T-KOMA database initialized successfully");
         Ok(Self { pool })
     }
 
@@ -55,7 +51,7 @@ impl DbPool {
     /// Get database file path
     pub fn db_path() -> DbResult<PathBuf> {
         let data_dir = dirs::data_dir().ok_or(DbError::NoConfigDir)?;
-        Ok(data_dir.join("t-koma").join("db.sqlite3"))
+        Ok(data_dir.join("t-koma").join("koma.sqlite3"))
     }
 
     /// Initialize sqlite-vec extension globally
@@ -66,7 +62,6 @@ impl DbPool {
         use sqlite_vec::sqlite3_vec_init;
 
         unsafe {
-            // Initialize sqlite-vec extension
             type SqliteVecInitFn = unsafe extern "C" fn(
                 *mut rusqlite::ffi::sqlite3,
                 *mut *mut i8,
@@ -91,17 +86,12 @@ impl DbPool {
             .connect_with(options)
             .await?;
 
-        // Enable WAL mode for better concurrent read performance
         sqlx::query("PRAGMA journal_mode = WAL")
             .execute(&pool)
             .await?;
-
-        // Improve performance for write-heavy workloads
         sqlx::query("PRAGMA synchronous = NORMAL")
             .execute(&pool)
             .await?;
-
-        // Increase cache size for better performance (64MB)
         sqlx::query("PRAGMA cache_size = -64000")
             .execute(&pool)
             .await?;
@@ -110,17 +100,13 @@ impl DbPool {
     }
 
     /// Run database migrations using sqlx migrate macro
-    ///
-    /// Migrations are stored in the `migrations/` directory and are applied
-    /// automatically in version order. The migration state is tracked in the
-    /// database using the `_sqlx_migrations` table.
     async fn run_migrations(pool: &SqlitePool) -> DbResult<()> {
-        sqlx::migrate!("./migrations")
+        sqlx::migrate!("./migrations/koma")
             .run(pool)
             .await
             .map_err(|e| DbError::Migration(e.to_string()))?;
-        
-        info!("Database migrations completed");
+
+        info!("T-KOMA database migrations completed");
         Ok(())
     }
 
@@ -129,49 +115,8 @@ impl DbPool {
         self.pool.close().await;
     }
 
-    /// Create a DbPool from an existing SqlitePool (for testing)
-    ///
-    /// This is useful in integration tests where you want to create
-    /// an in-memory database and wrap it in a DbPool.
+    /// Create a KomaDbPool from an existing SqlitePool (for testing)
     pub fn from_pool(pool: SqlitePool) -> Self {
         Self { pool }
-    }
-}
-
-/// Test helpers
-#[cfg(any(test, feature = "test-helpers"))]
-pub mod test_helpers {
-    use super::*;
-    use sqlx::sqlite::SqlitePoolOptions;
-
-    /// Create an in-memory database for testing
-    pub async fn create_test_pool() -> DbResult<DbPool> {
-        // Initialize sqlite-vec
-        unsafe {
-            use rusqlite::ffi::sqlite3_auto_extension;
-            use sqlite_vec::sqlite3_vec_init;
-            type SqliteVecInitFn = unsafe extern "C" fn(
-                *mut rusqlite::ffi::sqlite3,
-                *mut *mut i8,
-                *const rusqlite::ffi::sqlite3_api_routines,
-            ) -> i32;
-            sqlite3_auto_extension(Some(std::mem::transmute::<
-                *const (),
-                SqliteVecInitFn,
-            >(sqlite3_vec_init as *const ())));
-        }
-
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(":memory:")
-            .await?;
-
-        // Run migrations
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .map_err(|e| DbError::Migration(e.to_string()))?;
-
-        Ok(DbPool { pool })
     }
 }

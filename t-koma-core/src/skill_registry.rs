@@ -18,7 +18,7 @@ use tracing::{info, warn};
 pub struct SkillRegistry {
     /// Map of skill name to skill metadata
     skills: HashMap<String, Skill>,
-    /// Project-level skills path (./skills/)
+    /// Project-level skills path (./default-prompts/skills/)
     project_path: Option<PathBuf>,
     /// User config skills path (~/.config/t-koma/skills/)
     config_path: Option<PathBuf>,
@@ -27,7 +27,7 @@ pub struct SkillRegistry {
 impl SkillRegistry {
     /// Creates a new registry with default paths.
     ///
-    /// Discovers skills from both the project directory (`./skills/`)
+    /// Discovers skills from both the project directory (`./default-prompts/skills/`)
     /// and the user config directory (`~/.config/t-koma/skills/`).
     /// Config skills take precedence over project skills.
     ///
@@ -47,7 +47,7 @@ impl SkillRegistry {
     /// # }
     /// ```
     pub fn new() -> Result<Self, SkillError> {
-        let project_path = PathBuf::from("./skills");
+        let project_path = PathBuf::from("./default-prompts/skills");
         let config_path = dirs::config_dir().map(|d| d.join("t-koma").join("skills"));
 
         Self::new_with_paths(

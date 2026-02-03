@@ -7,6 +7,10 @@ expression: response
   "model": "moonshotai/kimi-k2.5",
   "content": [
     {
+      "type": "text",
+      "text": "  "
+    },
+    {
       "type": "tool_use",
       "id": "[tool_use_id]",
       "name": "replace",
@@ -18,8 +22,8 @@ expression: response
     }
   ],
   "usage": {
-    "input_tokens": 197,
-    "output_tokens": 98
+    "input_tokens": 230,
+    "output_tokens": 110
   },
   "stop_reason": "tool_calls"
 }

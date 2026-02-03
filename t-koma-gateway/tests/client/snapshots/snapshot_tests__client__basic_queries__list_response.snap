@@ -8,12 +8,12 @@ expression: response
   "content": [
     {
       "type": "text",
-      "text": "Red, blue, green."
+      "text": " Red, blue, green."
     }
   ],
   "usage": {
-    "input_tokens": 15,
-    "output_tokens": 163
+    "input_tokens": 34,
+    "output_tokens": 225
   },
   "stop_reason": "stop"
 }

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {
-    User,
-    Assistant,
+    Operator,
+    Ghost,
     System,
 }
 
@@ -57,8 +57,8 @@ pub struct ModelInfo {
 impl std::fmt::Display for MessageRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MessageRole::User => write!(f, "user"),
-            MessageRole::Assistant => write!(f, "assistant"),
+            MessageRole::Operator => write!(f, "operator"),
+            MessageRole::Ghost => write!(f, "ghost"),
             MessageRole::System => write!(f, "system"),
         }
     }
@@ -84,12 +84,12 @@ impl ChatMessage {
         }
     }
 
-    pub fn user(content: impl Into<String>) -> Self {
-        Self::new(uuid::uuid(), MessageRole::User, content)
+    pub fn operator(content: impl Into<String>) -> Self {
+        Self::new(uuid::uuid(), MessageRole::Operator, content)
     }
 
-    pub fn assistant(id: impl Into<String>, content: impl Into<String>) -> Self {
-        Self::new(id, MessageRole::Assistant, content)
+    pub fn ghost(id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self::new(id, MessageRole::Ghost, content)
     }
 }
 
@@ -117,20 +117,36 @@ pub struct SessionInfo {
     pub is_active: bool,
 }
 
-/// WebSocket message from client to gateway
+/// Ghost info for listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GhostInfo {
+    pub name: String,
+}
+
+/// WebSocket message from client to T-KOMA
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsMessage {
     /// Send a chat message to a specific session
-    Chat { session_id: String, content: String },
-    /// List all sessions for the user
-    ListSessions,
-    /// Create a new session
-    CreateSession { title: Option<String> },
-    /// Switch to a different session
-    SwitchSession { session_id: String },
-    /// Delete a session
-    DeleteSession { session_id: String },
+    Chat {
+        ghost_name: String,
+        session_id: String,
+        content: String,
+    },
+    /// Choose whether this interface binds to a new or existing operator
+    SelectInterface { choice: String },
+    /// List all sessions for the operator and ghost
+    ListSessions { ghost_name: String },
+    /// Create a new session for a ghost
+    CreateSession { ghost_name: String, title: Option<String> },
+    /// Switch to a different session for a ghost
+    SwitchSession { ghost_name: String, session_id: String },
+    /// Delete a session for a ghost
+    DeleteSession { ghost_name: String, session_id: String },
+    /// Select active ghost for the connection
+    SelectGhost { ghost_name: String },
+    /// List available ghosts for the operator
+    ListGhosts,
     /// Select provider and model for the session
     SelectProvider { provider: ProviderType, model: String },
     /// Request available models from a provider
@@ -139,7 +155,7 @@ pub enum WsMessage {
     Ping,
 }
 
-/// WebSocket response from gateway to client
+/// WebSocket response from T-KOMA to client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsResponse {
@@ -153,6 +169,12 @@ pub enum WsResponse {
     },
     /// List of sessions
     SessionList { sessions: Vec<SessionInfo> },
+    /// Interface selection required
+    InterfaceSelectionRequired { message: String },
+    /// List of ghosts
+    GhostList { ghosts: Vec<GhostInfo> },
+    /// Ghost selected successfully
+    GhostSelected { ghost_name: String },
     /// Session created successfully
     SessionCreated { session_id: String, title: String },
     /// Session switched successfully
@@ -186,8 +208,8 @@ mod tests {
 
     #[test]
     fn test_message_role_display() {
-        assert_eq!(MessageRole::User.to_string(), "user");
-        assert_eq!(MessageRole::Assistant.to_string(), "assistant");
+        assert_eq!(MessageRole::Operator.to_string(), "operator");
+        assert_eq!(MessageRole::Ghost.to_string(), "ghost");
         assert_eq!(MessageRole::System.to_string(), "system");
     }
 
@@ -195,6 +217,7 @@ mod tests {
     fn test_ws_message_serialization() {
         let msg = WsMessage::Chat {
             content: "Hello".to_string(),
+            ghost_name: "Alpha".to_string(),
             session_id: "sess_123".to_string(),
         };
         let json = serde_json::to_string(&msg).unwrap();
@@ -203,9 +226,14 @@ mod tests {
 
         let decoded: WsMessage = serde_json::from_str(&json).unwrap();
         match decoded {
-            WsMessage::Chat { content, session_id } => {
+            WsMessage::Chat {
+                content,
+                session_id,
+                ghost_name,
+            } => {
                 assert_eq!(content, "Hello");
                 assert_eq!(session_id, "sess_123".to_string());
+                assert_eq!(ghost_name, "Alpha".to_string());
             }
             _ => panic!("Expected Chat variant"),
         }
@@ -214,6 +242,7 @@ mod tests {
     #[test]
     fn test_ws_message_session_commands() {
         let msg = WsMessage::CreateSession {
+            ghost_name: "Alpha".to_string(),
             title: Some("Test Session".to_string()),
         };
         let json = serde_json::to_string(&msg).unwrap();

@@ -12,7 +12,7 @@ Enhance the skills system with three key improvements:
 ### 1. Multi-Source Skill Discovery
 
 Skills should be discovered from multiple locations:
-- Project skills directory: `./skills/`
+- Project skills directory: `./default-prompts/skills/`
 - User config directory: `~/.config/t-koma/skills/` (XDG)
 
 The registry should merge skills from both locations, with user config skills taking precedence.
@@ -70,7 +70,7 @@ pub struct DefaultSkill {
 pub const DEFAULT_SKILLS: &[DefaultSkill] = &[
     DefaultSkill {
         name: "skill-creator",
-        content: include_str!("../../../skills/skill-creator/SKILL.md"),
+        content: include_str!("../../../default-prompts/skills/skill-creator/SKILL.md"),
     },
 ];
 ```

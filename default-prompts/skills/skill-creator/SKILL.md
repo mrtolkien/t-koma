@@ -26,7 +26,7 @@ Create a skill when:
 ## Skill Structure
 
 ```
-skills/my-skill/
+default-prompts/skills/my-skill/
 ├── SKILL.md          # Required: Instructions and metadata
 ├── scripts/          # Optional: Executable code
 ├── references/       # Optional: Additional docs
@@ -176,7 +176,7 @@ Before using a skill:
 ## Example: Complete Skill
 
 ```
-skills/data-extraction/
+default-prompts/skills/data-extraction/
 ├── SKILL.md
 ├── scripts/
 │   ├── extract_csv.py

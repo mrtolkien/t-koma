@@ -7,7 +7,7 @@
 //! Run with: cargo test --features live-tests conversation::file_operations
 
 #[cfg(feature = "live-tests")]
-use t_koma_db::{SessionRepository, UserRepository};
+use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     models::anthropic::history::build_api_messages,
@@ -15,6 +15,8 @@ use t_koma_gateway::{
     prompt::SystemPrompt,
     tools::{file_edit::FileEditTool, shell::ShellTool, Tool},
 };
+#[cfg(feature = "live-tests")]
+use uuid::Uuid;
 
 #[cfg(feature = "live-tests")]
 use crate::common;
@@ -26,26 +28,21 @@ use crate::common;
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_file_create_edit_delete_workflow() {
-    // Set up in-memory test database
-    let db = t_koma_db::test_helpers::create_test_pool()
+    let ghost_name = format!("test-ghost-{}", Uuid::new_v4());
+    let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
-        .expect("Failed to create test database");
-
-    // Create AppState
-    let state = common::build_state_with_default_model(db.clone());
-
-    // Create and approve a test user
-    let user_id = "test_user_file_ops_001";
-    UserRepository::get_or_create(db.pool(), user_id, "Test User", t_koma_db::Platform::Api)
-        .await
-        .expect("Failed to create user");
-
-    UserRepository::approve(db.pool(), user_id)
-        .await
-        .expect("Failed to approve user");
+        .expect("Failed to set up test environment");
+    let state = common::build_state_with_default_model(env.koma_db.clone());
+    let ghost_db = env.ghost_db;
+    let operator = env.operator;
+    let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(db.pool(), user_id, Some("File Operations Test"))
+    let session = SessionRepository::create(
+        ghost_db.pool(),
+        &operator.id,
+        Some("File Operations Test"),
+    )
         .await
         .expect("Failed to create session");
 
@@ -71,9 +68,9 @@ async fn test_file_create_edit_delete_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: create_message.clone(),
         }],
@@ -82,13 +79,14 @@ async fn test_file_create_edit_delete_workflow() {
     .await
     .expect("Failed to save create message");
 
-    let history1 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages1 = build_api_messages(&history1, Some(50));
 
     let response1 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -126,9 +124,9 @@ async fn test_file_create_edit_delete_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: edit_message.clone(),
         }],
@@ -137,13 +135,14 @@ async fn test_file_create_edit_delete_workflow() {
     .await
     .expect("Failed to save edit message");
 
-    let history2 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages2 = build_api_messages(&history2, Some(50));
 
     let response2 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks.clone(),
@@ -179,9 +178,9 @@ async fn test_file_create_edit_delete_workflow() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: delete_message.clone(),
         }],
@@ -190,13 +189,14 @@ async fn test_file_create_edit_delete_workflow() {
     .await
     .expect("Failed to save delete message");
 
-    let history3 = SessionRepository::get_messages(db.pool(), &session.id)
+    let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages3 = build_api_messages(&history3, Some(50));
 
     let response3 = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
@@ -219,13 +219,14 @@ async fn test_file_create_edit_delete_workflow() {
     println!("✅ File deleted successfully");
 
     // Verify message count
-    let msg_count = SessionRepository::count_messages(db.pool(), &session.id)
+    let msg_count = SessionRepository::count_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
     println!("\n=== Summary ===");
     println!("Session ID: {}", session.id);
     println!("Total messages: {}", msg_count);
+    println!("Ghost: {}", ghost.name);
     println!("\n✅ File operations workflow test completed successfully!");
 }
 
@@ -233,26 +234,21 @@ async fn test_file_create_edit_delete_workflow() {
 #[cfg(feature = "live-tests")]
 #[tokio::test]
 async fn test_replace_tool_exact_match_requirement() {
-    // Set up in-memory test database
-    let db = t_koma_db::test_helpers::create_test_pool()
+    let ghost_name = format!("test-ghost-{}", Uuid::new_v4());
+    let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
-        .expect("Failed to create test database");
-
-    // Create AppState
-    let state = common::build_state_with_default_model(db.clone());
-
-    // Create and approve a test user
-    let user_id = "test_user_file_ops_002";
-    UserRepository::get_or_create(db.pool(), user_id, "Test User", t_koma_db::Platform::Api)
-        .await
-        .expect("Failed to create user");
-
-    UserRepository::approve(db.pool(), user_id)
-        .await
-        .expect("Failed to approve user");
+        .expect("Failed to set up test environment");
+    let state = common::build_state_with_default_model(env.koma_db.clone());
+    let ghost_db = env.ghost_db;
+    let operator = env.operator;
+    let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(db.pool(), user_id, Some("File Edit Exact Match Test"))
+    let session = SessionRepository::create(
+        ghost_db.pool(),
+        &operator.id,
+        Some("File Edit Exact Match Test"),
+    )
         .await
         .expect("Failed to create session");
 
@@ -281,9 +277,9 @@ async fn test_replace_tool_exact_match_requirement() {
     );
 
     SessionRepository::add_message(
-        db.pool(),
+        ghost_db.pool(),
         &session.id,
-        t_koma_db::MessageRole::User,
+        t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
             text: edit_message.clone(),
         }],
@@ -292,13 +288,14 @@ async fn test_replace_tool_exact_match_requirement() {
     .await
     .expect("Failed to save edit message");
 
-    let history = SessionRepository::get_messages(db.pool(), &session.id)
+    let history = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages = build_api_messages(&history, Some(50));
 
     let response = state
         .send_conversation_with_tools(
+            &ghost.name,
             state.default_model().client.as_ref(),
             &session.id,
             system_blocks,
@@ -329,5 +326,6 @@ async fn test_replace_tool_exact_match_requirement() {
     // Cleanup
     let _ = tokio::fs::remove_file(&temp_file).await;
 
+    println!("Ghost: {}", ghost.name);
     println!("✅ Exact match test completed successfully!");
 }

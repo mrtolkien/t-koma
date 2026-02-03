@@ -7,9 +7,29 @@ pub enum DbError {
     #[error("SQL error: {0}")]
     Sql(#[from] sqlx::Error),
 
-    /// User not found
-    #[error("User not found: {0}")]
-    UserNotFound(String),
+    /// Operator not found
+    #[error("Operator not found: {0}")]
+    OperatorNotFound(String),
+
+    /// Ghost not found
+    #[error("Ghost not found: {0}")]
+    GhostNotFound(String),
+
+    /// Ghost name already exists
+    #[error("Ghost name already exists: {0}")]
+    GhostNameTaken(String),
+
+    /// Invalid ghost name
+    #[error("Invalid ghost name: {0}")]
+    InvalidGhostName(String),
+
+    /// Interface not found
+    #[error("Interface not found: {0}")]
+    InterfaceNotFound(String),
+
+    /// Interface already exists
+    #[error("Interface already exists: {0}")]
+    InterfaceAlreadyExists(String),
 
     /// Invalid status transition
     #[error("Invalid status transition from {from} to {to}")]

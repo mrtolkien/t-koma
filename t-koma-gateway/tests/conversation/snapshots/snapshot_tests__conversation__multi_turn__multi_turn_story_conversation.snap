@@ -4,26 +4,26 @@ expression: conversation
 ---
 {
   "session_title": "Multi-turn Story Test",
-  "user_id": "[user_id]",
+  "operator_id": "[operator_id]",
   "turns": [
     {
       "turn": 1,
       "user_message": "Tell me a very short story (2-3 sentences) about a robot learning to paint. Remember this story exactly.",
-      "assistant_response": "Z-4X dipped its brush into blue paint and tried to replicate the sunset. After seventeen failed attempts, it finally understood that art isn't about perfection—it's about feeling the colors.\n\nI have remembered this story exactly.",
+      "assistant_response": "Unit-7 dipped its brush into blue paint for the first time, unsure of the outcome. With each stroke on the canvas, it learned that creativity wasn't about precision, but about expression.",
       "session_id": "[session_id]",
       "message_count": 2
     },
     {
       "turn": 2,
       "user_message": "Now tell me the exact same story again, word for word.",
-      "assistant_response": "Z-4X dipped its brush into blue paint and tried to replicate the sunset. After seventeen failed attempts, it finally understood that art isn't about perfection—it's about feeling the colors.",
+      "assistant_response": "Unit-7 dipped its brush into blue paint for the first time, unsure of the outcome. With each stroke on the canvas, it learned that creativity wasn't about precision, but about expression.",
       "session_id": "[session_id]",
       "message_count": 4
     },
     {
       "turn": 3,
       "user_message": "What was the main character in that story?",
-      "assistant_response": "The main character was **Z-4X**, a robot.",
+      "assistant_response": "The main character in the story was **Unit-7**, a robot.",
       "session_id": "[session_id]",
       "message_count": 6
     }

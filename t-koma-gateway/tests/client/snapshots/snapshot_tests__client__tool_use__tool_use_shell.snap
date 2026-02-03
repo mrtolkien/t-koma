@@ -16,8 +16,8 @@ expression: response
     }
   ],
   "usage": {
-    "input_tokens": 78,
-    "output_tokens": 57
+    "input_tokens": 79,
+    "output_tokens": 101
   },
   "stop_reason": "tool_calls"
 }

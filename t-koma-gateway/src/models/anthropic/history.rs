@@ -99,8 +99,8 @@ fn convert_message(msg: &Message) -> ApiMessage {
 
     ApiMessage {
         role: match msg.role {
-            MessageRole::User => "user".to_string(),
-            MessageRole::Assistant => "assistant".to_string(),
+            MessageRole::Operator => "user".to_string(),
+            MessageRole::Ghost => "assistant".to_string(),
         },
         content,
     }
@@ -170,7 +170,6 @@ pub struct ToolResultData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
 
     fn create_test_message(role: MessageRole, content: Vec<ContentBlock>) -> Message {
         Message {
@@ -179,14 +178,14 @@ mod tests {
             role,
             content,
             model: None,
-            created_at: Utc::now(),
+            created_at: 0,
         }
     }
 
     #[test]
     fn test_convert_text_message() {
         let msg = create_test_message(
-            MessageRole::User,
+            MessageRole::Operator,
             vec![ContentBlock::Text {
                 text: "Hello".to_string(),
             }],
@@ -199,7 +198,7 @@ mod tests {
     #[test]
     fn test_convert_tool_use() {
         let msg = create_test_message(
-            MessageRole::Assistant,
+            MessageRole::Ghost,
             vec![
                 ContentBlock::Text {
                     text: "Let me check".to_string(),
@@ -219,10 +218,10 @@ mod tests {
     #[test]
     fn test_build_api_messages_with_limit() {
         let messages = vec![
-            create_test_message(MessageRole::User, vec![ContentBlock::Text { text: "1".to_string() }]),
-            create_test_message(MessageRole::Assistant, vec![ContentBlock::Text { text: "2".to_string() }]),
-            create_test_message(MessageRole::User, vec![ContentBlock::Text { text: "3".to_string() }]),
-            create_test_message(MessageRole::Assistant, vec![ContentBlock::Text { text: "4".to_string() }]),
+            create_test_message(MessageRole::Operator, vec![ContentBlock::Text { text: "1".to_string() }]),
+            create_test_message(MessageRole::Ghost, vec![ContentBlock::Text { text: "2".to_string() }]),
+            create_test_message(MessageRole::Operator, vec![ContentBlock::Text { text: "3".to_string() }]),
+            create_test_message(MessageRole::Ghost, vec![ContentBlock::Text { text: "4".to_string() }]),
         ];
 
         let api_messages = build_api_messages(&messages, Some(2));
@@ -233,8 +232,8 @@ mod tests {
     #[test]
     fn test_incremental_caching() {
         let messages = vec![
-            create_test_message(MessageRole::User, vec![ContentBlock::Text { text: "Hi".to_string() }]),
-            create_test_message(MessageRole::Assistant, vec![ContentBlock::Text { text: "Hello".to_string() }]),
+            create_test_message(MessageRole::Operator, vec![ContentBlock::Text { text: "Hi".to_string() }]),
+            create_test_message(MessageRole::Ghost, vec![ContentBlock::Text { text: "Hello".to_string() }]),
         ];
 
         let api_messages = build_api_messages(&messages, None);

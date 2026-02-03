@@ -40,13 +40,13 @@ Skills solve a critical problem: agents are capable but often lack the context n
 
 Skills are discovered from multiple locations:
 
-1. **Project directory**: `./skills/` - Version-controlled project skills
+1. **Project directory**: `./default-prompts/skills/` - Version-controlled project skills
 2. **User config directory**: `~/.config/t-koma/skills/` (XDG)
 
 Config skills take precedence over project skills with the same name.
 
 ```
-Project: ./skills/
+Project: ./default-prompts/skills/
 ├── skill-creator/         # Guide for creating skills
 │   └── SKILL.md
 └── README.md              # Documentation
@@ -64,7 +64,7 @@ Default skills are embedded at compile time using `include_str!`:
 // t-koma-core/src/default_skills.rs
 pub const DEFAULT_SKILLS: &[DefaultSkill] = &[DefaultSkill {
     name: "skill-creator",
-    content: include_str!("../../skills/skill-creator/SKILL.md"),
+    content: include_str!("../../default-prompts/skills/skill-creator/SKILL.md"),
 }];
 ```
 
@@ -197,10 +197,9 @@ The skills system uses progressive disclosure for efficient context usage:
 
 ```rust
 use t_koma_core::SkillRegistry;
-use std::path::Path;
 
-// Create registry and discover skills
-let registry = SkillRegistry::new(Path::new("./skills").to_path_buf())?;
+// Create registry and discover skills (default-prompts + config)
+let registry = SkillRegistry::new()?;
 
 println!("Discovered {} skills", registry.len());
 ```
@@ -292,13 +291,13 @@ match Skill::from_file(path) {
 ### Step 1: Create Directory
 
 ```bash
-mkdir skills/my-new-skill
+mkdir default-prompts/skills/my-new-skill
 ```
 
 ### Step 2: Create SKILL.md
 
 ```bash
-cat > skills/my-new-skill/SKILL.md << 'EOF'
+cat > default-prompts/skills/my-new-skill/SKILL.md << 'EOF'
 ---
 name: my-new-skill
 description: Description of what this skill does and when to use it.
@@ -313,15 +312,15 @@ EOF
 ### Step 3: Add Optional Resources
 
 ```bash
-mkdir skills/my-new-skill/scripts
-mkdir skills/my-new-skill/references
+mkdir default-prompts/skills/my-new-skill/scripts
+mkdir default-prompts/skills/my-new-skill/references
 # Add files as needed
 ```
 
 ### Step 4: Test
 
 ```rust
-let skill = Skill::from_file(Path::new("skills/my-new-skill/SKILL.md"))?;
+let skill = Skill::from_file(Path::new("default-prompts/skills/my-new-skill/SKILL.md"))?;
 assert_eq!(skill.name, "my-new-skill");
 ```
 
@@ -332,7 +331,7 @@ assert_eq!(skill.name, "my-new-skill");
 ```rust
 #[test]
 fn test_skill_parsing() {
-    let skill = Skill::from_file(Path::new("skills/test/SKILL.md")).unwrap();
+    let skill = Skill::from_file(Path::new("default-prompts/skills/test/SKILL.md")).unwrap();
     assert_eq!(skill.name, "test");
     assert!(!skill.description.is_empty());
 }
@@ -343,7 +342,7 @@ fn test_skill_parsing() {
 ```rust
 #[test]
 fn test_registry_discovery() {
-    let registry = SkillRegistry::new(Path::new("./skills").to_path_buf()).unwrap();
+    let registry = SkillRegistry::new().unwrap();
     assert!(registry.has_skill("skill-creator"));
 }
 ```
@@ -370,4 +369,4 @@ fn test_registry_discovery() {
 
 - [Agent Skills Home](https://agentskills.io/home)
 - [Agent Skills Specification](https://agentskills.io/specification)
-- Example skills in `/skills/` directory
+- Example skills in `/default-prompts/skills/` directory

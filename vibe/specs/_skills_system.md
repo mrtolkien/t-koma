@@ -33,7 +33,7 @@ The implementation follows the open Agent Skills specification originally develo
 
 ```
 t-koma/
-├── skills/                          # Skills configuration folder
+├── default-prompts/skills/          # Skills configuration folder
 │   ├── skill-creator/               # Example: Skill creation guide
 │   │   └── SKILL.md
 │   └── README.md                    # Skills folder documentation

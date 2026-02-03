@@ -5,6 +5,7 @@ use futures::StreamExt;
 use ratatui::prelude::*;
 use tokio::sync::mpsc;
 use tracing::{error, info};
+use uuid::Uuid;
 
 use t_koma_core::{ChatMessage, MessageRole, WsMessage, WsResponse};
 
@@ -37,6 +38,10 @@ pub struct App {
     session_id: Option<String>,
     /// Whether provider has been selected
     provider_selected: bool,
+    /// Whether interface selection is required
+    interface_selection_required: bool,
+    /// Active ghost name (if selected)
+    active_ghost: Option<String>,
 }
 
 impl App {
@@ -56,6 +61,8 @@ impl App {
             status: "Connecting...".to_string(),
             session_id: None,
             provider_selected: false,
+            interface_selection_required: false,
+            active_ghost: None,
         }
     }
 
@@ -78,6 +85,8 @@ impl App {
             status: "Connected".to_string(),
             session_id: None,
             provider_selected: true,
+            interface_selection_required: false,
+            active_ghost: None,
         }
     }
 
@@ -156,7 +165,7 @@ impl App {
                         // New message
                         self.messages.push(ChatMessage::new(
                             id,
-                            MessageRole::Assistant,
+                            MessageRole::Ghost,
                             content,
                         ));
                     }
@@ -165,6 +174,14 @@ impl App {
             WsResponse::Error { message } => {
                 self.status = format!("Error: {}", message);
                 error!("WebSocket error: {}", message);
+            }
+            WsResponse::InterfaceSelectionRequired { message } => {
+                self.interface_selection_required = true;
+                self.messages.push(ChatMessage::new(
+                    format!("system_{}", Uuid::new_v4()),
+                    MessageRole::System,
+                    message,
+                ));
             }
             WsResponse::Pong => {
                 // Heartbeat, ignore
@@ -175,6 +192,7 @@ impl App {
             WsResponse::SessionCreated { session_id, .. } => {
                 // Store the session ID for future messages
                 self.session_id = Some(session_id);
+                self.interface_selection_required = false;
             }
             WsResponse::SessionSwitched { .. } => {
                 // TODO: Handle session switched
@@ -187,8 +205,14 @@ impl App {
                 self.status = format!("Using {}: {}", provider, model);
                 info!("Provider selected: {} with model: {}", provider, model);
             }
+            WsResponse::GhostSelected { ghost_name } => {
+                self.active_ghost = Some(ghost_name);
+            }
             WsResponse::AvailableModels { .. } => {
                 // Handled in provider selection flow
+            }
+            WsResponse::GhostList { .. } => {
+                // TODO: Surface ghost list in UI if needed
             }
         }
     }
@@ -240,7 +264,7 @@ impl App {
         let content = self.input.trim().to_string();
         
         // Add to local messages
-        let user_msg = ChatMessage::user(&content);
+        let user_msg = ChatMessage::operator(&content);
         let msg_id = user_msg.id.clone();
         self.messages.push(user_msg);
 
@@ -253,7 +277,28 @@ impl App {
             // TODO: Get session_id from SessionCreated response or track active session
             // For now, use a placeholder that the gateway will resolve
             let session_id = self.session_id.clone().unwrap_or_else(|| "active".to_string());
-            let ws_msg = WsMessage::Chat { session_id, content };
+            if self.interface_selection_required {
+                let ws_msg = WsMessage::SelectInterface { choice: content };
+                if tx.send(ws_msg).is_err() {
+                    self.status = "Failed to send interface choice".to_string();
+                    self.connected = false;
+                    error!("Failed to send interface choice to WebSocket");
+                } else {
+                    self.status = format!("Sent: {}", &msg_id[..8]);
+                    info!("Interface choice sent: {}", msg_id);
+                }
+                return;
+            }
+
+            let ghost_name = self
+                .active_ghost
+                .clone()
+                .unwrap_or_else(|| "active".to_string());
+            let ws_msg = WsMessage::Chat {
+                ghost_name,
+                session_id,
+                content,
+            };
             if tx.send(ws_msg).is_err() {
                 self.status = "Failed to send message".to_string();
                 self.connected = false;

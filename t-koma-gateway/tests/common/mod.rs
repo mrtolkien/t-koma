@@ -8,7 +8,7 @@ use t_koma_gateway::models::anthropic::AnthropicClient;
 use t_koma_gateway::models::openrouter::OpenRouterClient;
 use t_koma_gateway::models::Provider;
 use t_koma_gateway::state::{AppState, ModelEntry};
-use t_koma_db::DbPool;
+use t_koma_db::{GhostDbPool, GhostRepository, KomaDbPool, Operator, OperatorRepository, Platform};
 
 #[allow(dead_code)]
 pub struct DefaultModelInfo {
@@ -60,7 +60,7 @@ pub fn load_default_model() -> DefaultModelInfo {
 }
 
 #[allow(dead_code)]
-pub fn build_state_with_default_model(db: DbPool) -> Arc<AppState> {
+pub fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
     let default_model = load_default_model();
     let mut models = HashMap::new();
     models.insert(
@@ -78,4 +78,32 @@ pub fn build_state_with_default_model(db: DbPool) -> Arc<AppState> {
         models,
         db,
     ))
+}
+
+#[allow(dead_code)]
+pub struct TestEnvironment {
+    pub koma_db: KomaDbPool,
+    pub ghost_db: GhostDbPool,
+    pub operator: Operator,
+    pub ghost: t_koma_db::Ghost,
+}
+
+#[allow(dead_code)]
+pub async fn setup_test_environment(
+    operator_name: &str,
+    ghost_name: &str,
+) -> Result<TestEnvironment, Box<dyn std::error::Error>> {
+    let koma_db = t_koma_db::test_helpers::create_test_koma_pool().await?;
+    let operator = OperatorRepository::create_new(koma_db.pool(), operator_name, Platform::Api)
+        .await?;
+    let operator = OperatorRepository::approve(koma_db.pool(), &operator.id).await?;
+    let ghost = GhostRepository::create(koma_db.pool(), &operator.id, ghost_name).await?;
+    let ghost_db = GhostDbPool::new(&ghost.name).await?;
+
+    Ok(TestEnvironment {
+        koma_db,
+        ghost_db,
+        operator,
+        ghost,
+    })
 }

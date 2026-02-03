@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 #[cfg(feature = "live-tests")]
 use tracing::{error, info};
 
@@ -8,6 +8,13 @@ use crate::session::{ChatError, SessionChat};
 use crate::models::provider::Provider;
 #[cfg(feature = "live-tests")]
 use crate::models::provider::{extract_all_text, ProviderResponse};
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct PendingInterface {
+    platform: t_koma_db::Platform,
+    external_id: String,
+}
 
 /// Log entry for broadcasting events to listeners
 #[derive(Debug, Clone)]
@@ -84,8 +91,14 @@ pub struct AppState {
     models: HashMap<String, ModelEntry>,
     /// Log broadcast channel
     log_tx: broadcast::Sender<LogEntry>,
-    /// Database pool
-    pub db: t_koma_db::DbPool,
+    /// T-KOMA database pool
+    pub koma_db: t_koma_db::KomaDbPool,
+    /// Cached GHOST database pools by name
+    ghost_dbs: RwLock<HashMap<String, t_koma_db::GhostDbPool>>,
+    /// Active ghost name per operator
+    active_ghosts: RwLock<HashMap<String, String>>,
+    /// Pending interface selections (platform + external_id)
+    pending_interfaces: RwLock<HashMap<String, PendingInterface>>,
     /// High-level chat interface - handles all conversation logic including tools
     pub session_chat: SessionChat,
 }
@@ -103,16 +116,19 @@ impl AppState {
     pub fn new(
         default_model_alias: String,
         models: HashMap<String, ModelEntry>,
-        db: t_koma_db::DbPool,
+        koma_db: t_koma_db::KomaDbPool,
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
-        let session_chat = SessionChat::new(db.clone());
+        let session_chat = SessionChat::new();
 
         Self {
             default_model_alias,
             models,
             log_tx,
-            db,
+            koma_db,
+            ghost_dbs: RwLock::new(HashMap::new()),
+            active_ghosts: RwLock::new(HashMap::new()),
+            pending_interfaces: RwLock::new(HashMap::new()),
             session_chat,
         }
     }
@@ -174,26 +190,30 @@ impl AppState {
     /// All conversation logic (history, tools, system prompts) is handled internally.
     ///
     /// # Arguments
+    /// * `ghost_name` - The GHOST name to chat with
     /// * `session_id` - The session ID to chat in
-    /// * `user_id` - The user ID (for session ownership verification)
-    /// * `message` - The user's message content
+    /// * `operator_id` - The operator ID (for session ownership verification)
+    /// * `message` - The operator's message content
     ///
     /// # Returns
     /// The final text response from the provider
     pub async fn chat(
         &self,
+        ghost_name: &str,
         session_id: &str,
-        user_id: &str,
+        operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
         let model = self.default_model();
+        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
         self.session_chat
             .chat(
+                &ghost_db,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
                 session_id,
-                user_id,
+                operator_id,
                 message,
             )
             .await
@@ -203,8 +223,9 @@ impl AppState {
     pub async fn chat_with_model_alias(
         &self,
         model_alias: &str,
+        ghost_name: &str,
         session_id: &str,
-        user_id: &str,
+        operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
         let model = self
@@ -212,16 +233,88 @@ impl AppState {
             .get(model_alias)
             .unwrap_or_else(|| self.default_model());
 
+        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
         self.session_chat
             .chat(
+                &ghost_db,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
                 session_id,
-                user_id,
+                operator_id,
                 message,
             )
             .await
+    }
+
+    /// Get or initialize a GHOST database pool by name
+    pub async fn get_or_init_ghost_db(
+        &self,
+        ghost_name: &str,
+    ) -> Result<t_koma_db::GhostDbPool, ChatError> {
+        {
+            let guard = self.ghost_dbs.read().await;
+            if let Some(db) = guard.get(ghost_name) {
+                return Ok(db.clone());
+            }
+        }
+
+        let db = t_koma_db::GhostDbPool::new(ghost_name).await?;
+        let mut guard = self.ghost_dbs.write().await;
+        guard.insert(ghost_name.to_string(), db.clone());
+        Ok(db)
+    }
+
+    /// Set the active ghost for an operator
+    pub async fn set_active_ghost(&self, operator_id: &str, ghost_name: &str) {
+        let mut guard = self.active_ghosts.write().await;
+        guard.insert(operator_id.to_string(), ghost_name.to_string());
+    }
+
+    /// Get the active ghost name for an operator
+    pub async fn get_active_ghost(&self, operator_id: &str) -> Option<String> {
+        let guard = self.active_ghosts.read().await;
+        guard.get(operator_id).cloned()
+    }
+
+    fn interface_key(platform: t_koma_db::Platform, external_id: &str) -> String {
+        format!("{}:{}", platform, external_id)
+    }
+
+    pub async fn is_interface_pending(
+        &self,
+        platform: t_koma_db::Platform,
+        external_id: &str,
+    ) -> bool {
+        let key = Self::interface_key(platform, external_id);
+        let guard = self.pending_interfaces.read().await;
+        guard.contains_key(&key)
+    }
+
+    pub async fn set_interface_pending(
+        &self,
+        platform: t_koma_db::Platform,
+        external_id: &str,
+    ) {
+        let key = Self::interface_key(platform, external_id);
+        let mut guard = self.pending_interfaces.write().await;
+        guard.insert(
+            key,
+            PendingInterface {
+                platform,
+                external_id: external_id.to_string(),
+            },
+        );
+    }
+
+    pub async fn clear_interface_pending(
+        &self,
+        platform: t_koma_db::Platform,
+        external_id: &str,
+    ) {
+        let key = Self::interface_key(platform, external_id);
+        let mut guard = self.pending_interfaces.write().await;
+        guard.remove(&key);
     }
 
     /// Low-level conversation method with full tool use loop support
@@ -252,6 +345,7 @@ impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub async fn send_conversation_with_tools(
         &self,
+        ghost_name: &str,
         provider: &dyn Provider,
         session_id: &str,
         system_blocks: Vec<crate::models::prompt::SystemBlock>,
@@ -264,6 +358,8 @@ impl AppState {
         use crate::models::provider::has_tool_uses;
         use t_koma_db::SessionRepository;
         use tracing::info;
+
+        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
 
         // Initial request to AI
         let mut response = provider
@@ -292,17 +388,17 @@ impl AppState {
             );
 
             // Save assistant message with tool_use blocks
-            self.save_assistant_response(session_id, model, &response)
+            self.save_assistant_response(&ghost_db, session_id, model, &response)
                 .await;
 
             // Execute tools and get results
             let tool_results = self.execute_tools_from_response(session_id, &response).await;
 
             // Save tool results to database
-            self.save_tool_results(session_id, &tool_results).await;
+            self.save_tool_results(&ghost_db, session_id, &tool_results).await;
 
             // Build new API messages including the tool results
-            let history = SessionRepository::get_messages(self.db.pool(), session_id).await?;
+            let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
             let new_api_messages = build_api_messages(&history, Some(50));
 
             // Send tool results back to AI
@@ -320,7 +416,7 @@ impl AppState {
 
         // Extract and save final text response
         let text = self
-            .finalize_response(session_id, provider.name(), model, &response)
+            .finalize_response(&ghost_db, session_id, provider.name(), model, &response)
             .await;
 
         Ok(text)
@@ -330,6 +426,7 @@ impl AppState {
     #[cfg(feature = "live-tests")]
     async fn save_assistant_response(
         &self,
+        ghost_db: &t_koma_db::GhostDbPool,
         session_id: &str,
         model: &str,
         response: &ProviderResponse,
@@ -363,9 +460,9 @@ impl AppState {
             .collect();
 
         if let Err(e) = SessionRepository::add_message(
-            self.db.pool(),
+            ghost_db.pool(),
             session_id,
-            MessageRole::Assistant,
+            MessageRole::Ghost,
             assistant_content,
             Some(model),
         )
@@ -424,15 +521,16 @@ impl AppState {
     #[cfg(feature = "live-tests")]
     async fn save_tool_results(
         &self,
+        ghost_db: &t_koma_db::GhostDbPool,
         session_id: &str,
         tool_results: &[t_koma_db::ContentBlock],
     ) {
         use t_koma_db::{MessageRole, SessionRepository};
 
         if let Err(e) = SessionRepository::add_message(
-            self.db.pool(),
+            ghost_db.pool(),
             session_id,
-            MessageRole::User,
+            MessageRole::Operator,
             tool_results.to_vec(),
             None,
         )
@@ -446,6 +544,7 @@ impl AppState {
     #[cfg(feature = "live-tests")]
     async fn finalize_response(
         &self,
+        ghost_db: &t_koma_db::GhostDbPool,
         session_id: &str,
         provider_name: &str,
         model: &str,
@@ -467,9 +566,9 @@ impl AppState {
 
         let final_content = vec![t_koma_db::ContentBlock::Text { text: text.clone() }];
         let _ = SessionRepository::add_message(
-            self.db.pool(),
+            ghost_db.pool(),
             session_id,
-            t_koma_db::MessageRole::Assistant,
+            t_koma_db::MessageRole::Ghost,
             final_content,
             Some(model),
         )
