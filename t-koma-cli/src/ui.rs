@@ -70,7 +70,7 @@ impl Ui {
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),
-                        "Claude",
+                        "Assistant",
                     ),
                     t_koma_core::MessageRole::System => (
                         Style::default()

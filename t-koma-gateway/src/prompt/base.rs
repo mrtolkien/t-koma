@@ -99,12 +99,14 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn test_base_prompt_not_empty() {
         assert!(!BASE_SYSTEM_PROMPT.is_empty());
         assert!(BASE_SYSTEM_PROMPT.contains("t-koma"));
     }
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn test_tool_instructions_not_empty() {
         assert!(!TOOL_USE_INSTRUCTIONS.is_empty());
         assert!(TOOL_USE_INSTRUCTIONS.contains("shell"));

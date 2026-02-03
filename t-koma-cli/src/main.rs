@@ -1,10 +1,12 @@
 use std::io::{self, Write};
+use std::str::FromStr;
 
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
+use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 mod admin;
@@ -12,30 +14,39 @@ mod app;
 mod client;
 mod gateway_spawner;
 mod log_follower;
+mod model_config;
+mod provider_selection;
 mod ui;
 
 use app::App;
+use client::WsClient;
+use futures::StreamExt;
 use log_follower::LogFollower;
+use model_config::{apply_gateway_selection, configure_models_local, print_models};
+use provider_selection::{
+    ProviderSelectionMode, select_provider_interactive, select_provider_interactive_with_mode,
+};
+use t_koma_core::{Secrets, Settings, WsResponse};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
-    // Load configuration
-    let config = t_koma_core::Config::from_env()?;
-    info!("Configuration loaded, connecting to {}", config.gateway_ws_url);
+    // Load settings (no default model validation in CLI startup)
+    let settings = t_koma_core::Settings::load()?;
+    let ws_url = settings.ws_url();
+    info!("Settings loaded, using {}", ws_url);
 
     // Verify localhost-only for security
-    if config.gateway_host != "127.0.0.1" && config.gateway_host != "localhost" {
+    if settings.gateway.host != "127.0.0.1" && settings.gateway.host != "localhost" {
         warn!(
             "Gateway is configured to bind to {} - this may expose it to remote access!",
-            config.gateway_host
+            settings.gateway.host
         );
         print!("Continue anyway? [y/N]: ");
         io::stdout().flush()?;
@@ -47,28 +58,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Try to auto-start gateway if not running
-    let _gateway_process = match gateway_spawner::ensure_gateway_running(&config.gateway_ws_url).await {
-        Ok(process) => {
-            if process.is_some() {
-                info!("Started gateway automatically");
-            }
-            process
-        }
-        Err(e) => {
-            warn!("Could not auto-start gateway: {}", e);
-            info!("Assuming gateway is managed externally or will be started manually");
-            None
-        }
-    };
-
     // Show menu and get selection
     let selection = show_menu()?;
 
     match selection {
-        1 => run_chat_mode(&config.gateway_ws_url).await,
-        2 => run_log_mode(&config.gateway_ws_url).await,
+        1 => run_chat_mode(&ws_url).await,
+        2 => run_log_mode(&ws_url).await,
         3 => admin::run_admin_mode().await,
+        4 => run_provider_config_mode(&ws_url).await,
         _ => {
             println!("Invalid selection");
             Ok(())
@@ -84,8 +81,9 @@ fn show_menu() -> Result<u32, Box<dyn std::error::Error>> {
     println!("║  1. Chat with t-koma               ║");
     println!("║  2. Follow gateway logs            ║");
     println!("║  3. Manage users (admin)           ║");
+    println!("║  4. Manage model config            ║");
     println!("╚════════════════════════════════════╝");
-    print!("\nSelect [1-3]: ");
+    print!("\nSelect [1-4]: ");
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -96,7 +94,92 @@ fn show_menu() -> Result<u32, Box<dyn std::error::Error>> {
 
 /// Run the chat TUI mode
 async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Setup terminal
+    let ws_url = ws_url_for_cli(ws_url);
+    // Try to auto-start gateway if not running (chat mode only)
+    let _gateway_process = match gateway_spawner::ensure_gateway_running(&ws_url).await {
+        Ok(process) => {
+            if process.is_some() {
+                info!("Started gateway automatically");
+            }
+            process
+        }
+        Err(e) => {
+            warn!("Could not auto-start gateway: {}", e);
+            info!("Assuming gateway is managed externally or will be started manually");
+            None
+        }
+    };
+
+    // First, connect to WebSocket and do provider selection in normal mode
+    println!("\nConnecting to gateway...");
+
+    let (ws_tx, ws_rx) = WsClient::connect(&ws_url).await?;
+
+    // Create channels for communication
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward WebSocket messages
+    tokio::spawn(async move {
+        let mut ws_rx = ws_rx;
+        while let Some(msg) = ws_rx.next().await {
+            if tx.send(msg).is_err() {
+                break;
+            }
+        }
+    });
+
+    // Wait for session creation before provider selection
+    println!("Waiting for session...");
+    let mut session_ready = false;
+    while !session_ready {
+        match rx.recv().await {
+            Some(WsResponse::SessionCreated { .. }) => {
+                session_ready = true;
+                println!("✓ Session created");
+            }
+            Some(WsResponse::Error { message }) => {
+                println!("Error: {}", message);
+                return Ok(());
+            }
+            Some(WsResponse::Response { content, .. }) => {
+                // Welcome message, ignore
+                if content.contains("Connected to t-koma") {
+                    // Continue waiting for SessionCreated
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Run provider selection interactively
+    println!("\n--- Provider Selection ---");
+    let _provider_selection = match select_provider_interactive(&ws_tx, &mut rx).await {
+        Ok(selection) => {
+            info!(
+                "Selected provider: {:?}, model: {}",
+                selection.provider, selection.model
+            );
+            selection
+        }
+        Err(e) => {
+            println!("Provider selection failed: {}", e);
+            println!("Falling back to configured default model.");
+            let settings = Settings::load()?;
+            let model_config = settings
+                .default_model_config()
+                .ok_or("Default model is not configured")?;
+            let provider = t_koma_core::message::ProviderType::from_str(&model_config.provider)
+                .map_err(|e| format!("Invalid provider in config: {}", e))?;
+            provider_selection::ProviderSelection {
+                provider,
+                model: model_config.model.clone(),
+            }
+        }
+    };
+
+    println!("\nStarting chat interface...\n");
+
+    // Now setup terminal and run TUI
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -104,8 +187,8 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create app and run
-    let mut app = App::new(ws_url);
-    
+    let mut app = App::new_with_channels(ws_url, ws_tx, rx);
+
     let result = match app.run(&mut terminal).await {
         Ok(()) => {
             info!("Application exited normally");
@@ -132,7 +215,92 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
 /// Run the log follow mode
 async fn run_log_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("\nConnecting to gateway logs...\n");
-    
+
     let follower = LogFollower::new(ws_url);
     follower.run().await
+}
+
+fn ws_url_for_cli(ws_url: &str) -> String {
+    match url::Url::parse(ws_url) {
+        Ok(mut url) => {
+            url.query_pairs_mut().append_pair("client", "cli");
+            url.to_string()
+        }
+        Err(_) => ws_url.to_string(),
+    }
+}
+
+/// Run the provider configuration mode
+async fn run_provider_config_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n╔════════════════════════════════════╗");
+    println!("║       Model Configuration          ║");
+    println!("╚════════════════════════════════════╝\n");
+
+    let mut settings = Settings::load()?;
+
+    print_models(&settings);
+
+    let selection = match WsClient::connect(&ws_url_for_cli(ws_url)).await {
+        Ok((ws_tx, ws_rx)) => {
+            println!("\nGateway reachable. Loading configured models...");
+
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            tokio::spawn(async move {
+                let mut ws_rx = ws_rx;
+                while let Some(msg) = ws_rx.next().await {
+                    if tx.send(msg).is_err() {
+                        break;
+                    }
+                }
+            });
+
+            match select_provider_interactive_with_mode(
+                &ws_tx,
+                &mut rx,
+                ProviderSelectionMode::LocalOnly,
+            )
+            .await
+            {
+                Ok(selection) => Some(selection),
+                Err(e) => {
+                    println!("Gateway selection failed: {}", e);
+                    println!("Falling back to local config selection.");
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            println!("Gateway not reachable: {}", e);
+            println!("Using local config selection.");
+            None
+        }
+    };
+
+    let alias = match selection {
+        Some(selection) => apply_gateway_selection(&mut settings, selection)?,
+        None => configure_models_local(&mut settings)?,
+    };
+    settings.save()?;
+
+    if settings
+        .models
+        .get(&alias)
+        .map(|model| model.provider == "openrouter")
+        .unwrap_or(false)
+    {
+        match Secrets::from_env() {
+            Ok(secrets) => {
+                if !secrets.has_provider("openrouter") {
+                    println!("Warning: OPENROUTER_API_KEY is not set. You can set it later.");
+                }
+            }
+            Err(_) => {
+                println!("Warning: Unable to verify OPENROUTER_API_KEY. You can set it later.");
+            }
+        }
+    }
+
+    println!("✓ Updated default model to '{}'", alias);
+
+    Ok(())
 }
