@@ -561,3 +561,186 @@ implementing features** that involve these technologies:
 - `vibe/knowledge/sqlite-vec.md` - Vector search with sqlite-vec and sqlx
 - `vibe/knowledge/surrealdb_rust.md` - SurrealDB Rust SDK (reference only -
   project uses SQLite)
+- `vibe/knowledge/skills.md` - Agent Skills system implementation and usage
+
+## Agent Skills System
+
+The t-koma agent supports [Agent Skills](https://agentskills.io) - self-contained
+directories of instructions, scripts, and resources that extend agent capabilities.
+
+### Skill Locations
+
+Skills are discovered from multiple locations:
+
+1. **Project directory**: `./skills/` - Version-controlled project skills
+2. **User config directory**: `~/.config/t-koma/skills/` (XDG) - User-specific skills
+
+Config skills take precedence over project skills with the same name.
+
+```
+Project: ./skills/
+├── skill-creator/          # Guide for creating skills
+│   └── SKILL.md
+└── README.md               # Skills documentation
+
+User Config: ~/.config/t-koma/skills/
+└── my-private-skill/       # User-specific skills
+    └── SKILL.md
+```
+
+### Default Skills
+
+Default skills are embedded in the binary and automatically written to the config
+directory on first run if they don't exist. This allows users to modify skills while
+preserving the original defaults.
+
+**Initialize default skills:**
+
+```rust
+use t_koma_core::{Config, DefaultSkillsManager, init_default_skills};
+
+// Write all default skills to config directory
+if let Some(config_path) = Config::skills_config_path() {
+    init_default_skills(&config_path)?;
+}
+
+// Or use the manager for more control
+let manager = DefaultSkillsManager::new();
+manager.write_all(&config_path)?;
+```
+
+**Current default skills:**
+- `skill-creator`: Guide for creating new skills
+
+### Using Skills in Code
+
+**Discover and load skills:**
+
+```rust
+use t_koma_core::SkillRegistry;
+
+// Create registry with default paths (project + config)
+let registry = SkillRegistry::new()?;
+
+// Or with explicit paths
+let registry = SkillRegistry::new_with_paths(
+    Some(PathBuf::from("./skills")),
+    Config::skills_config_path(),
+)?;
+
+// List available skills
+for (name, description) in registry.list_skills() {
+    println!("{}: {}", name, description);
+}
+```
+
+**Access a specific skill:**
+
+```rust
+// Get skill metadata
+if let Some(skill) = registry.get("skill-creator") {
+    println!("Skill: {} - {}", skill.name, skill.description);
+}
+
+// Load full content
+let mut registry = registry;
+let skill = registry.load_skill("skill-creator")?;
+if let Some(content) = &skill.content {
+    // Use full skill instructions
+}
+```
+
+**Search skills:**
+
+```rust
+let results = registry.search("pdf");
+for skill in results {
+    println!("Found: {}", skill.name);
+}
+```
+
+**Access skill resources:**
+
+```rust
+let skill = registry.get("my-skill").unwrap();
+
+// List resources
+let scripts = skill.list_scripts();
+let references = skill.list_references();
+
+// Read specific files
+let script = skill.read_script("extract.py")?;
+let reference = skill.read_reference("API.md")?;
+```
+
+### Creating a New Skill
+
+1. **Create the skill directory:**
+   ```bash
+   mkdir skills/my-skill
+   ```
+
+2. **Create SKILL.md with frontmatter:**
+   ```yaml
+   ---
+   name: my-skill
+   description: What this skill does and when to use it.
+   ---
+   
+   # My Skill
+   
+   Instructions for the agent...
+   ```
+
+3. **Add optional resources:**
+   ```bash
+   mkdir skills/my-skill/scripts
+   mkdir skills/my-skill/references
+   ```
+
+4. **Validate the skill:**
+   ```rust
+   let skill = Skill::from_file(Path::new("skills/my-skill/SKILL.md"))?;
+   ```
+
+### Skill Format
+
+Each skill requires a `SKILL.md` file with:
+
+1. **YAML frontmatter** (required):
+   - `name`: Skill identifier (lowercase, alphanumeric, hyphens)
+   - `description`: What the skill does and when to use it
+   - Optional: `license`, `compatibility`, `metadata`
+
+2. **Markdown body**: Step-by-step instructions, examples, references
+
+See `skills/skill-creator/SKILL.md` for detailed guidance on creating skills.
+
+### Key Types
+
+- `Skill`: Represents a loaded skill with metadata and content
+- `SkillRegistry`: Manages skill discovery and access
+- `SkillError`: Error type for skill operations
+
+### Load Skill Tool
+
+The `load_skill` tool allows the agent to load skill content on demand:
+
+```rust
+use t_koma_gateway::tools::load_skill::LoadSkillTool;
+
+let load_skill_tool = LoadSkillTool::new(skills_dir);
+```
+
+When the agent identifies that a skill is needed, it should call `load_skill` with
+the skill name to retrieve the full SKILL.md content.
+
+### Progressive Disclosure
+
+The skills system uses progressive disclosure:
+
+1. **Metadata** (~100 tokens): Loaded at startup for all skills
+2. **Instructions** (<5000 tokens): Loaded when skill is activated
+3. **Resources** (as needed): Loaded only when required
+
+Keep `SKILL.md` under 500 lines; move detailed content to `references/`.
