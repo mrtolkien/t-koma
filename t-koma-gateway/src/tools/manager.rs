@@ -2,7 +2,8 @@ use serde_json::Value;
 
 use super::{
     create_file::CreateFileTool, file_edit::FileEditTool, find_files::FindFilesTool,
-    list_dir::ListDirTool, read_file::ReadFileTool, search::SearchTool, shell::ShellTool, Tool,
+    list_dir::ListDirTool, read_file::ReadFileTool, search::SearchTool, shell::ShellTool,
+    web_fetch::WebFetchTool, web_search::WebSearchTool, Tool,
 };
 
 /// Central manager for all AI tools
@@ -25,6 +26,8 @@ impl ToolManager {
             Box::new(SearchTool),
             Box::new(FindFilesTool),
             Box::new(ListDirTool),
+            Box::new(WebSearchTool),
+            Box::new(WebFetchTool),
         ];
         Self { tools }
     }
@@ -78,6 +81,8 @@ mod tests {
         assert!(tool_names.contains(&"search"));
         assert!(tool_names.contains(&"find_files"));
         assert!(tool_names.contains(&"list_dir"));
+        assert!(tool_names.contains(&"web_search"));
+        assert!(tool_names.contains(&"web_fetch"));
     }
 
     #[tokio::test]

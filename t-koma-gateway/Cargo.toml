@@ -60,6 +60,9 @@ ignore = "0.4"
 regex = "1"
 globset = "0.4"
 
+# HTML to text conversion
+html2text = "0.12"
+
 [dev-dependencies]
 # For snapshot testing
 insta = { version = "1.42", features = ["json", "redactions"] }

@@ -9,6 +9,7 @@
 //! - `ANTHROPIC_API_KEY` - Anthropic API key
 //! - `OPENROUTER_API_KEY` - OpenRouter API key
 //! - `DISCORD_BOT_TOKEN` - Discord bot token
+//! - `BRAVE_API_KEY` - Brave Search API key
 //!
 //! ## Settings (TOML File)
 //! Located at `~/.config/t-koma/config.toml`:
@@ -168,6 +169,11 @@ impl Config {
         self.secrets.discord_bot_token.as_deref()
     }
 
+    /// Get the Brave Search API key (if configured).
+    pub fn brave_api_key(&self) -> Option<&str> {
+        self.secrets.brave_api_key.as_deref()
+    }
+
     /// Check if Discord bot is enabled and has a token.
     pub fn discord_enabled(&self) -> bool {
         self.settings.discord.enabled && self.secrets.discord_bot_token.is_some()
@@ -196,6 +202,7 @@ mod tests {
             env::remove_var("ANTHROPIC_API_KEY");
             env::remove_var("OPENROUTER_API_KEY");
             env::remove_var("DISCORD_BOT_TOKEN");
+            env::remove_var("BRAVE_API_KEY");
         }
     }
 
