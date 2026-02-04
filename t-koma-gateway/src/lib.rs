@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod deterministic_messages;
 pub mod discord;
+pub mod log_bridge;
 pub mod providers;
 pub mod prompt;
 pub mod server;

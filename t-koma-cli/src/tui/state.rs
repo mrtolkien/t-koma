@@ -61,6 +61,8 @@ pub enum GateFilter {
     Gateway,
     Ghost,
     Operator,
+    Transport,
+    Error,
 }
 
 #[cfg(test)]

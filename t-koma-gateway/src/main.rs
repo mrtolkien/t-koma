@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use t_koma_gateway::discord::start_discord_bot;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
@@ -11,10 +12,12 @@ use t_koma_gateway::state::AppState;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
+    let env_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer())
+        .with(t_koma_gateway::log_bridge::GatewayLogBridge)
         .init();
 
     // Load configuration

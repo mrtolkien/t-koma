@@ -24,6 +24,8 @@ important information in vibe/knowledge.
   as ghost DB).
 - SESSION: A chat thread between an operator and a ghost (stored in ghost DB).
 - Puppet Master: The name used for WebSocket clients.
+- In TUI context, the user is the Puppet Master (admin/operator context for
+  management UX and messaging labels).
 
 Relationship summary:
 
@@ -192,6 +194,7 @@ Detailed how-tos are in `vibe/knowledge/`:
 - Adding tools: `vibe/knowledge/tools.md`
 - Testing patterns: `vibe/knowledge/testing.md`
 - Skills system: `vibe/knowledge/skills.md`
+- TUI cyberdeck notes: `vibe/knowledge/tui_cyberdeck.md`
 - Anthropic/OpenRouter specifics: `vibe/knowledge/anthropic_claude_api.md`,
   `vibe/knowledge/openrouter.md`
 - sqlite-vec notes: `vibe/knowledge/sqlite-vec.md`

@@ -121,6 +121,7 @@ impl SessionChat {
         }
 
         info!(
+            event_kind = "chat_io",
             "[session:{}] Chat message from operator {}",
             session_id, operator_id
         );
@@ -588,6 +589,7 @@ impl SessionChat {
         let text = extract_all_text(response);
 
         info!(
+            event_kind = "chat_io",
             "[session:{}] GHOST final response ({} / {}): {}",
             session_id,
             provider_name,
