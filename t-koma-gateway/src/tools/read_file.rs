@@ -1,8 +1,8 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::fs;
 
-use super::{Tool, ToolContext};
 use super::context::resolve_local_path;
+use super::{Tool, ToolContext};
 
 pub struct ReadFileTool;
 
@@ -171,7 +171,7 @@ mod tests {
         let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = ReadFileTool;
-        let args = json!({ 
+        let args = json!({
             "file_path": path,
             "offset": 5,
             "limit": 3
@@ -222,7 +222,7 @@ mod tests {
         let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = ReadFileTool;
-        let args = json!({ 
+        let args = json!({
             "file_path": path,
             "offset": 10
         });

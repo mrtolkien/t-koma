@@ -42,7 +42,7 @@ pub fn apply_gateway_selection(
     settings: &mut Settings,
     selection: ProviderSelection,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let provider = selection.provider.as_str().to_string();
+    let provider = selection.provider;
     let model_id = selection.model;
 
     if let Some((alias, _)) = settings
@@ -129,7 +129,7 @@ fn add_or_update_model(
         );
     }
 
-    let provider = prompt_provider(existing.as_ref().map(|e| e.provider.as_str()))?;
+    let provider = prompt_provider(existing.as_ref().map(|e| e.provider))?;
     let model = prompt_text(
         "Model ID",
         existing.as_ref().map(|e| e.model.as_str()),
@@ -178,8 +178,8 @@ fn prompt_alias(suggested: Option<&str>) -> Result<String, Box<dyn std::error::E
     }
 }
 
-fn prompt_provider(default: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
-    let providers = ["anthropic", "openrouter"];
+fn prompt_provider(default: Option<ProviderType>) -> Result<ProviderType, Box<dyn std::error::Error>> {
+    let providers = [ProviderType::Anthropic, ProviderType::OpenRouter];
     let default_index = default
         .and_then(|value| providers.iter().position(|p| *p == value))
         .unwrap_or(0);
@@ -201,14 +201,14 @@ fn prompt_provider(default: Option<&str>) -> Result<String, Box<dyn std::error::
 
         if input.is_empty() {
             if let Some(value) = default {
-                return Ok(value.to_string());
+                return Ok(value);
             }
             println!("Provider is required.");
             continue;
         }
 
-        if ProviderType::from_str(input).is_ok() {
-            return Ok(input.to_lowercase());
+        if let Ok(provider) = ProviderType::from_str(input) {
+            return Ok(provider);
         }
 
         println!("Unknown provider '{}'.", input);
@@ -272,9 +272,9 @@ fn suggest_alias_from_model_id(model_id: &str) -> String {
 }
 
 fn prompt_provider_picker(
-    providers: &[&str],
+    providers: &[ProviderType],
     default_index: usize,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<ProviderType, Box<dyn std::error::Error>> {
     let mut index = default_index.min(providers.len().saturating_sub(1));
     let mut query = String::new();
     let mut stdout = io::stdout();
@@ -293,13 +293,13 @@ fn prompt_provider_picker(
             println!();
 
             for (i, provider) in providers.iter().enumerate() {
-                if !query.is_empty() && !provider.starts_with(&query) {
+                if !query.is_empty() && !provider.as_str().starts_with(&query) {
                     continue;
                 }
                 if i == index {
-                    println!("> {}", provider);
+                    println!("> {}", provider.as_str());
                 } else {
-                    println!("  {}", provider);
+                    println!("  {}", provider.as_str());
                 }
             }
 
@@ -315,13 +315,16 @@ fn prompt_provider_picker(
                     KeyCode::Down => {
                         index = (index + 1) % providers.len();
                     }
-                    KeyCode::Enter => return Ok(providers[index].to_string()),
+                    KeyCode::Enter => return Ok(providers[index]),
                     KeyCode::Char('c') if modifiers == KeyModifiers::CONTROL => {
                         return Err("Provider selection cancelled".into())
                     }
                     KeyCode::Char(c) => {
                         query.push(c);
-                        if let Some(pos) = providers.iter().position(|p| p.starts_with(&query)) {
+                        if let Some(pos) = providers
+                            .iter()
+                            .position(|p| p.as_str().starts_with(&query))
+                        {
                             index = pos;
                         }
                     }
@@ -329,8 +332,9 @@ fn prompt_provider_picker(
                         query.pop();
                         if query.is_empty() {
                             index = default_index.min(providers.len().saturating_sub(1));
-                        } else if let Some(pos) =
-                            providers.iter().position(|p| p.starts_with(&query))
+                        } else if let Some(pos) = providers
+                            .iter()
+                            .position(|p| p.as_str().starts_with(&query))
                         {
                             index = pos;
                         }

@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::models::anthropic::history::ApiMessage;
-use crate::models::prompt::SystemBlock;
+use crate::chat::history::ChatMessage;
+use crate::prompt::render::SystemBlock;
 use crate::tools::Tool;
 
 /// Unified content block across providers
@@ -76,11 +76,8 @@ pub trait Provider: Send + Sync {
     /// Current model
     fn model(&self) -> &str;
 
-    /// Send a simple message (for backwards compatibility)
-    async fn send_message(
-        &self,
-        content: &str,
-    ) -> Result<ProviderResponse, ProviderError> {
+    /// Send a simple single-turn message.
+    async fn send_message(&self, content: &str) -> Result<ProviderResponse, ProviderError> {
         self.send_conversation(None, vec![], vec![], Some(content), None, None)
             .await
     }
@@ -89,7 +86,7 @@ pub trait Provider: Send + Sync {
     async fn send_conversation(
         &self,
         system: Option<Vec<SystemBlock>>,
-        history: Vec<ApiMessage>,
+        history: Vec<ChatMessage>,
         tools: Vec<&dyn Tool>,
         new_message: Option<&str>,
         message_limit: Option<usize>,

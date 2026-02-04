@@ -4,9 +4,9 @@
 use std::time::Duration;
 
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::web::search::{brave::BraveSearchProvider, SearchProvider, WebSearchQuery};
+use t_koma_gateway::web::fetch::{FetchProvider, WebFetchRequest, http::HttpFetchProvider};
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::web::fetch::{http::HttpFetchProvider, FetchProvider, WebFetchRequest};
+use t_koma_gateway::web::search::{SearchProvider, WebSearchQuery, brave::BraveSearchProvider};
 
 #[cfg(feature = "live-tests")]
 #[tokio::test]
@@ -63,12 +63,8 @@ async fn test_brave_web_search_rust_language() {
 async fn test_web_fetch_github_profile() {
     t_koma_core::load_dotenv();
 
-    let provider = HttpFetchProvider::new(
-        Duration::from_secs(20),
-        "text".to_string(),
-        12000,
-    )
-    .expect("Failed to create HttpFetchProvider");
+    let provider = HttpFetchProvider::new(Duration::from_secs(20), "text".to_string(), 12000)
+        .expect("Failed to create HttpFetchProvider");
 
     let response = provider
         .fetch(&WebFetchRequest {

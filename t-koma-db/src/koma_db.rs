@@ -2,13 +2,13 @@
 
 use std::path::PathBuf;
 
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    SqlitePool,
-};
+use sqlx::SqlitePool;
 use tracing::info;
 
-use crate::error::{DbError, DbResult};
+use crate::{
+    error::{DbError, DbResult},
+    sqlite_runtime::create_file_pool,
+};
 
 /// T-KOMA database pool wrapper
 #[derive(Debug, Clone)]
@@ -32,10 +32,7 @@ impl KomaDbPool {
             std::fs::create_dir_all(parent)?;
         }
 
-        Self::init_sqlite_vec()?;
-
-        let db_url = format!("sqlite:{}", db_path.display());
-        let pool = Self::create_pool(&db_url).await?;
+        let pool = create_file_pool(&db_path, 5).await?;
 
         Self::run_migrations(&pool).await?;
 
@@ -52,51 +49,6 @@ impl KomaDbPool {
     pub fn db_path() -> DbResult<PathBuf> {
         let data_dir = dirs::data_dir().ok_or(DbError::NoConfigDir)?;
         Ok(data_dir.join("t-koma").join("koma.sqlite3"))
-    }
-
-    /// Initialize sqlite-vec extension globally
-    ///
-    /// Must be called once at application startup, before any database connections
-    fn init_sqlite_vec() -> DbResult<()> {
-        use rusqlite::ffi::sqlite3_auto_extension;
-        use sqlite_vec::sqlite3_vec_init;
-
-        unsafe {
-            type SqliteVecInitFn = unsafe extern "C" fn(
-                *mut rusqlite::ffi::sqlite3,
-                *mut *mut i8,
-                *const rusqlite::ffi::sqlite3_api_routines,
-            ) -> i32;
-            sqlite3_auto_extension(Some(std::mem::transmute::<
-                *const (),
-                SqliteVecInitFn,
-            >(sqlite3_vec_init as *const ())));
-        }
-        Ok(())
-    }
-
-    /// Create a connection pool with optimal settings
-    async fn create_pool(database_url: &str) -> DbResult<SqlitePool> {
-        let options = SqliteConnectOptions::new()
-            .filename(database_url.strip_prefix("sqlite:").unwrap_or(database_url))
-            .create_if_missing(true);
-
-        let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect_with(options)
-            .await?;
-
-        sqlx::query("PRAGMA journal_mode = WAL")
-            .execute(&pool)
-            .await?;
-        sqlx::query("PRAGMA synchronous = NORMAL")
-            .execute(&pool)
-            .await?;
-        sqlx::query("PRAGMA cache_size = -64000")
-            .execute(&pool)
-            .await?;
-
-        Ok(pool)
     }
 
     /// Run database migrations using sqlx migrate macro

@@ -112,7 +112,10 @@ impl EventHandler for Bot {
                     .await;
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, format_deterministic_message(dm::INTERFACE_PROMPT))
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::INTERFACE_PROMPT),
+                    )
                     .await;
                 return;
             }
@@ -122,7 +125,10 @@ impl EventHandler for Bot {
                 // TODO: Implement existing-operator flow
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, format_deterministic_message(dm::EXISTING_OPERATOR_TODO))
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::EXISTING_OPERATOR_TODO),
+                    )
                     .await;
                 return;
             }
@@ -130,7 +136,10 @@ impl EventHandler for Bot {
             if choice != "new" {
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, format_deterministic_message(dm::INTERFACE_PROMPT))
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::INTERFACE_PROMPT),
+                    )
                     .await;
                 return;
             }
@@ -199,7 +208,10 @@ impl EventHandler for Bot {
         {
             Ok(Some(op)) => op,
             Ok(None) => {
-                error!("Interface references missing operator {}", interface.operator_id);
+                error!(
+                    "Interface references missing operator {}",
+                    interface.operator_id
+                );
                 let _ = msg
                     .channel_id
                     .say(
@@ -213,7 +225,10 @@ impl EventHandler for Bot {
                 error!("Failed to load operator {}: {}", interface.operator_id, e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, format_deterministic_message(dm::ERROR_FAILED_LOAD_OPERATOR))
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::ERROR_FAILED_LOAD_OPERATOR),
+                    )
                     .await;
                 return;
             }
@@ -234,7 +249,10 @@ impl EventHandler for Bot {
             t_koma_db::OperatorStatus::Denied => {
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, format_deterministic_message(common::ACCESS_DENIED))
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(common::ACCESS_DENIED),
+                    )
                     .await;
                 return;
             }
@@ -257,7 +275,10 @@ impl EventHandler for Bot {
                 error!("Failed to list ghosts for operator {}: {}", operator_id, e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, format_deterministic_message(dm::ERROR_FAILED_LOAD_GHOSTS))
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::ERROR_FAILED_LOAD_GHOSTS),
+                    )
                     .await;
                 return;
             }
@@ -277,7 +298,10 @@ impl EventHandler for Bot {
 
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, format_deterministic_message(dm::GHOST_NAME_PROMPT))
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::GHOST_NAME_PROMPT),
+                    )
                     .await;
                 return;
             }
@@ -344,7 +368,10 @@ impl EventHandler for Bot {
                     error!("Failed to read default-prompts/BOOTSTRAP.md: {}", e);
                     let _ = msg
                         .channel_id
-                        .say(&ctx.http, format_deterministic_message(dm::ERROR_MISSING_BOOTSTRAP))
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(dm::ERROR_MISSING_BOOTSTRAP),
+                        )
                         .await;
                     return;
                 }
@@ -360,15 +387,16 @@ impl EventHandler for Bot {
                     error!("[session:{}] Chat error: {}", session.id, e);
                     let _ = msg
                         .channel_id
-                        .say(&ctx.http, format_deterministic_message(dm::ERROR_GHOST_BOOT_FAILED))
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(dm::ERROR_GHOST_BOOT_FAILED),
+                        )
                         .await;
                     return;
                 }
             };
 
-            self.state
-                .set_active_ghost(&operator_id, &ghost.name)
-                .await;
+            self.state.set_active_ghost(&operator_id, &ghost.name).await;
 
             let header = dm::ghost_created_header_with_name(&ghost.name);
             let response = format!(
@@ -377,7 +405,10 @@ impl EventHandler for Bot {
                 ghost_response
             );
             if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                error!("[session:{}] Failed to send Discord message: {}", session.id, e);
+                error!(
+                    "[session:{}] Failed to send Discord message: {}",
+                    session.id, e
+                );
             }
 
             return;
@@ -386,9 +417,7 @@ impl EventHandler for Bot {
         // Ghost selection: use command to switch active ghost
         if let Some(selection) = parse_ghost_selection(clean_content) {
             if let Some(ghost) = ghosts.iter().find(|g| g.name == selection) {
-                self.state
-                    .set_active_ghost(&operator_id, &ghost.name)
-                    .await;
+                self.state.set_active_ghost(&operator_id, &ghost.name).await;
                 let response = dm::active_ghost_set(&ghost.name);
                 let _ = msg
                     .channel_id
@@ -439,22 +468,26 @@ impl EventHandler for Bot {
             }
         };
 
-        let session = match t_koma_db::SessionRepository::get_or_create_active(
-            ghost_db.pool(),
-            &operator_id,
-        )
-        .await
-        {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Failed to create session for operator {}: {}", operator_id, e);
-                let _ = msg
-                    .channel_id
-                    .say(&ctx.http, format_deterministic_message(dm::ERROR_INIT_SESSION))
-                    .await;
-                return;
-            }
-        };
+        let session =
+            match t_koma_db::SessionRepository::get_or_create_active(ghost_db.pool(), &operator_id)
+                .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    error!(
+                        "Failed to create session for operator {}: {}",
+                        operator_id, e
+                    );
+                    let _ = msg
+                        .channel_id
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(dm::ERROR_INIT_SESSION),
+                        )
+                        .await;
+                    return;
+                }
+            };
 
         if clean_content.eq_ignore_ascii_case("approve")
             || clean_content.eq_ignore_ascii_case("deny")
@@ -470,13 +503,7 @@ impl EventHandler for Bot {
 
                 match self
                     .state
-                    .handle_tool_approval(
-                        &ghost_name,
-                        &session.id,
-                        &operator_id,
-                        decision,
-                        None,
-                    )
+                    .handle_tool_approval(&ghost_name, &session.id, &operator_id, decision, None)
                     .await
                 {
                     Ok(Some(text)) => {
@@ -546,13 +573,7 @@ impl EventHandler for Bot {
 
             match self
                 .state
-                .handle_tool_loop_continue(
-                    &ghost_name,
-                    &session.id,
-                    &operator_id,
-                    step_limit,
-                    None,
-                )
+                .handle_tool_loop_continue(&ghost_name, &session.id, &operator_id, step_limit, None)
                 .await
             {
                 Ok(Some(text)) => {
@@ -621,7 +642,12 @@ impl EventHandler for Bot {
             Ok(text) => text,
             Err(ChatError::ToolApprovalRequired(pending)) => {
                 self.state
-                    .set_pending_tool_approval(&operator_id, &ghost_name, &session.id, pending.clone())
+                    .set_pending_tool_approval(
+                        &operator_id,
+                        &ghost_name,
+                        &session.id,
+                        pending.clone(),
+                    )
                     .await;
                 let message = common::approval_required(pending.requested_path.as_deref());
                 let _ = msg
@@ -667,7 +693,10 @@ impl EventHandler for Bot {
 
         // Send response back to Discord
         if let Err(e) = msg.channel_id.say(&ctx.http, &final_text).await {
-            error!("[session:{}] Failed to send Discord message: {}", session.id, e);
+            error!(
+                "[session:{}] Failed to send Discord message: {}",
+                session.id, e
+            );
         }
     }
 

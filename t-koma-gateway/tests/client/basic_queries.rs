@@ -3,9 +3,9 @@
 //! These tests capture real API responses for simple queries.
 
 #[cfg(feature = "live-tests")]
-use insta::assert_json_snapshot;
-#[cfg(feature = "live-tests")]
 use crate::common;
+#[cfg(feature = "live-tests")]
+use insta::assert_json_snapshot;
 
 /// Test a simple greeting query - captures the API response structure
 #[cfg(feature = "live-tests")]

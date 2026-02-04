@@ -13,6 +13,7 @@ pub mod interfaces;
 pub mod koma_db;
 pub mod operators;
 pub mod sessions;
+mod sqlite_runtime;
 
 // Re-export commonly used types
 pub use error::{DbError, DbResult};

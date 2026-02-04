@@ -50,8 +50,7 @@ pub mod discord {
     pub const ERROR_MISSING_BOOTSTRAP: &str =
         "default-prompts/BOOTSTRAP.md missing; cannot initialize ghost.";
     pub const ERROR_GHOST_BOOT_FAILED: &str = "Ghost failed to boot. Try again later.";
-    pub const ERROR_INIT_SESSION: &str =
-        "Sorry, an error occurred initializing your session.";
+    pub const ERROR_INIT_SESSION: &str = "Sorry, an error occurred initializing your session.";
     pub const ERROR_PROCESSING_REQUEST: &str =
         "Sorry, I encountered an error processing your request.";
     pub const INTERFACE_INVALID_OPERATOR: &str = "Interface is not linked to a valid operator.";
@@ -65,7 +64,10 @@ pub mod discord {
     }
 
     pub fn active_ghost_set(ghost_name: &str) -> String {
-        format!("Active GHOST set to: {}\n\n{}", ghost_name, GHOST_CREATED_HEADER)
+        format!(
+            "Active GHOST set to: {}\n\n{}",
+            ghost_name, GHOST_CREATED_HEADER
+        )
     }
 
     pub fn unknown_ghost_name(list: &str) -> String {
@@ -103,8 +105,7 @@ pub mod server {
     pub const FAILED_LOAD_INTERFACE: &str = "Failed to load interface";
     pub const INTERFACE_INVALID_OPERATOR: &str = "Interface is not linked to a valid operator";
     pub const FAILED_LOAD_OPERATOR: &str = "Failed to load operator";
-    pub const INTERFACE_REQUIRED: &str =
-        "T-KOMA (ティーコマ): This interface must belong to an EXISTING or NEW OPERATOR (オペレータ). Reply with NEW or EXISTING.";
+    pub const INTERFACE_REQUIRED: &str = "T-KOMA (ティーコマ): This interface must belong to an EXISTING or NEW OPERATOR (オペレータ). Reply with NEW or EXISTING.";
     pub const EXISTING_OPERATOR_TODO: &str = "Existing operator binding not implemented yet. TODO.";
     pub const REPLY_WITH_NEW_OR_EXISTING: &str = "Reply with NEW or EXISTING.";
     pub const FAILED_CREATE_OPERATOR: &str = "Failed to create operator";
@@ -130,7 +131,10 @@ pub mod server {
     pub const CONNECTED_LOGS: &str = "Connected to T-KOMA (ティーコマ) logs";
 
     pub fn model_not_configured(model: &str, provider: &str) -> String {
-        format!("Model '{}' for provider '{}' is not configured", model, provider)
+        format!(
+            "Model '{}' for provider '{}' is not configured",
+            model, provider
+        )
     }
 
     pub fn no_models_configured(provider: &str) -> String {

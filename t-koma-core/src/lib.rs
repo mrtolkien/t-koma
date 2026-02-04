@@ -1,7 +1,6 @@
 pub mod config;
 pub mod default_skills;
 pub mod message;
-pub mod persistent_config;
 pub mod skill_registry;
 pub mod skills;
 
@@ -31,9 +30,4 @@ pub use message::{
     ProviderType,
     WsMessage,
     WsResponse,
-};
-
-// Legacy re-exports (deprecated, use config module directly)
-pub use persistent_config::{
-    ApprovedUser, ApprovedUsers, ConfigError as PersistentConfigError, PersistentConfig,
 };

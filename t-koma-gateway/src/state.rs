@@ -1,18 +1,18 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 #[cfg(feature = "live-tests")]
 use tracing::{error, info};
 
+use crate::providers::provider::Provider;
+#[cfg(feature = "live-tests")]
+use crate::providers::provider::{ProviderResponse, extract_all_text};
 use crate::session::{
-    ChatError, PendingToolApproval, PendingToolContinuation, SessionChat, ToolApprovalDecision,
-    DEFAULT_TOOL_LOOP_EXTRA,
+    ChatError, DEFAULT_TOOL_LOOP_EXTRA, PendingToolApproval, PendingToolContinuation, SessionChat,
+    ToolApprovalDecision,
 };
 #[cfg(feature = "live-tests")]
 use crate::tools::ToolContext;
-use crate::models::provider::Provider;
-#[cfg(feature = "live-tests")]
-use crate::models::provider::{extract_all_text, ProviderResponse};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -162,9 +162,9 @@ impl AppState {
         provider: &str,
         model_id: &str,
     ) -> Option<&ModelEntry> {
-        self.models.values().find(|entry| {
-            entry.provider == provider && entry.model == model_id
-        })
+        self.models
+            .values()
+            .find(|entry| entry.provider == provider && entry.model == model_id)
     }
 
     /// List configured models for a provider
@@ -308,11 +308,7 @@ impl AppState {
         guard.contains_key(&key)
     }
 
-    pub async fn set_interface_pending(
-        &self,
-        platform: t_koma_db::Platform,
-        external_id: &str,
-    ) {
+    pub async fn set_interface_pending(&self, platform: t_koma_db::Platform, external_id: &str) {
         let key = Self::interface_key(platform, external_id);
         let mut guard = self.pending_interfaces.write().await;
         guard.insert(
@@ -324,11 +320,7 @@ impl AppState {
         );
     }
 
-    pub async fn clear_interface_pending(
-        &self,
-        platform: t_koma_db::Platform,
-        external_id: &str,
-    ) {
+    pub async fn clear_interface_pending(&self, platform: t_koma_db::Platform, external_id: &str) {
         let key = Self::interface_key(platform, external_id);
         let mut guard = self.pending_interfaces.write().await;
         guard.remove(&key);
@@ -498,14 +490,14 @@ impl AppState {
         ghost_name: &str,
         provider: &dyn Provider,
         session_id: &str,
-        system_blocks: Vec<crate::models::prompt::SystemBlock>,
-        api_messages: Vec<crate::models::anthropic::history::ApiMessage>,
+        system_blocks: Vec<crate::prompt::render::SystemBlock>,
+        api_messages: Vec<crate::chat::history::ChatMessage>,
         tools: Vec<&dyn crate::tools::Tool>,
         new_message: Option<&str>,
         model: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::models::anthropic::history::build_api_messages;
-        use crate::models::provider::has_tool_uses;
+        use crate::chat::history::build_history_messages;
+        use crate::providers::provider::has_tool_uses;
         use t_koma_db::SessionRepository;
         use tracing::info;
 
@@ -542,14 +534,17 @@ impl AppState {
                 .await;
 
             // Execute tools and get results
-            let tool_results = self.execute_tools_from_response(session_id, &response).await;
+            let tool_results = self
+                .execute_tools_from_response(session_id, &response)
+                .await;
 
             // Save tool results to database
-            self.save_tool_results(&ghost_db, session_id, &tool_results).await;
+            self.save_tool_results(&ghost_db, session_id, &tool_results)
+                .await;
 
             // Build new API messages including the tool results
             let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
-            let new_api_messages = build_api_messages(&history, Some(50));
+            let new_api_messages = build_history_messages(&history, Some(50));
 
             // Send tool results back to AI
             response = provider
@@ -587,17 +582,17 @@ impl AppState {
             .content
             .iter()
             .map(|block| match block {
-                crate::models::provider::ProviderContentBlock::Text { text } => {
+                crate::providers::provider::ProviderContentBlock::Text { text } => {
                     DbContentBlock::Text { text: text.clone() }
                 }
-                crate::models::provider::ProviderContentBlock::ToolUse { id, name, input } => {
+                crate::providers::provider::ProviderContentBlock::ToolUse { id, name, input } => {
                     DbContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: input.clone(),
                     }
                 }
-                crate::models::provider::ProviderContentBlock::ToolResult {
+                crate::providers::provider::ProviderContentBlock::ToolResult {
                     tool_use_id,
                     content,
                     is_error,
@@ -618,7 +613,10 @@ impl AppState {
         )
         .await
         {
-            error!("[session:{}] Failed to save assistant message: {}", session_id, e);
+            error!(
+                "[session:{}] Failed to save assistant message: {}",
+                session_id, e
+            );
         }
     }
 
@@ -634,13 +632,19 @@ impl AppState {
         let mut tool_results = Vec::new();
 
         for block in &response.content {
-            let crate::models::provider::ProviderContentBlock::ToolUse { id, name, input } = block else {
+            let crate::providers::provider::ProviderContentBlock::ToolUse { id, name, input } = block
+            else {
                 continue;
             };
 
-            info!("[session:{}] Executing tool: {} (id: {})", session_id, name, id);
+            info!(
+                "[session:{}] Executing tool: {} (id: {})",
+                session_id, name, id
+            );
 
-            let result = self.execute_tool_by_name(name.as_str(), input.clone()).await;
+            let result = self
+                .execute_tool_by_name(name.as_str(), input.clone())
+                .await;
 
             let content = match result {
                 Ok(output) => output,
@@ -695,7 +699,10 @@ impl AppState {
         )
         .await
         {
-            error!("[session:{}] Failed to save tool results: {}", session_id, e);
+            error!(
+                "[session:{}] Failed to save tool results: {}",
+                session_id, e
+            );
         }
     }
 

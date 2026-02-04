@@ -1,8 +1,8 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::fs;
 
-use super::{Tool, ToolContext};
 use super::context::resolve_local_path;
+use super::{Tool, ToolContext};
 
 pub struct ListDirTool;
 
@@ -72,9 +72,13 @@ impl Tool for ListDirTool {
         let resolved_path = resolve_local_path(context, path)?;
 
         // Read directory entries
-        let mut entries = fs::read_dir(&resolved_path)
-            .await
-            .map_err(|e| format!("Failed to read directory '{}': {}", resolved_path.display(), e))?;
+        let mut entries = fs::read_dir(&resolved_path).await.map_err(|e| {
+            format!(
+                "Failed to read directory '{}': {}",
+                resolved_path.display(),
+                e
+            )
+        })?;
 
         let mut dirs = Vec::new();
         let mut files = Vec::new();
@@ -88,10 +92,7 @@ impl Tool for ListDirTool {
                 }
             };
 
-            let name = entry
-                .file_name()
-                .to_string_lossy()
-                .to_string();
+            let name = entry.file_name().to_string_lossy().to_string();
 
             // Skip hidden files (starting with .)
             if name.starts_with('.') {
@@ -136,8 +137,9 @@ impl Tool for ListDirTool {
             output.push('\n');
         }
 
-        output.push_str(&format!("\nTotal: {} directories, {} files\n", 
-            dirs.len(), 
+        output.push_str(&format!(
+            "\nTotal: {} directories, {} files\n",
+            dirs.len(),
             files.len()
         ));
 
@@ -148,13 +150,13 @@ impl Tool for ListDirTool {
 /// Format byte size to human readable string
 fn format_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["bytes", "KB", "MB", "GB", "TB"];
-    
+
     if bytes == 0 {
         return "0 bytes".to_string();
     }
 
     let exp = (bytes as f64).log(1024.0).min(UNITS.len() as f64 - 1.0) as usize;
-    
+
     if exp == 0 {
         format!("{} {}", bytes, UNITS[0])
     } else {
@@ -175,10 +177,10 @@ mod tests {
     async fn test_list_dir_success() {
         let temp_dir = TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
-        
+
         // Create a subdirectory
         std::fs::create_dir(temp_dir.path().join("subdir")).unwrap();
-        
+
         // Create a file
         let file_path = temp_dir.path().join("test.txt");
         let mut file = File::create(&file_path).unwrap();
@@ -232,10 +234,10 @@ mod tests {
     async fn test_list_dir_skips_hidden() {
         let temp_dir = TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
-        
+
         // Create a hidden file
         File::create(temp_dir.path().join(".hidden")).unwrap();
-        
+
         // Create a regular file
         File::create(temp_dir.path().join("visible")).unwrap();
 

@@ -3,7 +3,7 @@
 //! This tool allows the agent to load skill content from the skill registry.
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{Tool, ToolContext};
 
@@ -91,7 +91,10 @@ impl Tool for LoadSkillTool {
         let skill_path = self.skills_path.join(skill_name).join("SKILL.md");
 
         if !skill_path.exists() {
-            return Err(format!("Skill '{}' not found at {:?}", skill_name, skill_path));
+            return Err(format!(
+                "Skill '{}' not found at {:?}",
+                skill_name, skill_path
+            ));
         }
 
         // Read the skill content

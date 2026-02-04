@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tracing::info;
 
 use t_koma_gateway::discord::start_discord_bot;
-use t_koma_gateway::models::anthropic::AnthropicClient;
-use t_koma_gateway::models::openrouter::OpenRouterClient;
+use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::server;
 use t_koma_gateway::state::AppState;
 
@@ -13,8 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -52,14 +51,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let client = AnthropicClient::new(api_key, &model_config.model);
                     info!(
                         "Anthropic client created for alias '{}' with model: {}",
-                        alias,
-                        model_config.model
+                        alias, model_config.model
                     );
                     models.insert(
                         alias.clone(),
                         t_koma_gateway::state::ModelEntry {
                             alias: alias.clone(),
-                            provider: model_config.provider.clone(),
+                            provider: model_config.provider.to_string(),
                             model: model_config.model.clone(),
                             client: Arc::new(client),
                         },
@@ -75,22 +73,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(api_key) = config.openrouter_api_key() {
                     let http_referer = config.settings.openrouter.http_referer.clone();
                     let app_name = config.settings.openrouter.app_name.clone();
-                    let client = OpenRouterClient::new(
-                        api_key,
-                        &model_config.model,
-                        http_referer,
-                        app_name,
-                    );
+                    let client =
+                        OpenRouterClient::new(api_key, &model_config.model, http_referer, app_name);
                     info!(
                         "OpenRouter client created for alias '{}' with model: {}",
-                        alias,
-                        model_config.model
+                        alias, model_config.model
                     );
                     models.insert(
                         alias.clone(),
                         t_koma_gateway::state::ModelEntry {
                             alias: alias.clone(),
-                            provider: model_config.provider.clone(),
+                            provider: model_config.provider.to_string(),
                             model: model_config.model.clone(),
                             client: Arc::new(client),
                         },
@@ -103,11 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             other => {
-                info!(
-                    "Skipping model '{}' - unknown provider '{}'",
-                    alias,
-                    other
-                );
+                info!("Skipping model '{}' - unknown provider '{}'", alias, other);
             }
         }
     }

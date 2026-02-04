@@ -1,12 +1,12 @@
 //! OpenRouter API client with OpenAI-compatible format.
 
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::models::anthropic::history::{ApiContentBlock, ApiMessage};
-use crate::models::prompt::SystemBlock;
-use crate::models::provider::{
+use crate::chat::history::{ChatContentBlock, ChatMessage, ChatRole};
+use crate::prompt::render::SystemBlock;
+use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderError, ProviderResponse, ProviderUsage,
 };
 use crate::tools::Tool;
@@ -191,7 +191,7 @@ impl OpenRouterClient {
         headers
     }
 
-    /// Send a simple message (for backwards compatibility)
+    /// Send a simple single-turn message.
     pub async fn send_message(
         &self,
         content: impl AsRef<str>,
@@ -224,7 +224,7 @@ impl OpenRouterClient {
     /// Convert API messages to OpenAI format
     fn convert_messages(
         &self,
-        history: Vec<ApiMessage>,
+        history: Vec<ChatMessage>,
         new_message: Option<&str>,
     ) -> Vec<OpenAiMessage> {
         let mut messages: Vec<OpenAiMessage> = Vec::new();
@@ -236,8 +236,8 @@ impl OpenRouterClient {
 
             for block in msg.content {
                 match block {
-                    ApiContentBlock::Text { text, .. } => text_parts.push(text),
-                    ApiContentBlock::ToolUse { id, name, input } => {
+                    ChatContentBlock::Text { text, .. } => text_parts.push(text),
+                    ChatContentBlock::ToolUse { id, name, input } => {
                         let arguments =
                             serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
                         tool_calls.push(ToolCall {
@@ -246,7 +246,7 @@ impl OpenRouterClient {
                             function: ToolCallFunction { name, arguments },
                         });
                     }
-                    ApiContentBlock::ToolResult {
+                    ChatContentBlock::ToolResult {
                         tool_use_id,
                         content,
                         ..
@@ -267,8 +267,8 @@ impl OpenRouterClient {
                 Some(text_parts.join("\n"))
             };
 
-            match msg.role.as_str() {
-                "assistant" => {
+            match msg.role {
+                ChatRole::Assistant => {
                     if text.is_some() || !tool_calls.is_empty() {
                         messages.push(OpenAiMessage {
                             role: "assistant".to_string(),
@@ -282,7 +282,7 @@ impl OpenRouterClient {
                         });
                     }
                 }
-                "user" => {
+                ChatRole::User => {
                     if let Some(text) = text {
                         messages.push(OpenAiMessage {
                             role: "user".to_string(),
@@ -292,7 +292,6 @@ impl OpenRouterClient {
                         });
                     }
                 }
-                _ => {}
             }
 
             messages.extend(tool_messages);
@@ -328,7 +327,10 @@ impl OpenRouterClient {
 
     /// Convert OpenAI response to provider response
     fn convert_response(&self, response: ChatCompletionsResponse) -> ProviderResponse {
-        let stop_reason = response.choices.first().and_then(|c| c.finish_reason.clone());
+        let stop_reason = response
+            .choices
+            .first()
+            .and_then(|c| c.finish_reason.clone());
         let choice = response.choices.into_iter().next();
 
         let content = match choice {
@@ -336,7 +338,9 @@ impl OpenRouterClient {
                 let mut blocks = Vec::new();
 
                 // Add text content if present
-                if let Some(text) = choice.message.content && !text.is_empty() {
+                if let Some(text) = choice.message.content
+                    && !text.is_empty()
+                {
                     blocks.push(ProviderContentBlock::Text { text });
                 }
 
@@ -409,7 +413,7 @@ impl Provider for OpenRouterClient {
     async fn send_conversation(
         &self,
         system: Option<Vec<SystemBlock>>,
-        history: Vec<ApiMessage>,
+        history: Vec<ChatMessage>,
         tools: Vec<&dyn Tool>,
         new_message: Option<&str>,
         _message_limit: Option<usize>,
@@ -508,7 +512,11 @@ mod tests {
             fn prompt(&self) -> Option<&'static str> {
                 None
             }
-            async fn execute(&self, _args: Value, _context: &mut ToolContext) -> Result<String, String> {
+            async fn execute(
+                &self,
+                _args: Value,
+                _context: &mut ToolContext,
+            ) -> Result<String, String> {
                 Ok("ok".to_string())
             }
         }

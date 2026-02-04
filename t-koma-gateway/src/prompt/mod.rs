@@ -7,10 +7,14 @@
 pub mod base;
 pub mod block;
 pub mod context;
+pub mod render;
 
-pub use base::{full_system_prompt, BASE_SYSTEM_PROMPT, CODING_INSTRUCTIONS, TOOL_USE_INSTRUCTIONS};
+pub use base::{
+    BASE_SYSTEM_PROMPT, CODING_INSTRUCTIONS, TOOL_USE_INSTRUCTIONS, full_system_prompt,
+};
 pub use block::{CacheControl, PromptBlock};
 pub use context::{EnvironmentInfo, PromptContext};
+pub use render::{SystemBlock, build_simple_system_prompt, build_system_prompt};
 
 use block::CacheControl as CacheControlInternal;
 
@@ -58,10 +62,7 @@ impl SystemPrompt {
     /// # Arguments
     /// * `tools` - Slice of tool references to collect prompts from
     pub fn add_tools_prompts(&mut self, tools: &[&dyn crate::tools::Tool]) {
-        let tool_prompts: Vec<&str> = tools
-            .iter()
-            .filter_map(|tool| tool.prompt())
-            .collect();
+        let tool_prompts: Vec<&str> = tools.iter().filter_map(|tool| tool.prompt()).collect();
 
         if !tool_prompts.is_empty() {
             let combined = tool_prompts.join("\n\n");
@@ -77,7 +78,11 @@ impl SystemPrompt {
     pub fn add_instruction(&mut self, content: String, cache: bool) {
         self.instructions.push(PromptBlock {
             content,
-            cache_control: if cache { Some(CacheControlInternal::ephemeral()) } else { None },
+            cache_control: if cache {
+                Some(CacheControlInternal::ephemeral())
+            } else {
+                None
+            },
         });
     }
 
@@ -89,7 +94,11 @@ impl SystemPrompt {
     pub fn add_context(&mut self, content: String, cache: bool) {
         self.context.push(PromptBlock {
             content,
-            cache_control: if cache { Some(CacheControlInternal::ephemeral()) } else { None },
+            cache_control: if cache {
+                Some(CacheControlInternal::ephemeral())
+            } else {
+                None
+            },
         });
     }
 
@@ -101,7 +110,11 @@ impl SystemPrompt {
     pub fn add_tool(&mut self, content: String, cache: bool) {
         self.tools.push(PromptBlock {
             content,
-            cache_control: if cache { Some(CacheControlInternal::ephemeral()) } else { None },
+            cache_control: if cache {
+                Some(CacheControlInternal::ephemeral())
+            } else {
+                None
+            },
         });
     }
 

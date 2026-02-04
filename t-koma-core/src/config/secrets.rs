@@ -5,6 +5,8 @@
 
 use std::env;
 
+use crate::message::ProviderType;
+
 /// Secrets loaded exclusively from environment variables.
 /// 
 /// These are sensitive values that should never be written to disk
@@ -65,21 +67,25 @@ impl Secrets {
     
     /// Check if a specific provider is available
     pub fn has_provider(&self, provider: &str) -> bool {
+        provider.parse::<ProviderType>().is_ok_and(|provider| self.has_provider_type(provider))
+    }
+
+    /// Check if a specific provider is available
+    pub fn has_provider_type(&self, provider: ProviderType) -> bool {
         match provider {
-            "anthropic" => self.anthropic_api_key.is_some(),
-            "openrouter" => self.openrouter_api_key.is_some(),
-            _ => false,
+            ProviderType::Anthropic => self.anthropic_api_key.is_some(),
+            ProviderType::OpenRouter => self.openrouter_api_key.is_some(),
         }
     }
     
     /// Get the available providers
-    pub fn available_providers(&self) -> Vec<&'static str> {
+    pub fn available_providers(&self) -> Vec<ProviderType> {
         let mut providers = Vec::new();
         if self.anthropic_api_key.is_some() {
-            providers.push("anthropic");
+            providers.push(ProviderType::Anthropic);
         }
         if self.openrouter_api_key.is_some() {
-            providers.push("openrouter");
+            providers.push(ProviderType::OpenRouter);
         }
         providers
     }
@@ -156,8 +162,8 @@ mod tests {
         
         let providers = secrets.available_providers();
         assert_eq!(providers.len(), 2);
-        assert!(providers.contains(&"anthropic"));
-        assert!(providers.contains(&"openrouter"));
+        assert!(providers.contains(&ProviderType::Anthropic));
+        assert!(providers.contains(&ProviderType::OpenRouter));
     }
     
     #[test]

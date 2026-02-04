@@ -70,7 +70,7 @@ fn convert_block(block: &PromptBlock) -> SystemBlock {
     }
 }
 
-/// Build a simple text-only system prompt (for backwards compatibility)
+/// Build a simple text-only system prompt.
 pub fn build_simple_system_prompt(text: impl Into<String>) -> Vec<SystemBlock> {
     vec![SystemBlock::new(text)]
 }

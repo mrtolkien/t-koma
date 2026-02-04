@@ -4,7 +4,7 @@ use tokio::fs;
 use tokio::process::Command;
 
 use super::{Tool, ToolContext};
-use crate::tools::context::{resolve_local_path, APPROVAL_REQUIRED_PREFIX};
+use crate::tools::context::{APPROVAL_REQUIRED_PREFIX, resolve_local_path};
 
 pub struct ShellTool;
 
@@ -48,6 +48,17 @@ impl Tool for ShellTool {
         let command = args["command"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'command' argument".to_string())?;
+
+        if requires_workspace_escape_approval(command) {
+            if context.allow_outside_workspace() {
+                context.set_allow_outside_workspace(false);
+            } else {
+                return Err(format!(
+                    "{}{}",
+                    APPROVAL_REQUIRED_PREFIX, "run_shell_command"
+                ));
+            }
+        }
 
         let mut pending_cwd: Option<std::path::PathBuf> = None;
         for segment in split_command_segments(command) {
@@ -149,6 +160,34 @@ fn resolve_cd_target(
     resolve_local_path(context, &resolved_target)
 }
 
+fn requires_workspace_escape_approval(command: &str) -> bool {
+    command
+        .to_lowercase()
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '|' | '&' | '\n'))
+        .map(|token| {
+            token.trim_matches(|c: char| {
+                matches!(
+                    c,
+                    '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | ':'
+                )
+            })
+        })
+        .any(|token| {
+            !token.is_empty()
+                && (token.starts_with('/')
+                    || token == "~"
+                    || token.starts_with("~/")
+                    || token == "$home"
+                    || token.starts_with("$home/")
+                    || token == "${home}"
+                    || token.starts_with("${home}/")
+                    || token == ".."
+                    || token.starts_with("../")
+                    || token.contains("/../")
+                    || token.ends_with("/.."))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +211,31 @@ mod tests {
         let args = json!({ "command": "exit 1" });
         let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_shell_tool_requires_approval_for_parent_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
+        let tool = ShellTool;
+        let args = json!({ "command": "cat ../secret.txt" });
+        let result = tool.execute(args, &mut context).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().starts_with(APPROVAL_REQUIRED_PREFIX));
+    }
+
+    #[test]
+    fn test_workspace_escape_detection_for_absolute_and_home_paths() {
+        assert!(requires_workspace_escape_approval("cat /etc/passwd"));
+        assert!(requires_workspace_escape_approval(
+            "cat \"$HOME/.ssh/id_rsa\""
+        ));
+        assert!(requires_workspace_escape_approval(
+            "cat ${HOME}/.ssh/id_rsa"
+        ));
+        assert!(requires_workspace_escape_approval("cd ~/ && ls"));
+        assert!(!requires_workspace_escape_approval(
+            "ls src && cat Cargo.toml"
+        ));
     }
 }

@@ -1,12 +1,13 @@
 //! Anthropic API client with session support and prompt caching.
 
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::models::anthropic::history::{ApiContentBlock, ApiMessage};
-use crate::models::prompt::SystemBlock;
-use crate::models::provider::{
+use crate::chat::history::ChatMessage;
+use crate::prompt::render::SystemBlock;
+use crate::providers::anthropic::history::AnthropicMessage;
+use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderError, ProviderResponse, ProviderUsage,
 };
 use crate::tools::Tool;
@@ -29,7 +30,7 @@ struct MessagesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<Vec<SystemBlock>>,
     /// Conversation history
-    messages: Vec<ApiMessage>,
+    messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<ToolDefinition>>,
     // TODO: Add tool_choice when we need to force specific tool usage.
@@ -115,14 +116,8 @@ impl AnthropicClient {
     /// Create a new Anthropic client
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "anthropic-version",
-            HeaderValue::from_static("2023-06-01"),
-        );
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/json"),
-        );
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
         let http_client = reqwest::Client::builder()
             .default_headers(headers)
@@ -138,7 +133,7 @@ impl AnthropicClient {
         }
     }
 
-    /// Send a simple message (for backwards compatibility)
+    /// Send a simple single-turn message.
     pub async fn send_message(
         &self,
         content: impl AsRef<str>,
@@ -147,7 +142,7 @@ impl AnthropicClient {
             .await
     }
 
-    /// Send a message with tools (for backwards compatibility)
+    /// Send a single-turn message with tool definitions.
     pub async fn send_message_with_tools(
         &self,
         content: impl AsRef<str>,
@@ -169,7 +164,7 @@ impl AnthropicClient {
     pub async fn send_conversation(
         &self,
         system: Option<Vec<SystemBlock>>,
-        history: Vec<ApiMessage>,
+        history: Vec<ChatMessage>,
         tools: Vec<&dyn Tool>,
         new_message: Option<&str>,
         message_limit: Option<usize>,
@@ -177,25 +172,12 @@ impl AnthropicClient {
     ) -> Result<MessagesResponse, AnthropicError> {
         let url = format!("{}/messages", self.base_url);
 
-        // Build messages: history + optional new message
-        let mut messages = if let Some(limit) = message_limit {
-            // Apply limit to history
-            let start = history.len().saturating_sub(limit);
-            history.into_iter().skip(start).collect()
-        } else {
-            history
-        };
-
-        // Add new message if provided
-        if let Some(content) = new_message {
-            messages.push(ApiMessage {
-                role: "user".to_string(),
-                content: vec![ApiContentBlock::Text {
-                    text: content.to_string(),
-                    cache_control: None,
-                }],
-            });
-        }
+        // Build messages: neutral history -> Anthropic API payload.
+        let messages = crate::providers::anthropic::history::to_anthropic_messages(
+            history,
+            new_message,
+            message_limit,
+        );
 
         // Build tool definitions
         let tool_definitions = if tools.is_empty() {
@@ -329,14 +311,21 @@ impl Provider for AnthropicClient {
     async fn send_conversation(
         &self,
         system: Option<Vec<SystemBlock>>,
-        history: Vec<ApiMessage>,
+        history: Vec<ChatMessage>,
         tools: Vec<&dyn Tool>,
         new_message: Option<&str>,
         message_limit: Option<usize>,
         _tool_choice: Option<String>,
     ) -> Result<ProviderResponse, ProviderError> {
         let response = self
-            .send_conversation(system, history, tools, new_message, message_limit, _tool_choice)
+            .send_conversation(
+                system,
+                history,
+                tools,
+                new_message,
+                message_limit,
+                _tool_choice,
+            )
             .await?;
         Ok(self.to_provider_response(response))
     }
@@ -365,11 +354,9 @@ mod tests {
             msg_type: "message".to_string(),
             role: "assistant".to_string(),
             model: "anthropic-model-a".to_string(),
-            content: vec![
-                ContentBlock::Text {
-                    text: "Hello, world!".to_string(),
-                },
-            ],
+            content: vec![ContentBlock::Text {
+                text: "Hello, world!".to_string(),
+            }],
             stop_reason: None,
             stop_sequence: None,
             usage: Some(Usage {

@@ -39,7 +39,7 @@ impl std::str::FromStr for ProviderType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "anthropic" => Ok(ProviderType::Anthropic),
-            "openrouter" => Ok(ProviderType::OpenRouter),
+            "openrouter" | "open_router" => Ok(ProviderType::OpenRouter),
             _ => Err(format!("Unknown provider: {}", s)),
         }
     }

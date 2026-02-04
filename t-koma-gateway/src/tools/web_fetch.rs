@@ -1,8 +1,8 @@
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::tools::{Tool, ToolContext};
-use crate::web::fetch::{http::HttpFetchProvider, FetchError, WebFetchRequest, WebFetchService};
+use crate::web::fetch::{FetchError, WebFetchRequest, WebFetchService, http::HttpFetchProvider};
 
 #[derive(Debug, Deserialize)]
 struct WebFetchInput {

@@ -1,42 +1,17 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{ws::WebSocketUpgrade, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
     Json, Router,
+    extract::{Query, State, ws::WebSocketUpgrade},
+    response::IntoResponse,
+    routing::get,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use crate::deterministic_messages::{common, server as dm};
-use crate::state::{AppState, LogEntry};
-use crate::models::provider::extract_text;
 use crate::session::{ChatError, ToolApprovalDecision};
-
-/// Chat request from HTTP API
-#[derive(Debug, Deserialize)]
-pub struct ChatRequest {
-    pub content: String,
-    /// Operator ID for authentication (optional, for now uses a default)
-    pub operator_id: Option<String>,
-}
-
-/// Chat response for HTTP API
-#[derive(Debug, Serialize)]
-pub struct ChatResponse {
-    pub id: String,
-    pub content: String,
-    pub model: String,
-    pub usage: Option<UsageInfo>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UsageInfo {
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-}
+use crate::state::{AppState, LogEntry};
 
 /// Health check response
 #[derive(Debug, Serialize)]
@@ -44,12 +19,6 @@ pub struct HealthResponse {
     pub status: String,
     pub version: String,
     pub koma: String,
-}
-
-/// Error response
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    pub error: String,
 }
 
 /// Operator status response
@@ -80,7 +49,6 @@ pub async fn run(state: Arc<AppState>, bind_addr: &str) -> Result<(), Box<dyn st
 fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_handler))
-        .route("/chat", post(chat_handler))
         .route("/ws", get(ws_handler))
         .route("/logs", get(logs_ws_handler))
         .with_state(state)
@@ -106,120 +74,6 @@ async fn health_handler() -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         koma: dm::HEALTH_KOMA.to_string(),
     })
-}
-
-/// Check if an operator is allowed to use the API
-///
-/// Returns Ok(operator) if approved, Err(response) if not
-async fn check_operator_status(
-    state: &AppState,
-    operator_id: &str,
-    operator_name: &str,
-) -> Result<t_koma_db::Operator, impl IntoResponse> {
-    // Get or create operator
-    let operator = match t_koma_db::OperatorRepository::get_or_create(
-        state.koma_db.pool(),
-        operator_id,
-        operator_name,
-        t_koma_db::Platform::Api,
-    ).await {
-        Ok(u) => u,
-        Err(e) => {
-            error!("Database error checking operator {}: {}", operator_id, e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: dm::ERROR_INTERNAL_OPERATOR_STATUS.to_string(),
-                }),
-            ));
-        }
-    };
-
-    // Check status
-    match operator.status {
-        t_koma_db::OperatorStatus::Approved => Ok(operator),
-        t_koma_db::OperatorStatus::Pending => {
-            Err((
-                StatusCode::FORBIDDEN,
-                Json(ErrorResponse {
-                    error: dm::ACCESS_PENDING.to_string(),
-                }),
-            ))
-        }
-        t_koma_db::OperatorStatus::Denied => {
-            Err((
-                StatusCode::FORBIDDEN,
-                Json(ErrorResponse {
-                    error: dm::ACCESS_DENIED.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-/// Chat handler - POST /chat
-async fn chat_handler(
-    State(state): State<Arc<AppState>>,
-    Json(request): Json<ChatRequest>,
-) -> impl IntoResponse {
-    info!("Received chat request");
-
-    // Use provided operator_id or default to "anonymous"
-    let operator_id = request.operator_id.as_deref().unwrap_or("anonymous");
-    let operator_name = request
-        .operator_id
-        .as_deref()
-        .unwrap_or(dm::ANONYMOUS_OPERATOR);
-
-    // Check operator status
-    let _operator = match check_operator_status(&state, operator_id, operator_name).await {
-        Ok(u) => u,
-        Err(response) => return response.into_response(),
-    };
-
-    let model_entry = state.default_model();
-    let provider = model_entry.client.as_ref();
-
-    match provider.send_message(&request.content).await {
-        Ok(response) => {
-            let content = extract_text(&response)
-                .unwrap_or_else(|| "(no response)".to_string());
-
-            let chat_response = ChatResponse {
-                id: response.id.clone(),
-                content: content.clone(),
-                model: response.model.clone(),
-                usage: response.usage.map(|u| UsageInfo {
-                    input_tokens: u.input_tokens,
-                    output_tokens: u.output_tokens,
-                }),
-            };
-
-            // Log the request
-            state.log(LogEntry::HttpRequest {
-                method: "POST".to_string(),
-                path: "/chat".to_string(),
-                status: 200,
-            }).await;
-
-            (StatusCode::OK, Json(Ok::<_, ErrorResponse>(chat_response))).into_response()
-        }
-        Err(e) => {
-            error!("Provider API error: {}", e);
-            
-            // Log the error
-            state.log(LogEntry::HttpRequest {
-                method: "POST".to_string(),
-                path: "/chat".to_string(),
-                status: 500,
-            }).await;
-
-            let error_response = ErrorResponse {
-                error: format!("Provider API error: {}", e),
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
-        }
-    }
 }
 
 /// WebSocket upgrade handler for chat
@@ -248,8 +102,8 @@ async fn handle_websocket(
     use axum::extract::ws::Message;
     use chrono::{TimeZone, Utc};
     use futures::{sink::SinkExt, stream::StreamExt};
-    use t_koma_core::{WsMessage, WsResponse};
     use t_koma_core::message::GhostInfo;
+    use t_koma_core::{WsMessage, WsResponse};
 
     let client_id = format!("client_{}", uuid::Uuid::new_v4());
     info!("WebSocket puppet master connected: {}", client_id);
@@ -300,11 +154,8 @@ async fn handle_websocket(
     };
 
     if let Some(interface) = interface {
-        match t_koma_db::OperatorRepository::get_by_id(
-            state.koma_db.pool(),
-            &interface.operator_id,
-        )
-        .await
+        match t_koma_db::OperatorRepository::get_by_id(state.koma_db.pool(), &interface.operator_id)
+            .await
         {
             Ok(Some(op)) => {
                 operator_id = Some(op.id.clone());
@@ -335,9 +186,7 @@ async fn handle_websocket(
             }
         }
     } else {
-        state
-            .set_interface_pending(platform, &external_id)
-            .await;
+        state.set_interface_pending(platform, &external_id).await;
         let response = WsResponse::InterfaceSelectionRequired {
             message: dm::INTERFACE_REQUIRED.to_string(),
         };
@@ -352,13 +201,13 @@ async fn handle_websocket(
         && status != t_koma_db::OperatorStatus::Approved
     {
         let status_msg = match status {
-            t_koma_db::OperatorStatus::Pending => {
-                dm::ACCESS_PENDING.to_string()
-            }
+            t_koma_db::OperatorStatus::Pending => dm::ACCESS_PENDING.to_string(),
             t_koma_db::OperatorStatus::Denied => dm::ACCESS_DENIED.to_string(),
             _ => dm::UNKNOWN_OPERATOR_STATUS.to_string(),
         };
-        let error_response = WsResponse::Error { message: status_msg };
+        let error_response = WsResponse::Error {
+            message: status_msg,
+        };
         let _ = sender
             .send(Message::Text(
                 serde_json::to_string(&error_response).unwrap().into(),
@@ -521,7 +370,9 @@ async fn handle_websocket(
                                 }
                                 _ => dm::UNKNOWN_OPERATOR_STATUS.to_string(),
                             };
-                            let error_response = WsResponse::Error { message: status_msg };
+                            let error_response = WsResponse::Error {
+                                message: status_msg,
+                            };
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&error_response).unwrap().into(),
@@ -576,7 +427,9 @@ async fn handle_websocket(
                                     name: ghost.name.clone(),
                                 })
                                 .collect::<Vec<_>>();
-                            let response = WsResponse::GhostList { ghosts: ghost_infos };
+                            let response = WsResponse::GhostList {
+                                ghosts: ghost_infos,
+                            };
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&response).unwrap().into(),
@@ -704,7 +557,9 @@ async fn handle_websocket(
                         WsMessage::SelectProvider { provider, model } => {
                             let provider_name = provider.as_str();
 
-                            let entry = match state.get_model_by_provider_and_id(provider_name, &model) {
+                            let entry = match state
+                                .get_model_by_provider_and_id(provider_name, &model)
+                            {
                                 Some(entry) => entry,
                                 None => {
                                     let error_response = WsResponse::Error {
@@ -780,7 +635,9 @@ async fn handle_websocket(
                                         };
                                         let _ = sender
                                             .send(Message::Text(
-                                                serde_json::to_string(&error_response).unwrap().into(),
+                                                serde_json::to_string(&error_response)
+                                                    .unwrap()
+                                                    .into(),
                                             ))
                                             .await;
                                         continue;
@@ -838,7 +695,9 @@ async fn handle_websocket(
                                         };
                                         let _ = sender
                                             .send(Message::Text(
-                                                serde_json::to_string(&error_response).unwrap().into(),
+                                                serde_json::to_string(&error_response)
+                                                    .unwrap()
+                                                    .into(),
                                             ))
                                             .await;
                                         continue;
@@ -858,7 +717,9 @@ async fn handle_websocket(
                                         };
                                         let _ = sender
                                             .send(Message::Text(
-                                                serde_json::to_string(&error_response).unwrap().into(),
+                                                serde_json::to_string(&error_response)
+                                                    .unwrap()
+                                                    .into(),
                                             ))
                                             .await;
                                         continue;
@@ -872,12 +733,12 @@ async fn handle_websocket(
                                 || step_limit.is_some()
                             {
                                 if step_limit.is_none() {
-                                    let decision =
-                                        if content.trim().eq_ignore_ascii_case("approve") {
-                                            ToolApprovalDecision::Approve
-                                        } else {
-                                            ToolApprovalDecision::Deny
-                                        };
+                                    let decision = if content.trim().eq_ignore_ascii_case("approve")
+                                    {
+                                        ToolApprovalDecision::Approve
+                                    } else {
+                                        ToolApprovalDecision::Deny
+                                    };
 
                                     match state
                                         .handle_tool_approval(
@@ -961,9 +822,8 @@ async fn handle_websocket(
                                             };
                                             let error_json =
                                                 serde_json::to_string(&error_response).unwrap();
-                                            let _ = sender
-                                                .send(Message::Text(error_json.into()))
-                                                .await;
+                                            let _ =
+                                                sender.send(Message::Text(error_json.into())).await;
                                             continue;
                                         }
                                     }
@@ -986,9 +846,7 @@ async fn handle_websocket(
                                     };
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
-                                    let _ = sender
-                                        .send(Message::Text(response_json.into()))
-                                        .await;
+                                    let _ = sender.send(Message::Text(response_json.into())).await;
                                     continue;
                                 }
 
@@ -1011,9 +869,8 @@ async fn handle_websocket(
                                         };
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
-                                        let _ = sender
-                                            .send(Message::Text(response_json.into()))
-                                            .await;
+                                        let _ =
+                                            sender.send(Message::Text(response_json.into())).await;
                                     }
                                     Ok(None) => {
                                         let message = if step_limit.is_some() {
@@ -1029,9 +886,8 @@ async fn handle_websocket(
                                         };
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
-                                        let _ = sender
-                                            .send(Message::Text(response_json.into()))
-                                            .await;
+                                        let _ =
+                                            sender.send(Message::Text(response_json.into())).await;
                                     }
                                     Err(ChatError::ToolApprovalRequired(pending)) => {
                                         state
@@ -1053,9 +909,8 @@ async fn handle_websocket(
                                         };
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
-                                        let _ = sender
-                                            .send(Message::Text(response_json.into()))
-                                            .await;
+                                        let _ =
+                                            sender.send(Message::Text(response_json.into())).await;
                                     }
                                     Err(ChatError::ToolLoopLimitReached(pending)) => {
                                         state
@@ -1077,9 +932,8 @@ async fn handle_websocket(
                                         };
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
-                                        let _ = sender
-                                            .send(Message::Text(response_json.into()))
-                                            .await;
+                                        let _ =
+                                            sender.send(Message::Text(response_json.into())).await;
                                     }
                                     Err(e) => {
                                         error!("Provider API error: {}", e);
@@ -1088,9 +942,7 @@ async fn handle_websocket(
                                         };
                                         let error_json =
                                             serde_json::to_string(&error_response).unwrap();
-                                        let _ = sender
-                                            .send(Message::Text(error_json.into()))
-                                            .await;
+                                        let _ = sender.send(Message::Text(error_json.into())).await;
                                     }
                                 }
                                 continue;
@@ -1114,10 +966,10 @@ async fn handle_websocket(
                                         usage: None,
                                     };
 
-                                    let response_json = serde_json::to_string(&ws_response).unwrap();
-                                    if let Err(e) = sender
-                                        .send(Message::Text(response_json.into()))
-                                        .await
+                                    let response_json =
+                                        serde_json::to_string(&ws_response).unwrap();
+                                    if let Err(e) =
+                                        sender.send(Message::Text(response_json.into())).await
                                     {
                                         error!("Failed to send response: {}", e);
                                         break;
@@ -1143,9 +995,7 @@ async fn handle_websocket(
                                     };
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
-                                    let _ = sender
-                                        .send(Message::Text(response_json.into()))
-                                        .await;
+                                    let _ = sender.send(Message::Text(response_json.into())).await;
                                 }
                                 Err(ChatError::ToolLoopLimitReached(pending)) => {
                                     state
@@ -1167,19 +1017,16 @@ async fn handle_websocket(
                                     };
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
-                                    let _ = sender
-                                        .send(Message::Text(response_json.into()))
-                                        .await;
+                                    let _ = sender.send(Message::Text(response_json.into())).await;
                                 }
                                 Err(e) => {
                                     error!("Provider API error: {}", e);
                                     let error_response = WsResponse::Error {
                                         message: format!("Chat error: {}", e),
                                     };
-                                    let error_json = serde_json::to_string(&error_response).unwrap();
-                                    let _ = sender
-                                        .send(Message::Text(error_json.into()))
-                                        .await;
+                                    let error_json =
+                                        serde_json::to_string(&error_response).unwrap();
+                                    let _ = sender.send(Message::Text(error_json.into())).await;
                                 }
                             }
                         }
@@ -1237,19 +1084,25 @@ async fn handle_websocket(
                                                 is_active: s.is_active,
                                             })
                                             .collect();
-                                    let response = WsResponse::SessionList { sessions: session_infos };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&response).unwrap().into(),
-                                    )).await;
+                                    let response = WsResponse::SessionList {
+                                        sessions: session_infos,
+                                    };
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                                 Err(e) => {
                                     error!("Failed to list sessions: {}", e);
                                     let error_response = WsResponse::Error {
                                         message: dm::FAILED_LIST_SESSIONS.to_string(),
                                     };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&error_response).unwrap().into(),
-                                    )).await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                             }
                         }
@@ -1294,22 +1147,29 @@ async fn handle_websocket(
                                         session_id: new_session.id,
                                         title: new_session.title,
                                     };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&response).unwrap().into(),
-                                    )).await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                                 Err(e) => {
                                     error!("Failed to create session: {}", e);
                                     let error_response = WsResponse::Error {
                                         message: dm::FAILED_CREATE_SESSION.to_string(),
                                     };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&error_response).unwrap().into(),
-                                    )).await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                             }
                         }
-                        WsMessage::SwitchSession { ghost_name, session_id } => {
+                        WsMessage::SwitchSession {
+                            ghost_name,
+                            session_id,
+                        } => {
                             if let Err(message) =
                                 ensure_operator_owns_ghost(&state, &op_id, &ghost_name).await
                             {
@@ -1347,22 +1207,29 @@ async fn handle_websocket(
                             {
                                 Ok(_) => {
                                     let response = WsResponse::SessionSwitched { session_id };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&response).unwrap().into(),
-                                    )).await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                                 Err(e) => {
                                     error!("Failed to switch session: {}", e);
                                     let error_response = WsResponse::Error {
                                         message: dm::FAILED_SWITCH_SESSION.to_string(),
                                     };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&error_response).unwrap().into(),
-                                    )).await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                             }
                         }
-                        WsMessage::DeleteSession { ghost_name, session_id } => {
+                        WsMessage::DeleteSession {
+                            ghost_name,
+                            session_id,
+                        } => {
                             if let Err(message) =
                                 ensure_operator_owns_ghost(&state, &op_id, &ghost_name).await
                             {
@@ -1400,18 +1267,22 @@ async fn handle_websocket(
                             {
                                 Ok(_) => {
                                     let response = WsResponse::SessionDeleted { session_id };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&response).unwrap().into(),
-                                    )).await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                                 Err(e) => {
                                     error!("Failed to delete session: {}", e);
                                     let error_response = WsResponse::Error {
                                         message: dm::FAILED_DELETE_SESSION.to_string(),
                                     };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&error_response).unwrap().into(),
-                                    )).await;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                             }
                         }
@@ -1457,12 +1328,16 @@ async fn handle_logs_websocket(socket: axum::extract::ws::WebSocket, state: Arc<
     let mut log_rx = state.subscribe_logs();
 
     // Send initial connection message
-    let _ = sender.send(Message::Text(
-        serde_json::json!({
-            "type": "connected",
-            "message": dm::CONNECTED_LOGS
-        }).to_string().into()
-    )).await;
+    let _ = sender
+        .send(Message::Text(
+            serde_json::json!({
+                "type": "connected",
+                "message": dm::CONNECTED_LOGS
+            })
+            .to_string()
+            .into(),
+        ))
+        .await;
 
     // Forward log entries to WebSocket
     loop {
@@ -1474,14 +1349,14 @@ async fn handle_logs_websocket(socket: axum::extract::ws::WebSocket, state: Arc<
                     break;
                 }
             }
-            
+
             // Handle incoming WebSocket messages (mainly close)
             Some(Ok(msg)) = receiver.next() => {
                 if matches!(msg, Message::Close(_)) {
                     break;
                 }
             }
-            
+
             // Channel closed
             else => break,
         }
