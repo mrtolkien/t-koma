@@ -227,34 +227,76 @@ impl OpenRouterClient {
         history: Vec<ApiMessage>,
         new_message: Option<&str>,
     ) -> Vec<OpenAiMessage> {
-        let mut messages: Vec<OpenAiMessage> = history
-            .into_iter()
-            .map(|msg| {
-                let content = msg
-                    .content
-                    .iter()
-                    .map(|block| match block {
-                        ApiContentBlock::Text { text, .. } => text.clone(),
-                        ApiContentBlock::ToolUse { id, name, input } => {
-                            format!("Tool use: {} ({}): {}", name, id, input)
-                        }
-                        ApiContentBlock::ToolResult {
-                            tool_use_id,
-                            content,
-                            ..
-                        } => format!("Tool result ({}): {}", tool_use_id, content),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+        let mut messages: Vec<OpenAiMessage> = Vec::new();
 
-                OpenAiMessage {
-                    role: msg.role.clone(),
-                    content: Some(content),
-                    tool_calls: None,
-                    tool_call_id: None,
+        for msg in history {
+            let mut text_parts = Vec::new();
+            let mut tool_calls: Vec<ToolCall> = Vec::new();
+            let mut tool_messages: Vec<OpenAiMessage> = Vec::new();
+
+            for block in msg.content {
+                match block {
+                    ApiContentBlock::Text { text, .. } => text_parts.push(text),
+                    ApiContentBlock::ToolUse { id, name, input } => {
+                        let arguments =
+                            serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
+                        tool_calls.push(ToolCall {
+                            id,
+                            r#type: "function".to_string(),
+                            function: ToolCallFunction { name, arguments },
+                        });
+                    }
+                    ApiContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                        ..
+                    } => {
+                        tool_messages.push(OpenAiMessage {
+                            role: "tool".to_string(),
+                            content: Some(content),
+                            tool_calls: None,
+                            tool_call_id: Some(tool_use_id),
+                        });
+                    }
                 }
-            })
-            .collect();
+            }
+
+            let text = if text_parts.is_empty() {
+                None
+            } else {
+                Some(text_parts.join("\n"))
+            };
+
+            match msg.role.as_str() {
+                "assistant" => {
+                    if text.is_some() || !tool_calls.is_empty() {
+                        messages.push(OpenAiMessage {
+                            role: "assistant".to_string(),
+                            content: text,
+                            tool_calls: if tool_calls.is_empty() {
+                                None
+                            } else {
+                                Some(tool_calls)
+                            },
+                            tool_call_id: None,
+                        });
+                    }
+                }
+                "user" => {
+                    if let Some(text) = text {
+                        messages.push(OpenAiMessage {
+                            role: "user".to_string(),
+                            content: Some(text),
+                            tool_calls: None,
+                            tool_call_id: None,
+                        });
+                    }
+                }
+                _ => {}
+            }
+
+            messages.extend(tool_messages);
+        }
 
         // Add new message if provided
         if let Some(content) = new_message {
@@ -270,9 +312,9 @@ impl OpenRouterClient {
     }
 
     /// Convert tools to OpenAI format
-    fn convert_tools(&self, tools: Vec<&dyn Tool>) -> Vec<OpenAiToolDefinition> {
+    fn convert_tools(&self, tools: &[&dyn Tool]) -> Vec<OpenAiToolDefinition> {
         tools
-            .into_iter()
+            .iter()
             .map(|tool| OpenAiToolDefinition {
                 r#type: "function".to_string(),
                 function: OpenAiFunctionDefinition {
@@ -390,14 +432,20 @@ impl Provider for OpenRouterClient {
         let tool_definitions = if tools.is_empty() {
             None
         } else {
-            Some(self.convert_tools(tools))
+            Some(self.convert_tools(&tools))
+        };
+
+        let tool_choice = if tools.is_empty() {
+            None
+        } else {
+            Some(serde_json::json!("auto"))
         };
 
         let request_body = ChatCompletionsRequest {
             model: self.model.clone(),
             messages,
             tools: tool_definitions,
-            tool_choice: None,
+            tool_choice,
             max_tokens: 4096,
         };
 
@@ -438,7 +486,7 @@ mod tests {
 
     #[test]
     fn test_convert_tools() {
-        use crate::tools::Tool;
+        use crate::tools::{Tool, ToolContext};
 
         struct TestTool;
         #[async_trait::async_trait]
@@ -460,14 +508,14 @@ mod tests {
             fn prompt(&self) -> Option<&'static str> {
                 None
             }
-            async fn execute(&self, _args: Value) -> Result<String, String> {
+            async fn execute(&self, _args: Value, _context: &mut ToolContext) -> Result<String, String> {
                 Ok("ok".to_string())
             }
         }
 
         let client = OpenRouterClient::new("test-key", "test-model", None, None);
         let tools: Vec<&dyn Tool> = vec![&TestTool];
-        let openai_tools = client.convert_tools(tools);
+        let openai_tools = client.convert_tools(&tools);
 
         assert_eq!(openai_tools.len(), 1);
         assert_eq!(openai_tools[0].r#type, "function");

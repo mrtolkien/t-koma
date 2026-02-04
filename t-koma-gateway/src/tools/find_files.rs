@@ -2,7 +2,8 @@ use ignore::WalkBuilder;
 use serde_json::{Value, json};
 use std::path::Path;
 
-use super::Tool;
+use super::{Tool, ToolContext};
+use super::context::resolve_local_path;
 
 pub struct FindFilesTool;
 
@@ -66,12 +67,13 @@ impl Tool for FindFilesTool {
         })
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let pattern = args["pattern"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'pattern' argument".to_string())?;
 
         let path = args["path"].as_str().unwrap_or(".");
+        let resolved_path = resolve_local_path(context, path)?;
 
         // Normalize pattern - if it doesn't contain / or **, make it recursive
         let search_pattern = if pattern.contains('/') || pattern.starts_with("**") {
@@ -82,7 +84,7 @@ impl Tool for FindFilesTool {
         };
 
         // Build walker with gitignore support
-        let mut walker_builder = WalkBuilder::new(path);
+        let mut walker_builder = WalkBuilder::new(&resolved_path);
         walker_builder.hidden(false);
         walker_builder.git_ignore(true);
         walker_builder.git_global(true);
@@ -116,7 +118,8 @@ impl Tool for FindFilesTool {
         if files.is_empty() {
             return Ok(format!(
                 "No files found matching pattern '{}' in '{}'",
-                pattern, path
+                pattern,
+                resolved_path.display()
             ));
         }
 
@@ -210,6 +213,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_files_by_extension() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         fs::write(temp_dir.path().join("file1.rs"), "").unwrap();
         fs::write(temp_dir.path().join("file2.rs"), "").unwrap();
         fs::write(temp_dir.path().join("file.txt"), "").unwrap();
@@ -220,7 +224,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("file1.rs"), "Output: {}", output);
@@ -231,6 +235,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_files_recursive() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         fs::write(temp_dir.path().join("root.rs"), "").unwrap();
 
         let sub_dir = temp_dir.path().join("src");
@@ -244,7 +249,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("root.rs"), "Output: {}", output);
@@ -255,6 +260,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_files_no_matches() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         fs::write(temp_dir.path().join("file.txt"), "").unwrap();
 
         let tool = FindFilesTool;
@@ -263,7 +269,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("No files found"));
     }
@@ -271,6 +277,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_files_exact_name() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         fs::write(temp_dir.path().join("Cargo.toml"), "").unwrap();
         fs::write(temp_dir.path().join("other.toml"), "").unwrap();
 
@@ -280,7 +287,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Cargo.toml"), "Output: {}", output);
@@ -290,6 +297,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_files_respects_gitignore() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         // Create .gitignore
         fs::write(temp_dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
@@ -303,7 +311,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await.unwrap();
+        let result = tool.execute(args, &mut context).await.unwrap();
         assert!(
             result.contains("regular.rs"),
             "Should contain regular.rs: {}",

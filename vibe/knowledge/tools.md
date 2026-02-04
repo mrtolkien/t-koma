@@ -15,6 +15,12 @@ Tools are registered in `t-koma-gateway/src/tools/manager.rs`. Transport layers
 4. Register it in `ToolManager`.
 5. Add unit tests in the tool module.
 
+## Tool Context
+
+- Tools execute with a `ToolContext` (ghost name, workspace root, cwd, allow flag).
+- Local file and shell tools must resolve paths relative to `cwd` and enforce the workspace boundary.
+- Use the `change_directory` tool to update `cwd`; leaving the workspace requires operator approval handled by the gateway.
+
 ## Example
 
 ```rust
@@ -43,4 +49,3 @@ impl Tool for MyTool {
 - Keep tool names short, verb-first, snake_case.
 - Use timeouts for long-running operations.
 - Never expose secrets or raw file contents unnecessarily.
-

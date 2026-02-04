@@ -1,13 +1,18 @@
 use tracing::{error, info};
 
-use crate::models::anthropic::history::{build_api_messages, ApiMessage};
-use crate::models::prompt::{build_system_prompt, SystemBlock};
+use crate::models::anthropic::history::{ApiMessage, build_api_messages};
+use crate::models::prompt::{SystemBlock, build_system_prompt};
 use crate::models::provider::{
-    extract_all_text, has_tool_uses, Provider, ProviderContentBlock, ProviderResponse,
+    Provider, ProviderContentBlock, ProviderResponse, extract_all_text, has_tool_uses,
 };
 use crate::prompt::SystemPrompt;
-use crate::tools::ToolManager;
-use t_koma_db::{ContentBlock as DbContentBlock, GhostDbPool, MessageRole, SessionRepository};
+use crate::tools::context::approval_required_path;
+use crate::tools::{ToolContext, ToolManager};
+use serde_json::Value;
+use t_koma_db::{
+    ContentBlock as DbContentBlock, GhostDbPool, GhostRepository, KomaDbPool, MessageRole,
+    SessionRepository,
+};
 
 /// Errors that can occur during session chat
 #[derive(Debug, thiserror::Error)]
@@ -23,6 +28,40 @@ pub enum ChatError {
 
     #[error("Tool execution error: {0}")]
     ToolExecution(String),
+
+    #[error("Tool approval required")]
+    ToolApprovalRequired(PendingToolApproval),
+
+    #[error("Tool loop limit reached")]
+    ToolLoopLimitReached(PendingToolContinuation),
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingToolUse {
+    pub id: String,
+    pub name: String,
+    pub input: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingToolApproval {
+    pub pending_tool_uses: Vec<PendingToolUse>,
+    pub completed_results: Vec<DbContentBlock>,
+    pub requested_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingToolContinuation {
+    pub pending_tool_uses: Vec<PendingToolUse>,
+}
+
+pub const DEFAULT_TOOL_LOOP_LIMIT: usize = 10;
+pub const DEFAULT_TOOL_LOOP_EXTRA: usize = 50;
+
+#[derive(Debug, Clone, Copy)]
+pub enum ToolApprovalDecision {
+    Approve,
+    Deny,
 }
 
 /// High-level chat interface that hides tools and conversation complexity
@@ -64,6 +103,7 @@ impl SessionChat {
     pub async fn chat(
         &self,
         ghost_db: &GhostDbPool,
+        koma_db: &KomaDbPool,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -113,13 +153,15 @@ impl SessionChat {
         let response = self
             .send_with_tool_loop(
                 ghost_db,
+                koma_db,
                 provider,
                 provider_name,
                 model,
                 session_id,
                 system_blocks,
                 api_messages,
-                message,
+                Some(message),
+                DEFAULT_TOOL_LOOP_LIMIT,
             )
             .await?;
 
@@ -131,13 +173,15 @@ impl SessionChat {
     async fn send_with_tool_loop(
         &self,
         ghost_db: &GhostDbPool,
+        koma_db: &KomaDbPool,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
         session_id: &str,
         system_blocks: Vec<SystemBlock>,
         api_messages: Vec<ApiMessage>,
-        new_message: &str,
+        new_message: Option<&str>,
+        max_iterations: usize,
     ) -> Result<String, ChatError> {
         let tools = self.tool_manager.get_tools();
 
@@ -147,15 +191,16 @@ impl SessionChat {
                 Some(system_blocks.clone()),
                 api_messages.clone(),
                 tools.clone(),
-                Some(new_message),
+                new_message,
                 None,
                 None,
             )
             .await
             .map_err(|e| ChatError::Api(e.to_string()))?;
 
-        // Handle tool use loop (max 5 iterations to prevent infinite loops)
-        for iteration in 0..5 {
+        // Handle tool use loop (bounded to prevent infinite loops)
+        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
+        for iteration in 0..max_iterations {
             let has_tool_use = has_tool_uses(&response);
 
             if !has_tool_use {
@@ -172,11 +217,27 @@ impl SessionChat {
             self.save_ghost_response(ghost_db, session_id, model, &response)
                 .await;
 
+            if iteration + 1 == max_iterations {
+                return Err(ChatError::ToolLoopLimitReached(PendingToolContinuation {
+                    pending_tool_uses: collect_pending_tool_uses(&response),
+                }));
+            }
+
             // Execute tools and get results
-            let tool_results = self.execute_tools_from_response(session_id, &response).await;
+            let tool_results = match self
+                .execute_tools_from_response(session_id, &response, koma_db, &mut tool_context)
+                .await
+            {
+                Ok(results) => results,
+                Err(ChatError::ToolLoopLimitReached(pending)) => {
+                    return Err(ChatError::ToolLoopLimitReached(pending));
+                }
+                Err(e) => return Err(e),
+            };
 
             // Save tool results to database
-            self.save_tool_results(ghost_db, session_id, &tool_results).await;
+            self.save_tool_results(ghost_db, session_id, &tool_results)
+                .await;
 
             // Build new API messages including the tool results
             let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
@@ -216,9 +277,7 @@ impl SessionChat {
             .content
             .iter()
             .map(|block| match block {
-                ProviderContentBlock::Text { text } => {
-                    DbContentBlock::Text { text: text.clone() }
-                }
+                ProviderContentBlock::Text { text } => DbContentBlock::Text { text: text.clone() },
                 ProviderContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
                     id: id.clone(),
                     name: name.clone(),
@@ -257,31 +316,259 @@ impl SessionChat {
         &self,
         session_id: &str,
         response: &ProviderResponse,
-    ) -> Vec<DbContentBlock> {
+        koma_db: &KomaDbPool,
+        tool_context: &mut ToolContext,
+    ) -> Result<Vec<DbContentBlock>, ChatError> {
+        let tool_uses = collect_pending_tool_uses(response);
+
         let mut tool_results = Vec::new();
+        self.execute_tool_uses(
+            session_id,
+            &tool_uses,
+            koma_db,
+            tool_context,
+            &mut tool_results,
+        )
+        .await?;
 
-        for block in &response.content {
-            let ProviderContentBlock::ToolUse { id, name, input } = block else {
-                continue;
-            };
+        Ok(tool_results)
+    }
 
-            info!("[session:{}] Executing tool: {} (id: {})", session_id, name, id);
+    async fn execute_tool_uses(
+        &self,
+        session_id: &str,
+        tool_uses: &[PendingToolUse],
+        koma_db: &KomaDbPool,
+        tool_context: &mut ToolContext,
+        tool_results: &mut Vec<DbContentBlock>,
+    ) -> Result<(), ChatError> {
+        for (index, tool_use) in tool_uses.iter().enumerate() {
+            info!(
+                "[session:{}] Executing tool: {} (id: {})",
+                session_id, tool_use.name, tool_use.id
+            );
 
-            let result = self.tool_manager.execute(name, input.clone()).await;
+            let result = self
+                .tool_manager
+                .execute_with_context(&tool_use.name, tool_use.input.clone(), tool_context)
+                .await;
 
             let content = match result {
                 Ok(output) => output,
-                Err(e) => format!("Error: {}", e),
+                Err(e) => {
+                    if let Some(path) = approval_required_path(&e) {
+                        return Err(ChatError::ToolApprovalRequired(PendingToolApproval {
+                            pending_tool_uses: tool_uses[index..].to_vec(),
+                            completed_results: tool_results.clone(),
+                            requested_path: Some(path.to_string()),
+                        }));
+                    }
+                    format!("Error: {}", e)
+                }
             };
 
             tool_results.push(DbContentBlock::ToolResult {
-                tool_use_id: id.clone(),
+                tool_use_id: tool_use.id.clone(),
                 content,
                 is_error: None,
             });
+
+            if let Err(e) = self.persist_tool_context(koma_db, tool_context).await {
+                error!(
+                    "[session:{}] Failed to persist tool context: {}",
+                    session_id, e
+                );
+            }
         }
 
-        tool_results
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn resume_tool_approval(
+        &self,
+        ghost_db: &GhostDbPool,
+        koma_db: &KomaDbPool,
+        provider: &dyn Provider,
+        provider_name: &str,
+        model: &str,
+        session_id: &str,
+        pending: PendingToolApproval,
+        decision: ToolApprovalDecision,
+    ) -> Result<String, ChatError> {
+        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
+
+        let mut tool_results = pending.completed_results;
+        match decision {
+            ToolApprovalDecision::Approve => {
+                tool_context.set_allow_outside_workspace(true);
+                self.persist_tool_context(koma_db, &mut tool_context)
+                    .await?;
+                self.execute_tool_uses(
+                    session_id,
+                    &pending.pending_tool_uses,
+                    koma_db,
+                    &mut tool_context,
+                    &mut tool_results,
+                )
+                .await?;
+            }
+            ToolApprovalDecision::Deny => {
+                for (index, tool_use) in pending.pending_tool_uses.iter().enumerate() {
+                    let content = if index == 0 {
+                        "Error: Operator denied approval to leave the workspace.".to_string()
+                    } else {
+                        "Error: Skipped because approval was denied.".to_string()
+                    };
+                    tool_results.push(DbContentBlock::ToolResult {
+                        tool_use_id: tool_use.id.clone(),
+                        content,
+                        is_error: None,
+                    });
+                }
+            }
+        }
+
+        self.save_tool_results(ghost_db, session_id, &tool_results)
+            .await;
+
+        self.resume_after_tool_results(
+            ghost_db,
+            koma_db,
+            provider,
+            provider_name,
+            model,
+            session_id,
+            DEFAULT_TOOL_LOOP_LIMIT,
+        )
+        .await
+    }
+
+    pub async fn resume_tool_loop(
+        &self,
+        ghost_db: &GhostDbPool,
+        koma_db: &KomaDbPool,
+        provider: &dyn Provider,
+        provider_name: &str,
+        model: &str,
+        session_id: &str,
+        pending: PendingToolContinuation,
+        extra_iterations: usize,
+    ) -> Result<String, ChatError> {
+        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
+        let mut tool_results = Vec::new();
+        self.execute_tool_uses(
+            session_id,
+            &pending.pending_tool_uses,
+            koma_db,
+            &mut tool_context,
+            &mut tool_results,
+        )
+        .await?;
+
+        self.save_tool_results(ghost_db, session_id, &tool_results)
+            .await;
+
+        self.resume_after_tool_results(
+            ghost_db,
+            koma_db,
+            provider,
+            provider_name,
+            model,
+            session_id,
+            extra_iterations,
+        )
+        .await
+    }
+
+    async fn resume_after_tool_results(
+        &self,
+        ghost_db: &GhostDbPool,
+        koma_db: &KomaDbPool,
+        provider: &dyn Provider,
+        provider_name: &str,
+        model: &str,
+        session_id: &str,
+        max_iterations: usize,
+    ) -> Result<String, ChatError> {
+        let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
+
+        let tools = self.tool_manager.get_tools();
+        let system_prompt = SystemPrompt::with_tools(&tools);
+        let system_blocks = build_system_prompt(&system_prompt);
+        let api_messages = build_api_messages(&history, Some(50));
+
+        self.send_with_tool_loop(
+            ghost_db,
+            koma_db,
+            provider,
+            provider_name,
+            model,
+            session_id,
+            system_blocks,
+            api_messages,
+            None,
+            max_iterations,
+        )
+        .await
+    }
+
+    async fn load_tool_context(
+        &self,
+        koma_db: &KomaDbPool,
+        ghost_db: &GhostDbPool,
+    ) -> Result<ToolContext, ChatError> {
+        let ghost_name = ghost_db.ghost_name().to_string();
+        let tool_state =
+            GhostRepository::get_tool_state_by_name(koma_db.pool(), &ghost_name).await?;
+
+        let workspace_root = ghost_db.workspace_path().to_path_buf();
+        let mut cwd = tool_state
+            .cwd
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| workspace_root.clone());
+
+        if !cwd.is_absolute() {
+            cwd = workspace_root.join(cwd);
+        }
+
+        let mut context = ToolContext::new(
+            ghost_name,
+            workspace_root.clone(),
+            cwd,
+            false,
+        );
+
+        let cwd_missing = tokio::fs::metadata(context.cwd()).await.is_err();
+        if cwd_missing {
+            context.set_cwd(workspace_root);
+        }
+
+        if context.is_dirty() {
+            self.persist_tool_context(koma_db, &mut context).await?;
+        }
+
+        Ok(context)
+    }
+
+    async fn persist_tool_context(
+        &self,
+        koma_db: &KomaDbPool,
+        context: &mut ToolContext,
+    ) -> Result<(), ChatError> {
+        if !context.is_dirty() {
+            return Ok(());
+        }
+
+        let cwd = context.cwd().to_string_lossy().to_string();
+        GhostRepository::update_tool_state_by_name(
+            koma_db.pool(),
+            context.ghost_name(),
+            &cwd,
+        )
+        .await?;
+        context.clear_dirty();
+        Ok(())
     }
 
     /// Save tool results to the database
@@ -323,7 +610,11 @@ impl SessionChat {
             session_id,
             provider_name,
             model,
-            if text.len() > 100 { &text[..100] } else { &text }
+            if text.len() > 100 {
+                &text[..100]
+            } else {
+                &text
+            }
         );
 
         let final_content = vec![DbContentBlock::Text { text: text.clone() }];
@@ -350,4 +641,19 @@ impl Default for SessionChat {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn collect_pending_tool_uses(response: &ProviderResponse) -> Vec<PendingToolUse> {
+    response
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ProviderContentBlock::ToolUse { id, name, input } => Some(PendingToolUse {
+                id: id.clone(),
+                name: name.clone(),
+                input: input.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
 }

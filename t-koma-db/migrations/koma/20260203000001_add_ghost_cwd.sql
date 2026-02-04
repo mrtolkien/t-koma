@@ -1,0 +1,1 @@
+ALTER TABLE ghosts ADD COLUMN cwd TEXT;

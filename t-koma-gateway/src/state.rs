@@ -4,7 +4,12 @@ use tokio::sync::{broadcast, RwLock};
 #[cfg(feature = "live-tests")]
 use tracing::{error, info};
 
-use crate::session::{ChatError, SessionChat};
+use crate::session::{
+    ChatError, PendingToolApproval, PendingToolContinuation, SessionChat, ToolApprovalDecision,
+    DEFAULT_TOOL_LOOP_EXTRA,
+};
+#[cfg(feature = "live-tests")]
+use crate::tools::ToolContext;
 use crate::models::provider::Provider;
 #[cfg(feature = "live-tests")]
 use crate::models::provider::{extract_all_text, ProviderResponse};
@@ -99,6 +104,10 @@ pub struct AppState {
     active_ghosts: RwLock<HashMap<String, String>>,
     /// Pending interface selections (platform + external_id)
     pending_interfaces: RwLock<HashMap<String, PendingInterface>>,
+    /// Pending tool approvals keyed by operator/ghost/session
+    pending_tool_approvals: RwLock<HashMap<String, PendingToolApproval>>,
+    /// Pending tool loop continuations keyed by operator/ghost/session
+    pending_tool_loops: RwLock<HashMap<String, PendingToolContinuation>>,
     /// High-level chat interface - handles all conversation logic including tools
     pub session_chat: SessionChat,
 }
@@ -129,6 +138,8 @@ impl AppState {
             ghost_dbs: RwLock::new(HashMap::new()),
             active_ghosts: RwLock::new(HashMap::new()),
             pending_interfaces: RwLock::new(HashMap::new()),
+            pending_tool_approvals: RwLock::new(HashMap::new()),
+            pending_tool_loops: RwLock::new(HashMap::new()),
             session_chat,
         }
     }
@@ -209,6 +220,7 @@ impl AppState {
         self.session_chat
             .chat(
                 &ghost_db,
+                &self.koma_db,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
@@ -237,6 +249,7 @@ impl AppState {
         self.session_chat
             .chat(
                 &ghost_db,
+                &self.koma_db,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
@@ -281,6 +294,10 @@ impl AppState {
         format!("{}:{}", platform, external_id)
     }
 
+    fn approval_key(operator_id: &str, ghost_name: &str, session_id: &str) -> String {
+        format!("{}:{}:{}", operator_id, ghost_name, session_id)
+    }
+
     pub async fn is_interface_pending(
         &self,
         platform: t_koma_db::Platform,
@@ -315,6 +332,139 @@ impl AppState {
         let key = Self::interface_key(platform, external_id);
         let mut guard = self.pending_interfaces.write().await;
         guard.remove(&key);
+    }
+
+    pub async fn set_pending_tool_approval(
+        &self,
+        operator_id: &str,
+        ghost_name: &str,
+        session_id: &str,
+        pending: PendingToolApproval,
+    ) {
+        let key = Self::approval_key(operator_id, ghost_name, session_id);
+        let mut guard = self.pending_tool_approvals.write().await;
+        guard.insert(key, pending);
+    }
+
+    pub async fn take_pending_tool_approval(
+        &self,
+        operator_id: &str,
+        ghost_name: &str,
+        session_id: &str,
+    ) -> Option<PendingToolApproval> {
+        let key = Self::approval_key(operator_id, ghost_name, session_id);
+        let mut guard = self.pending_tool_approvals.write().await;
+        guard.remove(&key)
+    }
+
+    pub async fn set_pending_tool_loop(
+        &self,
+        operator_id: &str,
+        ghost_name: &str,
+        session_id: &str,
+        pending: PendingToolContinuation,
+    ) {
+        let key = Self::approval_key(operator_id, ghost_name, session_id);
+        let mut guard = self.pending_tool_loops.write().await;
+        guard.insert(key, pending);
+    }
+
+    pub async fn take_pending_tool_loop(
+        &self,
+        operator_id: &str,
+        ghost_name: &str,
+        session_id: &str,
+    ) -> Option<PendingToolContinuation> {
+        let key = Self::approval_key(operator_id, ghost_name, session_id);
+        let mut guard = self.pending_tool_loops.write().await;
+        guard.remove(&key)
+    }
+
+    pub async fn clear_pending_tool_loop(
+        &self,
+        operator_id: &str,
+        ghost_name: &str,
+        session_id: &str,
+    ) -> bool {
+        let key = Self::approval_key(operator_id, ghost_name, session_id);
+        let mut guard = self.pending_tool_loops.write().await;
+        guard.remove(&key).is_some()
+    }
+
+    pub async fn handle_tool_approval(
+        &self,
+        ghost_name: &str,
+        session_id: &str,
+        operator_id: &str,
+        decision: ToolApprovalDecision,
+        model_alias: Option<&str>,
+    ) -> Result<Option<String>, ChatError> {
+        let pending = match self
+            .take_pending_tool_approval(operator_id, ghost_name, session_id)
+            .await
+        {
+            Some(pending) => pending,
+            None => return Ok(None),
+        };
+
+        let model = model_alias
+            .and_then(|alias| self.get_model_by_alias(alias))
+            .unwrap_or_else(|| self.default_model());
+
+        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let response = self
+            .session_chat
+            .resume_tool_approval(
+                &ghost_db,
+                &self.koma_db,
+                model.client.as_ref(),
+                &model.provider,
+                &model.model,
+                session_id,
+                pending,
+                decision,
+            )
+            .await?;
+
+        Ok(Some(response))
+    }
+
+    pub async fn handle_tool_loop_continue(
+        &self,
+        ghost_name: &str,
+        session_id: &str,
+        operator_id: &str,
+        extra_iterations: Option<usize>,
+        model_alias: Option<&str>,
+    ) -> Result<Option<String>, ChatError> {
+        let pending = match self
+            .take_pending_tool_loop(operator_id, ghost_name, session_id)
+            .await
+        {
+            Some(pending) => pending,
+            None => return Ok(None),
+        };
+
+        let model = model_alias
+            .and_then(|alias| self.get_model_by_alias(alias))
+            .unwrap_or_else(|| self.default_model());
+
+        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let response = self
+            .session_chat
+            .resume_tool_loop(
+                &ghost_db,
+                &self.koma_db,
+                model.client.as_ref(),
+                &model.provider,
+                &model.model,
+                session_id,
+                pending,
+                extra_iterations.unwrap_or(DEFAULT_TOOL_LOOP_EXTRA),
+            )
+            .await?;
+
+        Ok(Some(response))
     }
 
     /// Low-level conversation method with full tool use loop support
@@ -514,7 +664,16 @@ impl AppState {
         name: &str,
         input: serde_json::Value,
     ) -> Result<String, String> {
-        self.session_chat.tool_manager.execute(name, input).await
+        let mut context = ToolContext::new(
+            "live-test".to_string(),
+            std::path::PathBuf::from("/"),
+            std::path::PathBuf::from("/"),
+            true,
+        );
+        self.session_chat
+            .tool_manager
+            .execute_with_context(name, input, &mut context)
+            .await
     }
 
     /// Save tool results to the database

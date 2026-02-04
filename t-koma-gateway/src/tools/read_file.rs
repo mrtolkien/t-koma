@@ -1,7 +1,8 @@
 use serde_json::{json, Value};
 use tokio::fs;
 
-use super::Tool;
+use super::{Tool, ToolContext};
+use super::context::resolve_local_path;
 
 pub struct ReadFileTool;
 
@@ -11,7 +12,7 @@ const READ_FILE_PROMPT: &str = r#"## Reading Files
 You have access to a `read_file` tool for reading file contents.
 
 **Guidelines:**
-1. Always use absolute paths when possible
+1. Use absolute paths or paths relative to the current working directory
 2. For large files, use `offset` and `limit` to read specific sections
 3. If you need to see the full file structure first, use `list_dir` or `find_files`
 
@@ -47,7 +48,7 @@ impl Tool for ReadFileTool {
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Absolute path to the file to read"
+                    "description": "Path to the file to read (absolute or relative to the current working directory)"
                 },
                 "offset": {
                     "type": "integer",
@@ -65,7 +66,7 @@ impl Tool for ReadFileTool {
         })
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let file_path = args["file_path"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'file_path' argument".to_string())?;
@@ -78,16 +79,18 @@ impl Tool for ReadFileTool {
             return Err("Limit must be between 1 and 10000".to_string());
         }
 
+        let resolved_path = resolve_local_path(context, file_path)?;
+
         // Read file content
-        let content = fs::read_to_string(file_path)
+        let content = fs::read_to_string(&resolved_path)
             .await
-            .map_err(|e| format!("Failed to read file '{}': {}", file_path, e))?;
+            .map_err(|e| format!("Failed to read file '{}': {}", resolved_path.display(), e))?;
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
 
         if total_lines == 0 {
-            return Ok(format!("File '{}' is empty.", file_path));
+            return Ok(format!("File '{}' is empty.", resolved_path.display()));
         }
 
         // Calculate start and end indices (0-indexed internally)
@@ -106,7 +109,7 @@ impl Tool for ReadFileTool {
         let mut result = String::new();
         result.push_str(&format!(
             "--- File: {} (lines {}-{} of {}) ---\n",
-            file_path,
+            resolved_path.display(),
             start_idx + 1,
             end_idx,
             total_lines
@@ -144,11 +147,12 @@ mod tests {
         writeln!(temp_file, "Line 2").unwrap();
         writeln!(temp_file, "Line 3").unwrap();
         let path = temp_file.path().to_str().unwrap().to_string();
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = ReadFileTool;
         let args = json!({ "file_path": path });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Line 1"));
@@ -164,6 +168,7 @@ mod tests {
             writeln!(temp_file, "Line {}", i).unwrap();
         }
         let path = temp_file.path().to_str().unwrap().to_string();
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = ReadFileTool;
         let args = json!({ 
@@ -172,7 +177,7 @@ mod tests {
             "limit": 3
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Line 5"));
@@ -185,9 +190,12 @@ mod tests {
     #[tokio::test]
     async fn test_read_file_not_found() {
         let tool = ReadFileTool;
-        let args = json!({ "file_path": "/nonexistent/file.txt" });
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
+        let missing_path = temp_dir.path().join("missing.txt");
+        let args = json!({ "file_path": missing_path.to_str().unwrap() });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Failed to read file"));
     }
@@ -196,11 +204,12 @@ mod tests {
     async fn test_read_file_empty() {
         let temp_file = NamedTempFile::new().unwrap();
         let path = temp_file.path().to_str().unwrap().to_string();
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = ReadFileTool;
         let args = json!({ "file_path": path });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("is empty"));
     }
@@ -210,6 +219,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "Only line").unwrap();
         let path = temp_file.path().to_str().unwrap().to_string();
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = ReadFileTool;
         let args = json!({ 
@@ -217,7 +227,7 @@ mod tests {
             "offset": 10
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("beyond file length"));
     }

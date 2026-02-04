@@ -57,7 +57,7 @@ impl GhostDbPool {
         &self.ghost_name
     }
 
-    /// Get ghost workspace path (safe house)
+    /// Get ghost workspace path
     pub fn workspace_path(&self) -> &Path {
         &self.workspace_path
     }

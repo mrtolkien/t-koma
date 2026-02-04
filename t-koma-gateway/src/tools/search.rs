@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use super::Tool;
+use super::{Tool, ToolContext};
+use super::context::resolve_local_path;
 
 pub struct SearchTool;
 
@@ -79,12 +80,13 @@ impl Tool for SearchTool {
         })
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let pattern = args["pattern"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'pattern' argument".to_string())?;
 
         let path = args["path"].as_str().unwrap_or(".");
+        let resolved_path = resolve_local_path(context, path)?;
 
         let glob_pattern = args["glob"].as_str();
         let case_sensitive = args["case_sensitive"].as_bool().unwrap_or(false);
@@ -102,7 +104,7 @@ impl Tool for SearchTool {
             .map_err(|e| format!("Invalid regex pattern '{}': {}", pattern, e))?;
 
         // Build ignore walker (respects .gitignore)
-        let mut walker_builder = ignore::WalkBuilder::new(path);
+        let mut walker_builder = ignore::WalkBuilder::new(&resolved_path);
         walker_builder.hidden(false);
         walker_builder.git_ignore(true);
         walker_builder.git_global(true);
@@ -111,7 +113,7 @@ impl Tool for SearchTool {
 
         // Apply glob filter if specified
         if let Some(glob) = glob_pattern {
-            let filter = ignore::overrides::OverrideBuilder::new(path)
+            let filter = ignore::overrides::OverrideBuilder::new(&resolved_path)
                 .add(glob)
                 .map_err(|e| format!("Invalid glob pattern '{}': {}", glob, e))?
                 .build()
@@ -126,7 +128,7 @@ impl Tool for SearchTool {
 
         // Run search in blocking thread since grep is synchronous
         let results_clone = results.clone();
-        let path_owned = path.to_string();
+        let path_owned = resolved_path.to_string_lossy().to_string();
 
         tokio::task::spawn_blocking(move || {
             let mut searcher = Searcher::new();
@@ -228,6 +230,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_simple_pattern() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         let file_path = temp_dir.path().join("test.txt");
         let mut file = std::fs::File::create(&file_path).unwrap();
         writeln!(file, "Hello, World!").unwrap();
@@ -240,7 +243,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Found 2 match(es)"));
@@ -251,6 +254,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_regex_pattern() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         let file_path = temp_dir.path().join("test.txt");
         let mut file = std::fs::File::create(&file_path).unwrap();
         writeln!(file, "function test()").unwrap();
@@ -263,7 +267,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Found 2 match(es)"));
@@ -272,6 +276,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_no_matches() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         let file_path = temp_dir.path().join("test.txt");
         let mut file = std::fs::File::create(&file_path).unwrap();
         writeln!(file, "Hello, World!").unwrap();
@@ -282,7 +287,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("No matches found"));
     }
@@ -290,6 +295,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_case_sensitive() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         let file_path = temp_dir.path().join("test.txt");
         let mut file = std::fs::File::create(&file_path).unwrap();
         writeln!(file, "Hello").unwrap();
@@ -303,7 +309,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap(),
             "case_sensitive": false
         });
-        let result = tool.execute(args).await.unwrap();
+        let result = tool.execute(args, &mut context).await.unwrap();
         assert!(result.contains("Found 2 match(es)"));
 
         // Case sensitive - should find only lowercase
@@ -312,13 +318,14 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap(),
             "case_sensitive": true
         });
-        let result = tool.execute(args).await.unwrap();
+        let result = tool.execute(args, &mut context).await.unwrap();
         assert!(result.contains("Found 1 match(es)"));
     }
 
     #[tokio::test]
     async fn test_search_glob_filter() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let rs_path = temp_dir.path().join("test.rs");
         let mut rs_file = std::fs::File::create(&rs_path).unwrap();
@@ -335,7 +342,7 @@ mod tests {
             "glob": "*.rs"
         });
 
-        let result = tool.execute(args).await.unwrap();
+        let result = tool.execute(args, &mut context).await.unwrap();
         assert!(result.contains("test.rs"));
         assert!(!result.contains("test.txt"));
     }
@@ -343,6 +350,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_respects_gitignore() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         // Create .gitignore
         let gitignore_path = temp_dir.path().join(".gitignore");
@@ -362,7 +370,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await.unwrap();
+        let result = tool.execute(args, &mut context).await.unwrap();
         assert!(result.contains("regular.txt"));
         assert!(!result.contains("ignored.txt"));
     }

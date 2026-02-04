@@ -1,9 +1,9 @@
 use serde_json::Value;
 
 use super::{
-    create_file::CreateFileTool, file_edit::FileEditTool, find_files::FindFilesTool,
-    list_dir::ListDirTool, read_file::ReadFileTool, search::SearchTool, shell::ShellTool,
-    web_fetch::WebFetchTool, web_search::WebSearchTool, Tool,
+    change_directory::ChangeDirectoryTool, create_file::CreateFileTool, file_edit::FileEditTool,
+    find_files::FindFilesTool, list_dir::ListDirTool, read_file::ReadFileTool, search::SearchTool,
+    shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool, Tool, ToolContext,
 };
 
 /// Central manager for all AI tools
@@ -20,6 +20,7 @@ impl ToolManager {
     pub fn new() -> Self {
         let tools: Vec<Box<dyn Tool>> = vec![
             Box::new(ShellTool),
+            Box::new(ChangeDirectoryTool),
             Box::new(FileEditTool),
             Box::new(ReadFileTool),
             Box::new(CreateFileTool),
@@ -37,18 +38,24 @@ impl ToolManager {
         self.tools.iter().map(|t| t.as_ref()).collect()
     }
 
-    /// Execute a tool by name with the given input
+    /// Execute a tool by name with the given input and context
     ///
     /// # Arguments
     /// * `name` - The tool name (must match `Tool::name()`)
     /// * `input` - JSON input for the tool
+    /// * `context` - Execution context (cwd + workspace boundary state)
     ///
     /// # Returns
     /// The tool's output as a string, or an error message
-    pub async fn execute(&self, name: &str, input: Value) -> Result<String, String> {
+    pub async fn execute_with_context(
+        &self,
+        name: &str,
+        input: Value,
+        context: &mut ToolContext,
+    ) -> Result<String, String> {
         for tool in &self.tools {
             if tool.name() == name {
-                return tool.execute(input).await;
+                return tool.execute(input, context).await;
             }
         }
         Err(format!("Unknown tool: {}", name))
@@ -75,6 +82,7 @@ mod tests {
         // Check that all tools are registered
         let tool_names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(tool_names.contains(&"run_shell_command"));
+        assert!(tool_names.contains(&"change_directory"));
         assert!(tool_names.contains(&"replace"));
         assert!(tool_names.contains(&"read_file"));
         assert!(tool_names.contains(&"create_file"));
@@ -88,9 +96,13 @@ mod tests {
     #[tokio::test]
     async fn test_tool_manager_execute_shell() {
         let manager = ToolManager::new();
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         let input = json!({ "command": "echo 'hello from tool manager'" });
 
-        let result = manager.execute("run_shell_command", input).await;
+        let result = manager
+            .execute_with_context("run_shell_command", input, &mut context)
+            .await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("hello from tool manager"));
     }
@@ -98,9 +110,13 @@ mod tests {
     #[tokio::test]
     async fn test_tool_manager_execute_unknown() {
         let manager = ToolManager::new();
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         let input = json!({});
 
-        let result = manager.execute("unknown_tool", input).await;
+        let result = manager
+            .execute_with_context("unknown_tool", input, &mut context)
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown tool"));
     }
@@ -108,12 +124,19 @@ mod tests {
     #[tokio::test]
     async fn test_tool_manager_execute_read_file() {
         let manager = ToolManager::new();
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
+        let file_path = temp_dir.path().join("sample.txt");
+        tokio::fs::write(&file_path, "hello").await.unwrap();
 
-        let result = manager.execute("read_file", json!({"file_path": "/etc/hostname"})).await;
-        // Should succeed on most Unix systems
-        if result.is_err() {
-            // On systems where /etc/hostname doesn't exist, just verify the tool is registered
-            assert!(result.unwrap_err().contains("Failed to read file"));
-        }
+        let result = manager
+            .execute_with_context(
+                "read_file",
+                json!({"file_path": file_path.to_str().unwrap()}),
+                &mut context,
+            )
+            .await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("hello"));
     }
 }

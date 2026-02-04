@@ -7,6 +7,9 @@ pub mod list_dir;
 pub mod manager;
 pub mod web_fetch;
 pub mod web_search;
+pub mod change_directory;
+pub mod context;
+pub use context::ToolContext;
 
 pub use manager::ToolManager;
 pub mod load_skill;
@@ -27,7 +30,7 @@ pub trait Tool: Send + Sync {
     fn input_schema(&self) -> Value;
 
     /// Execute the tool with the given arguments
-    async fn execute(&self, args: Value) -> Result<String, String>;
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String>;
 
     /// Optional prompt/instructions for how to use this tool.
     ///

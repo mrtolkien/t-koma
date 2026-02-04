@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS ghosts (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     owner_operator_id TEXT NOT NULL,
+    cwd TEXT,
     created_at INTEGER NOT NULL,
     FOREIGN KEY (owner_operator_id) REFERENCES operators(id) ON DELETE CASCADE
 );

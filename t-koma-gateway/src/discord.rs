@@ -6,16 +6,9 @@ use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use tracing::{error, info};
 
+use crate::deterministic_messages::{common, discord as dm};
+use crate::session::{ChatError, ToolApprovalDecision};
 use crate::state::AppState;
-
-const INTERFACE_PROMPT: &str = "┌───────────────────────────────────────────────┐\n│ T-KOMA (ティーコマ) // INTERFACE BINDING       │\n├───────────────────────────────────────────────┤\n│ This interface must belong to:                │\n│   - an EXISTING OPERATOR (オペレータ)          │\n│   - a NEW OPERATOR (オペレータ)                │\n│                                               │\n│ Reply with:                                   │\n│   NEW  -> create a new operator               │\n│   EXISTING -> link to an existing operator    │\n└───────────────────────────────────────────────┘";
-
-const EXISTING_OPERATOR_TODO: &str =
-    "Linking an existing operator is not implemented yet. TODO.";
-
-const GHOST_NAME_PROMPT: &str = "┌───────────────────────────────────────────────┐\n│ T-KOMA (ティーコマ) // GHOST INITIALIZATION    │\n├───────────────────────────────────────────────┤\n│ PUPPET MASTER ACCESS WARNING                   │\n│ The Puppet Master has full access to this     │\n│ GHOST (ゴースト)'s memory and workspace.      │\n│                                               │\n│ Only proceed if you trust the Puppet Master.  │\n├───────────────────────────────────────────────┤\n│ Enter a GHOST name (ASCII letters/numbers,    │\n│ spaces, '-' or '_'). Example: ALPHA-01        │\n└───────────────────────────────────────────────┘";
-
-const GHOST_CREATED_HEADER: &str = "┌───────────────────────────────┐\n│ GHOST (ゴースト) ONLINE        │\n└───────────────────────────────┘";
 
 /// Discord bot handler
 ///
@@ -41,19 +34,20 @@ fn parse_ghost_selection(content: &str) -> Option<String> {
     }
 }
 
-fn format_ghost_list(ghosts: &[t_koma_db::Ghost]) -> String {
-    let mut lines = vec![
-        "┌───────────────────────────────┐".to_string(),
-        "│ AVAILABLE GHOSTS (ゴースト)   │".to_string(),
-        "├───────────────────────────────┤".to_string(),
-    ];
+fn format_deterministic_message(content: &str) -> String {
+    format!("```ansi\n{}\n```", content)
+}
 
-    for ghost in ghosts {
-        lines.push(format!("│ - {}", ghost.name));
+fn parse_step_limit(content: &str) -> Option<usize> {
+    let trimmed = content.trim();
+    let lower = trimmed.to_lowercase();
+    let candidates = ["steps ", "step ", "max ", "limit "];
+    for prefix in candidates {
+        if let Some(rest) = lower.strip_prefix(prefix) {
+            return rest.trim().parse::<usize>().ok().filter(|value| *value > 0);
+        }
     }
-
-    lines.push("└───────────────────────────────┘".to_string());
-    lines.join("\n")
+    None
 }
 
 #[async_trait]
@@ -101,7 +95,7 @@ impl EventHandler for Bot {
                 error!("Failed to load interface {}: {}", operator_external_id, e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Sorry, an error occurred. Please try again later.")
+                    .say(&ctx.http, format_deterministic_message(dm::ERROR_GENERIC))
                     .await;
                 return;
             }
@@ -116,7 +110,10 @@ impl EventHandler for Bot {
                 self.state
                     .set_interface_pending(platform, &operator_external_id)
                     .await;
-                let _ = msg.channel_id.say(&ctx.http, INTERFACE_PROMPT).await;
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, format_deterministic_message(dm::INTERFACE_PROMPT))
+                    .await;
                 return;
             }
 
@@ -125,13 +122,16 @@ impl EventHandler for Bot {
                 // TODO: Implement existing-operator flow
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, EXISTING_OPERATOR_TODO)
+                    .say(&ctx.http, format_deterministic_message(dm::EXISTING_OPERATOR_TODO))
                     .await;
                 return;
             }
 
             if choice != "new" {
-                let _ = msg.channel_id.say(&ctx.http, INTERFACE_PROMPT).await;
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, format_deterministic_message(dm::INTERFACE_PROMPT))
+                    .await;
                 return;
             }
 
@@ -147,7 +147,10 @@ impl EventHandler for Bot {
                     error!("Failed to create operator: {}", e);
                     let _ = msg
                         .channel_id
-                        .say(&ctx.http, "Failed to create operator.")
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(dm::ERROR_FAILED_CREATE_OPERATOR),
+                        )
                         .await;
                     return;
                 }
@@ -165,7 +168,10 @@ impl EventHandler for Bot {
                 error!("Failed to create interface: {}", e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Failed to create interface.")
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::ERROR_FAILED_CREATE_INTERFACE),
+                    )
                     .await;
                 return;
             }
@@ -178,7 +184,7 @@ impl EventHandler for Bot {
                 .channel_id
                 .say(
                     &ctx.http,
-                    "Operator created. Awaiting approval via management CLI.",
+                    format_deterministic_message(common::OPERATOR_CREATED_AWAITING_APPROVAL),
                 )
                 .await;
             return;
@@ -196,7 +202,10 @@ impl EventHandler for Bot {
                 error!("Interface references missing operator {}", interface.operator_id);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Interface is not linked to a valid operator.")
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::INTERFACE_INVALID_OPERATOR),
+                    )
                     .await;
                 return;
             }
@@ -204,7 +213,7 @@ impl EventHandler for Bot {
                 error!("Failed to load operator {}: {}", interface.operator_id, e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Failed to load operator.")
+                    .say(&ctx.http, format_deterministic_message(dm::ERROR_FAILED_LOAD_OPERATOR))
                     .await;
                 return;
             }
@@ -217,7 +226,7 @@ impl EventHandler for Bot {
                     .channel_id
                     .say(
                         &ctx.http,
-                        "Your access request is pending approval. The Puppet Master will review it.",
+                        format_deterministic_message(common::ACCESS_PENDING_DISCORD),
                     )
                     .await;
                 return;
@@ -225,7 +234,7 @@ impl EventHandler for Bot {
             t_koma_db::OperatorStatus::Denied => {
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Your access request was denied.")
+                    .say(&ctx.http, format_deterministic_message(common::ACCESS_DENIED))
                     .await;
                 return;
             }
@@ -248,7 +257,7 @@ impl EventHandler for Bot {
                 error!("Failed to list ghosts for operator {}: {}", operator_id, e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Sorry, I failed to load your ghosts.")
+                    .say(&ctx.http, format_deterministic_message(dm::ERROR_FAILED_LOAD_GHOSTS))
                     .await;
                 return;
             }
@@ -266,7 +275,10 @@ impl EventHandler for Bot {
                     error!("Failed to mark operator {} as welcomed: {}", operator_id, e);
                 }
 
-                let _ = msg.channel_id.say(&ctx.http, GHOST_NAME_PROMPT).await;
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, format_deterministic_message(dm::GHOST_NAME_PROMPT))
+                    .await;
                 return;
             }
 
@@ -283,10 +295,7 @@ impl EventHandler for Bot {
                         .channel_id
                         .say(
                             &ctx.http,
-                            format!(
-                                "Invalid ghost name. {}\n\n{}",
-                                e, GHOST_NAME_PROMPT
-                            ),
+                            format_deterministic_message(&dm::invalid_ghost_name(&e.to_string())),
                         )
                         .await;
                     return;
@@ -299,7 +308,10 @@ impl EventHandler for Bot {
                     error!("Failed to initialize ghost DB: {}", e);
                     let _ = msg
                         .channel_id
-                        .say(&ctx.http, "Failed to initialize ghost storage.")
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(dm::ERROR_FAILED_INIT_GHOST_STORAGE),
+                        )
                         .await;
                     return;
                 }
@@ -317,7 +329,10 @@ impl EventHandler for Bot {
                     error!("Failed to create session: {}", e);
                     let _ = msg
                         .channel_id
-                        .say(&ctx.http, "Failed to create a session for your ghost.")
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(dm::ERROR_FAILED_CREATE_SESSION),
+                        )
                         .await;
                     return;
                 }
@@ -329,10 +344,7 @@ impl EventHandler for Bot {
                     error!("Failed to read default-prompts/BOOTSTRAP.md: {}", e);
                     let _ = msg
                         .channel_id
-                        .say(
-                            &ctx.http,
-                            "default-prompts/BOOTSTRAP.md missing; cannot initialize ghost.",
-                        )
+                        .say(&ctx.http, format_deterministic_message(dm::ERROR_MISSING_BOOTSTRAP))
                         .await;
                     return;
                 }
@@ -348,7 +360,7 @@ impl EventHandler for Bot {
                     error!("[session:{}] Chat error: {}", session.id, e);
                     let _ = msg
                         .channel_id
-                        .say(&ctx.http, "Ghost failed to boot. Try again later.")
+                        .say(&ctx.http, format_deterministic_message(dm::ERROR_GHOST_BOOT_FAILED))
                         .await;
                     return;
                 }
@@ -358,11 +370,13 @@ impl EventHandler for Bot {
                 .set_active_ghost(&operator_id, &ghost.name)
                 .await;
 
+            let header = dm::ghost_created_header_with_name(&ghost.name);
             let response = format!(
-                "{}\nGHOST: {}\n\n{}",
-                GHOST_CREATED_HEADER, ghost.name, ghost_response
+                "{}\n\n{}",
+                format_deterministic_message(&header),
+                ghost_response
             );
-            if let Err(e) = msg.channel_id.say(&ctx.http, &response).await {
+            if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                 error!("[session:{}] Failed to send Discord message: {}", session.id, e);
             }
 
@@ -375,19 +389,21 @@ impl EventHandler for Bot {
                 self.state
                     .set_active_ghost(&operator_id, &ghost.name)
                     .await;
-                let response = format!(
-                    "Active GHOST set to: {}\n\n{}",
-                    ghost.name,
-                    GHOST_CREATED_HEADER
-                );
-                let _ = msg.channel_id.say(&ctx.http, response).await;
+                let response = dm::active_ghost_set(&ghost.name);
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, format_deterministic_message(&response))
+                    .await;
                 return;
             }
 
-            let list = format_ghost_list(&ghosts);
+            let list = dm::format_ghost_list(&ghosts);
             let _ = msg
                 .channel_id
-                .say(&ctx.http, format!("Unknown GHOST name.\n\n{}", list))
+                .say(
+                    &ctx.http,
+                    format_deterministic_message(&dm::unknown_ghost_name(&list)),
+                )
                 .await;
             return;
         }
@@ -397,12 +413,12 @@ impl EventHandler for Bot {
         } else if let Some(active) = self.state.get_active_ghost(&operator_id).await {
             active
         } else {
-            let list = format_ghost_list(&ghosts);
+            let list = dm::format_ghost_list(&ghosts);
             let _ = msg
                 .channel_id
                 .say(
                     &ctx.http,
-                    format!("Select a GHOST by typing: `ghost: NAME`\n\n{}", list),
+                    format_deterministic_message(&dm::select_ghost_prompt(&list)),
                 )
                 .await;
             return;
@@ -414,7 +430,10 @@ impl EventHandler for Bot {
                 error!("Failed to init ghost DB: {}", e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Failed to initialize ghost storage.")
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::ERROR_FAILED_INIT_GHOST_STORAGE),
+                    )
                     .await;
                 return;
             }
@@ -431,11 +450,167 @@ impl EventHandler for Bot {
                 error!("Failed to create session for operator {}: {}", operator_id, e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Sorry, an error occurred initializing your session.")
+                    .say(&ctx.http, format_deterministic_message(dm::ERROR_INIT_SESSION))
                     .await;
                 return;
             }
         };
+
+        if clean_content.eq_ignore_ascii_case("approve")
+            || clean_content.eq_ignore_ascii_case("deny")
+            || parse_step_limit(clean_content).is_some()
+        {
+            let step_limit = parse_step_limit(clean_content);
+            if step_limit.is_none() {
+                let decision = if clean_content.eq_ignore_ascii_case("approve") {
+                    ToolApprovalDecision::Approve
+                } else {
+                    ToolApprovalDecision::Deny
+                };
+
+                match self
+                    .state
+                    .handle_tool_approval(
+                        &ghost_name,
+                        &session.id,
+                        &operator_id,
+                        decision,
+                        None,
+                    )
+                    .await
+                {
+                    Ok(Some(text)) => {
+                        let _ = msg.channel_id.say(&ctx.http, &text).await;
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(ChatError::ToolApprovalRequired(pending)) => {
+                        self.state
+                            .set_pending_tool_approval(
+                                &operator_id,
+                                &ghost_name,
+                                &session.id,
+                                pending.clone(),
+                            )
+                            .await;
+                        let message = common::approval_required(pending.requested_path.as_deref());
+                        let _ = msg
+                            .channel_id
+                            .say(&ctx.http, format_deterministic_message(&message))
+                            .await;
+                        return;
+                    }
+                    Err(ChatError::ToolLoopLimitReached(pending)) => {
+                        self.state
+                            .set_pending_tool_loop(&operator_id, &ghost_name, &session.id, pending)
+                            .await;
+                        let message = common::tool_loop_limit_reached(
+                            crate::session::DEFAULT_TOOL_LOOP_LIMIT,
+                            crate::session::DEFAULT_TOOL_LOOP_EXTRA,
+                        );
+                        let _ = msg
+                            .channel_id
+                            .say(&ctx.http, format_deterministic_message(&message))
+                            .await;
+                        return;
+                    }
+                    Err(e) => {
+                        error!("[session:{}] Chat error: {}", session.id, e);
+                        let _ = msg
+                            .channel_id
+                            .say(
+                                &ctx.http,
+                                format_deterministic_message(dm::ERROR_PROCESSING_REQUEST),
+                            )
+                            .await;
+                        return;
+                    }
+                }
+            }
+
+            if clean_content.eq_ignore_ascii_case("deny")
+                && self
+                    .state
+                    .clear_pending_tool_loop(&operator_id, &ghost_name, &session.id)
+                    .await
+            {
+                let _ = msg
+                    .channel_id
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(common::TOOL_LOOP_DENIED),
+                    )
+                    .await;
+                return;
+            }
+
+            match self
+                .state
+                .handle_tool_loop_continue(
+                    &ghost_name,
+                    &session.id,
+                    &operator_id,
+                    step_limit,
+                    None,
+                )
+                .await
+            {
+                Ok(Some(text)) => {
+                    let _ = msg.channel_id.say(&ctx.http, &text).await;
+                }
+                Ok(None) => {
+                    let message = if step_limit.is_some() {
+                        common::NO_PENDING_TOOL_LOOP
+                    } else {
+                        common::NO_PENDING_APPROVAL
+                    };
+                    let _ = msg
+                        .channel_id
+                        .say(&ctx.http, format_deterministic_message(message))
+                        .await;
+                }
+                Err(ChatError::ToolApprovalRequired(pending)) => {
+                    self.state
+                        .set_pending_tool_approval(
+                            &operator_id,
+                            &ghost_name,
+                            &session.id,
+                            pending.clone(),
+                        )
+                        .await;
+                    let message = common::approval_required(pending.requested_path.as_deref());
+                    let _ = msg
+                        .channel_id
+                        .say(&ctx.http, format_deterministic_message(&message))
+                        .await;
+                }
+                Err(ChatError::ToolLoopLimitReached(pending)) => {
+                    self.state
+                        .set_pending_tool_loop(&operator_id, &ghost_name, &session.id, pending)
+                        .await;
+                    let message = common::tool_loop_limit_reached(
+                        crate::session::DEFAULT_TOOL_LOOP_LIMIT,
+                        crate::session::DEFAULT_TOOL_LOOP_EXTRA,
+                    );
+                    let _ = msg
+                        .channel_id
+                        .say(&ctx.http, format_deterministic_message(&message))
+                        .await;
+                }
+                Err(e) => {
+                    error!("[session:{}] Chat error: {}", session.id, e);
+                    let _ = msg
+                        .channel_id
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(dm::ERROR_PROCESSING_REQUEST),
+                        )
+                        .await;
+                }
+            }
+
+            return;
+        }
 
         // Send the message to the AI through the centralized chat interface
         let final_text = match self
@@ -444,11 +619,39 @@ impl EventHandler for Bot {
             .await
         {
             Ok(text) => text,
+            Err(ChatError::ToolApprovalRequired(pending)) => {
+                self.state
+                    .set_pending_tool_approval(&operator_id, &ghost_name, &session.id, pending.clone())
+                    .await;
+                let message = common::approval_required(pending.requested_path.as_deref());
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, format_deterministic_message(&message))
+                    .await;
+                return;
+            }
+            Err(ChatError::ToolLoopLimitReached(pending)) => {
+                self.state
+                    .set_pending_tool_loop(&operator_id, &ghost_name, &session.id, pending)
+                    .await;
+                let message = common::tool_loop_limit_reached(
+                    crate::session::DEFAULT_TOOL_LOOP_LIMIT,
+                    crate::session::DEFAULT_TOOL_LOOP_EXTRA,
+                );
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, format_deterministic_message(&message))
+                    .await;
+                return;
+            }
             Err(e) => {
                 error!("[session:{}] Chat error: {}", session.id, e);
                 let _ = msg
                     .channel_id
-                    .say(&ctx.http, "Sorry, I encountered an error processing your request.")
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(dm::ERROR_PROCESSING_REQUEST),
+                    )
                     .await;
                 return;
             }

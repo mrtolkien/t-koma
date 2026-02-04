@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 use tokio::fs;
-use super::Tool;
+use super::{Tool, ToolContext};
+use super::context::resolve_local_path;
 
 pub struct FileEditTool;
 
@@ -69,7 +70,7 @@ impl Tool for FileEditTool {
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "The path to the file to modify"
+                    "description": "Path to the file to modify (absolute or relative to the current working directory)"
                 },
                 "old_string": {
                     "type": "string",
@@ -89,7 +90,7 @@ impl Tool for FileEditTool {
         })
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let file_path = args["file_path"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'file_path' argument".to_string())?;
@@ -106,10 +107,12 @@ impl Tool for FileEditTool {
             .as_u64()
             .unwrap_or(1);
 
+        let resolved_path = resolve_local_path(context, file_path)?;
+
         // Read file content
-        let content = fs::read_to_string(file_path)
+        let content = fs::read_to_string(&resolved_path)
             .await
-            .map_err(|e| format!("Failed to read file '{}': {}", file_path, e))?;
+            .map_err(|e| format!("Failed to read file '{}': {}", resolved_path.display(), e))?;
 
         // Check occurrences
         let occurrences = content.matches(old_string).count() as u64;
@@ -117,7 +120,7 @@ impl Tool for FileEditTool {
         if occurrences == 0 {
             return Err(format!(
                 "Could not find 'old_string' in file '{}'. Ensure exact match including whitespace.", 
-                file_path
+                resolved_path.display()
             ));
         }
 
@@ -132,13 +135,14 @@ impl Tool for FileEditTool {
         let new_content = content.replace(old_string, new_string);
 
         // Write back to file
-        fs::write(file_path, new_content)
+        fs::write(&resolved_path, new_content)
             .await
-            .map_err(|e| format!("Failed to write to file '{}': {}", file_path, e))?;
+            .map_err(|e| format!("Failed to write to file '{}': {}", resolved_path.display(), e))?;
 
         Ok(format!(
             "Successfully replaced {} occurrence(s) in '{}'.",
-            occurrences, file_path
+            occurrences,
+            resolved_path.display()
         ))
     }
 }
@@ -154,6 +158,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         write!(temp_file, "Hello World\nThis is a test.").unwrap();
         let path = temp_file.path().to_str().unwrap().to_string();
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = FileEditTool;
         let args = json!({
@@ -162,7 +167,7 @@ mod tests {
             "new_string": "Rust"
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
 
         let content = fs::read_to_string(&path).await.unwrap();
@@ -174,6 +179,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         write!(temp_file, "Hello World").unwrap();
         let path = temp_file.path().to_str().unwrap().to_string();
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = FileEditTool;
         let args = json!({
@@ -182,7 +188,7 @@ mod tests {
             "new_string": "Rust"
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Could not find 'old_string'"));
     }
@@ -192,6 +198,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         write!(temp_file, "test test test").unwrap();
         let path = temp_file.path().to_str().unwrap().to_string();
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
 
         let tool = FileEditTool;
         let args = json!({
@@ -200,7 +207,7 @@ mod tests {
             "new_string": "check"
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Found 3 occurrences"));
     }
@@ -219,7 +226,8 @@ mod tests {
             "expected_replacements": 3
         });
 
-        let result = tool.execute(args).await;
+        let mut context = ToolContext::new_for_tests(temp_file.path().parent().unwrap());
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
 
         let content = fs::read_to_string(&path).await.unwrap();

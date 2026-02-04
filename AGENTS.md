@@ -20,7 +20,7 @@ important information in vibe/knowledge.
 - OPERATOR (オペレータ): End user. Approved via management CLI.
 - INTERFACE: A messaging endpoint for an operator (Discord, TUI). An operator
   can have multiple interfaces.
-- GHOST (ゴースト): Agent with its own DB and workspace/safe house (same folder
+- GHOST (ゴースト): Agent with its own DB and workspace (same folder
   as ghost DB).
 - SESSION: A chat thread between an operator and a ghost (stored in ghost DB).
 - Puppet Master: The name used for WebSocket clients.
@@ -55,7 +55,7 @@ Relationship summary:
 - T-KOMA DB: operators, ghosts, interfaces. Stored at platform data dir.
 - Ghost DB: sessions and messages. Stored at
   `.../t-koma/ghosts/{name}/db.sqlite3`.
-- Ghost workspace/safe house CWD is the same folder as its DB.
+- Ghost workspace CWD is the same folder as its DB.
 - Reference schemas: `t-koma-db/schema.sql`, `t-koma-db/ghost_schema.sql`.
 
 Key types:
@@ -64,6 +64,9 @@ Key types:
 - `OperatorRepository`, `GhostRepository`, `InterfaceRepository`,
   `SessionRepository`
 - `OperatorStatus`, `Platform`, `ContentBlock`
+
+Ghost tool state persistence:
+- `ghosts.cwd` stores the current working directory for tools.
 
 Test helpers:
 

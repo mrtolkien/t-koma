@@ -1,6 +1,7 @@
 //! Ghost management operations.
 
 use chrono::Utc;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tracing::info;
@@ -13,7 +14,7 @@ const GHOST_NAME_MAX_LEN: usize = 64;
 /// Validate and normalize a ghost name.
 ///
 /// - Trim whitespace
-/// - Enforce ASCII letters, digits, spaces, '-' and '_'
+/// - Enforce ASCII letters, digits, spaces, '-' and '_' plus kanji and katakana
 /// - No empty names
 pub fn validate_ghost_name(name: &str) -> DbResult<String> {
     let trimmed = name.trim();
@@ -30,13 +31,14 @@ pub fn validate_ghost_name(name: &str) -> DbResult<String> {
         )));
     }
 
-    let valid = trimmed.chars().all(|ch| {
-        ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == ' '
-    });
+    let valid = Regex::new(r"^[A-Za-z0-9 _\-\p{Han}\p{Katakana}]+$")
+        .expect("ghost name regex should compile")
+        .is_match(trimmed);
 
     if !valid {
         return Err(DbError::InvalidGhostName(
-            "Ghost name may contain only letters, numbers, spaces, '-' and '_'".to_string(),
+            "Ghost name may contain only letters, numbers, spaces, '-', '_', kanji, and katakana"
+                .to_string(),
         ));
     }
 
@@ -49,7 +51,14 @@ pub struct Ghost {
     pub id: String,
     pub name: String,
     pub owner_operator_id: String,
+    pub cwd: Option<String>,
     pub created_at: i64,
+}
+
+/// Ghost tool state (cwd only)
+#[derive(Debug, Clone)]
+pub struct GhostToolState {
+    pub cwd: Option<String>,
 }
 
 /// Ghost repository for database operations
@@ -63,6 +72,8 @@ impl GhostRepository {
         name: &str,
     ) -> DbResult<Ghost> {
         let name = validate_ghost_name(name)?;
+        let default_cwd = crate::ghost_db::GhostDbPool::workspace_path_for(&name)?;
+        let default_cwd = default_cwd.to_string_lossy().to_string();
 
         if let Some(existing) = Self::get_by_name(pool, &name).await? {
             return Err(DbError::GhostNameTaken(existing.name));
@@ -72,12 +83,13 @@ impl GhostRepository {
         let now = Utc::now().timestamp();
 
         sqlx::query(
-            "INSERT INTO ghosts (id, name, owner_operator_id, created_at)
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO ghosts (id, name, owner_operator_id, cwd, created_at)
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&name)
         .bind(owner_operator_id)
+        .bind(default_cwd)
         .bind(now)
         .execute(pool)
         .await?;
@@ -92,7 +104,7 @@ impl GhostRepository {
     /// Get ghost by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, created_at
+            "SELECT id, name, owner_operator_id, cwd, created_at
              FROM ghosts
              WHERE id = ?",
         )
@@ -106,7 +118,7 @@ impl GhostRepository {
     /// Get ghost by name
     pub async fn get_by_name(pool: &SqlitePool, name: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, created_at
+            "SELECT id, name, owner_operator_id, cwd, created_at
              FROM ghosts
              WHERE name = ?",
         )
@@ -123,7 +135,7 @@ impl GhostRepository {
         owner_operator_id: &str,
     ) -> DbResult<Vec<Ghost>> {
         let rows = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, created_at
+            "SELECT id, name, owner_operator_id, cwd, created_at
              FROM ghosts
              WHERE owner_operator_id = ?
              ORDER BY created_at ASC",
@@ -134,6 +146,51 @@ impl GhostRepository {
 
         Ok(rows.into_iter().map(Ghost::from).collect())
     }
+
+    /// Get tool state (cwd + allow flag) for a ghost by name
+    pub async fn get_tool_state_by_name(
+        pool: &SqlitePool,
+        name: &str,
+    ) -> DbResult<GhostToolState> {
+        let row = sqlx::query_as::<_, GhostToolStateRow>(
+            "SELECT cwd
+             FROM ghosts
+             WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Err(DbError::GhostNotFound(name.to_string()));
+        };
+
+        Ok(GhostToolState { cwd: row.cwd })
+    }
+
+    /// Update tool state (cwd) for a ghost by name
+    pub async fn update_tool_state_by_name(
+        pool: &SqlitePool,
+        name: &str,
+        cwd: &str,
+    ) -> DbResult<()> {
+        let updated = sqlx::query(
+            "UPDATE ghosts
+             SET cwd = ?
+             WHERE name = ?",
+        )
+        .bind(cwd)
+        .bind(name)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+        if updated == 0 {
+            return Err(DbError::GhostNotFound(name.to_string()));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -141,7 +198,13 @@ struct GhostRow {
     id: String,
     name: String,
     owner_operator_id: String,
+    cwd: Option<String>,
     created_at: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct GhostToolStateRow {
+    cwd: Option<String>,
 }
 
 impl From<GhostRow> for Ghost {
@@ -150,6 +213,7 @@ impl From<GhostRow> for Ghost {
             id: row.id,
             name: row.name,
             owner_operator_id: row.owner_operator_id,
+            cwd: row.cwd,
             created_at: row.created_at,
         }
     }
@@ -164,6 +228,9 @@ mod tests {
     async fn test_validate_ghost_name() {
         assert!(validate_ghost_name("Alpha-1").is_ok());
         assert!(validate_ghost_name("Ghost_02").is_ok());
+        assert!(validate_ghost_name("カタカナ").is_ok());
+        assert!(validate_ghost_name("漢字テスト").is_ok());
+        assert!(validate_ghost_name("ひらがな").is_err());
         assert!(validate_ghost_name(" ").is_err());
         assert!(validate_ghost_name("../oops").is_err());
     }

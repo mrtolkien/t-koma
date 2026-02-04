@@ -1,7 +1,8 @@
 use serde_json::{json, Value};
 use tokio::fs;
 
-use super::Tool;
+use super::{Tool, ToolContext};
+use super::context::resolve_local_path;
 
 pub struct ListDirTool;
 
@@ -63,15 +64,17 @@ impl Tool for ListDirTool {
         })
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let path = args["path"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'path' argument".to_string())?;
 
+        let resolved_path = resolve_local_path(context, path)?;
+
         // Read directory entries
-        let mut entries = fs::read_dir(path)
+        let mut entries = fs::read_dir(&resolved_path)
             .await
-            .map_err(|e| format!("Failed to read directory '{}': {}", path, e))?;
+            .map_err(|e| format!("Failed to read directory '{}': {}", resolved_path.display(), e))?;
 
         let mut dirs = Vec::new();
         let mut files = Vec::new();
@@ -114,7 +117,7 @@ impl Tool for ListDirTool {
 
         // Format output
         let mut output = String::new();
-        output.push_str(&format!("Contents of '{}':\n\n", path));
+        output.push_str(&format!("Contents of '{}':\n\n", resolved_path.display()));
 
         if dirs.is_empty() && files.is_empty() {
             output.push_str("(empty directory)\n");
@@ -171,6 +174,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_dir_success() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         
         // Create a subdirectory
         std::fs::create_dir(temp_dir.path().join("subdir")).unwrap();
@@ -185,7 +189,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("subdir/"));
@@ -197,11 +201,14 @@ mod tests {
     #[tokio::test]
     async fn test_list_dir_not_found() {
         let tool = ListDirTool;
+        let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
+        let missing_path = temp_dir.path().join("missing");
         let args = json!({
-            "path": "/nonexistent/directory"
+            "path": missing_path.to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Failed to read directory"));
     }
@@ -209,13 +216,14 @@ mod tests {
     #[tokio::test]
     async fn test_list_dir_empty() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let tool = ListDirTool;
         let args = json!({
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("empty directory"));
     }
@@ -223,6 +231,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_dir_skips_hidden() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         
         // Create a hidden file
         File::create(temp_dir.path().join(".hidden")).unwrap();
@@ -235,7 +244,7 @@ mod tests {
             "path": temp_dir.path().to_str().unwrap()
         });
 
-        let result = tool.execute(args).await.unwrap();
+        let result = tool.execute(args, &mut context).await.unwrap();
         assert!(!result.contains(".hidden"));
         assert!(result.contains("visible"));
     }
