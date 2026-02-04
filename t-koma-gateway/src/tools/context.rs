@@ -112,9 +112,41 @@ pub fn approval_required_path(error: &str) -> Option<&str> {
 }
 
 pub fn is_within_workspace(context: &ToolContext, path: &Path) -> bool {
-    let normalized = normalize_absolute_path(path);
-    let workspace = normalize_absolute_path(context.workspace_root());
+    let normalized = canonicalize_for_boundary_check(path);
+    let workspace = canonicalize_for_boundary_check(context.workspace_root());
     normalized.starts_with(&workspace)
+}
+
+fn canonicalize_for_boundary_check(path: &Path) -> PathBuf {
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        return canonical;
+    }
+
+    // For non-existent paths, resolve the nearest existing ancestor and
+    // re-attach the unresolved suffix to keep checks symlink-aware.
+    let mut suffix: Vec<std::ffi::OsString> = Vec::new();
+    let mut probe = path;
+    loop {
+        if let Ok(canonical_ancestor) = std::fs::canonicalize(probe) {
+            let mut rebuilt = canonical_ancestor;
+            for part in suffix.iter().rev() {
+                rebuilt.push(part);
+            }
+            return rebuilt;
+        }
+
+        let Some(file_name) = probe.file_name() else {
+            break;
+        };
+        suffix.push(file_name.to_os_string());
+
+        let Some(parent) = probe.parent() else {
+            break;
+        };
+        probe = parent;
+    }
+
+    normalize_absolute_path(path)
 }
 
 fn normalize_absolute_path(path: &Path) -> PathBuf {
@@ -185,5 +217,29 @@ mod tests {
 
         let result = resolve_local_path(&mut context, inside_path.to_str().unwrap());
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn resolve_local_path_blocks_symlink_escape() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            let workspace = TempDir::new().unwrap();
+            let outside = TempDir::new().unwrap();
+            let link = workspace.path().join("escape");
+            symlink(outside.path(), &link).unwrap();
+
+            let mut context = ToolContext::new(
+                "test-ghost".to_string(),
+                workspace.path().to_path_buf(),
+                workspace.path().to_path_buf(),
+                false,
+            );
+
+            let escaped = link.join("secrets.txt");
+            let result = resolve_local_path(&mut context, escaped.to_str().unwrap());
+            assert!(result.is_err());
+        }
     }
 }

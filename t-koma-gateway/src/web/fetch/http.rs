@@ -13,7 +13,11 @@ pub struct HttpFetchProvider {
 }
 
 impl HttpFetchProvider {
-    pub fn new(timeout: Duration, default_mode: String, default_max_chars: usize) -> Result<Self, FetchError> {
+    pub fn new(
+        timeout: Duration,
+        default_mode: String,
+        default_max_chars: usize,
+    ) -> Result<Self, FetchError> {
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()

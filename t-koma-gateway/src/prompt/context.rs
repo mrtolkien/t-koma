@@ -80,7 +80,7 @@ mod tests {
         let ctx = PromptContext::new();
         assert!(!ctx.cwd.is_empty());
         assert!(!ctx.environment.os.is_empty());
-        
+
         let formatted = ctx.format_context();
         assert!(formatted.contains("OS:"));
         assert!(formatted.contains("Working Directory:"));
@@ -88,7 +88,8 @@ mod tests {
 
     #[test]
     fn test_prompt_context_with_tools() {
-        let ctx = PromptContext::new().with_tools(vec!["shell".to_string(), "read_file".to_string()]);
+        let ctx =
+            PromptContext::new().with_tools(vec!["shell".to_string(), "read_file".to_string()]);
         assert_eq!(ctx.available_tools.len(), 2);
     }
 }

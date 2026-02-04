@@ -344,12 +344,16 @@ impl OperatorRepository {
 
     /// Remove an operator completely
     pub async fn remove(pool: &SqlitePool, id: &str) -> DbResult<()> {
+        if Self::get_by_id(pool, id).await?.is_none() {
+            return Err(DbError::OperatorNotFound(id.to_string()));
+        }
+
+        Self::log_event(pool, id, "removed", None).await?;
+
         sqlx::query("DELETE FROM operators WHERE id = ?")
             .bind(id)
             .execute(pool)
             .await?;
-
-        Self::log_event(pool, id, "removed", None).await?;
 
         info!("Removed operator: {}", id);
         Ok(())
@@ -586,5 +590,71 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(operator.welcomed);
+    }
+
+    #[tokio::test]
+    async fn test_remove_operator_logs_event_and_deletes_under_fk_enforcement() {
+        let db = create_test_koma_pool().await.unwrap();
+        let pool = db.pool();
+
+        sqlx::query(
+            "CREATE TABLE remove_event_probe (
+                event_type TEXT NOT NULL,
+                operator_id TEXT NOT NULL
+            )",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TRIGGER capture_operator_events
+             AFTER INSERT ON operator_events
+             BEGIN
+                 INSERT INTO remove_event_probe (event_type, operator_id)
+                 VALUES (NEW.event_type, NEW.operator_id);
+             END;",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        OperatorRepository::get_or_create(pool, "operator1", "Op 1", Platform::Discord)
+            .await
+            .unwrap();
+
+        OperatorRepository::remove(pool, "operator1").await.unwrap();
+
+        let removed_event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM remove_event_probe
+             WHERE operator_id = 'operator1' AND event_type = 'removed'",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(removed_event_count, 1);
+
+        let event_rows_left: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM operator_events WHERE operator_id = 'operator1'",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(event_rows_left, 0);
+
+        let operator = OperatorRepository::get_by_id(pool, "operator1").await.unwrap();
+        assert!(operator.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_remove_operator_returns_not_found_for_unknown_id() {
+        let db = create_test_koma_pool().await.unwrap();
+        let pool = db.pool();
+
+        let result = OperatorRepository::remove(pool, "missing-operator").await;
+        match result {
+            Err(DbError::OperatorNotFound(id)) => assert_eq!(id, "missing-operator"),
+            other => panic!("expected OperatorNotFound, got: {other:?}"),
+        }
     }
 }

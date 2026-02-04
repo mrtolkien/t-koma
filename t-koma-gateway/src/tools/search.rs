@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use super::{Tool, ToolContext};
 use super::context::resolve_local_path;
+use super::{Tool, ToolContext};
 
 pub struct SearchTool;
 

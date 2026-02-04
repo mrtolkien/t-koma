@@ -47,7 +47,8 @@ Relationship summary:
 
 - `t-koma-core`: Shared types, config, WebSocket message schema.
 - `t-koma-db`: SQLite layer. Split into T-KOMA DB and per-ghost DBs.
-- `t-koma-gateway`: T-KOMA server, models, tools, and transport handlers.
+- `t-koma-gateway`: T-KOMA server, providers, chat/session orchestration, tools,
+  and transport handlers.
 - `t-koma-cli`: TUI + management CLI.
 
 ## Database Notes
@@ -57,6 +58,8 @@ Relationship summary:
   `.../t-koma/ghosts/{name}/db.sqlite3`.
 - Ghost workspace CWD is the same folder as its DB.
 - Reference schemas: `t-koma-db/schema.sql`, `t-koma-db/ghost_schema.sql`.
+- Shared SQLite runtime bootstrap lives in
+  `t-koma-db/src/sqlite_runtime.rs` (sqlite-vec init, pool options, PRAGMAs).
 
 Key types:
 
@@ -78,6 +81,69 @@ Test helpers:
 Transport layers (Discord, WebSocket) do NOT manage tools. They call
 `SessionChat.chat()` via `AppState`. Keep tool logic in
 `t-koma-gateway/src/session.rs`.
+Provider-neutral chat history is defined in
+`t-koma-gateway/src/chat/history.rs`; provider adapters convert from that
+neutral model internally.
+
+## Architecture Guardrails
+
+These are hard rules to preserve code quality and discoverability.
+
+### Gateway module ownership
+
+- `t-koma-gateway/src/chat/`: conversation domain only (history, orchestration,
+  tool loop state).
+- `t-koma-gateway/src/providers/`: provider adapters only (Anthropic,
+  OpenRouter). No transport logic here.
+- `t-koma-gateway/src/prompt/`: prompt composition/rendering only.
+- `t-koma-gateway/src/tools/`: tool implementations and tool manager only.
+- `t-koma-gateway/src/server.rs` and `t-koma-gateway/src/discord.rs`: transport
+  adapters only.
+- `t-koma-gateway/src/web/`: reusable web services used by tools.
+
+### Layering rules
+
+- Transport -> `AppState`/`SessionChat` -> providers/tools/db.
+- Providers must not depend on transport or DB modules.
+- Prompt modules must stay provider-neutral; provider-specific prompt encoding
+  belongs in provider adapters.
+- Shared chat history types must stay in `chat/history.rs`. Do not reintroduce
+  provider-specific history types in shared traits.
+
+### Naming rules
+
+- Use `providers` (not `models`) for external LLM integrations.
+- Use `chat` for session/history orchestration.
+- Use explicit names for boundaries (`render`, `history`, `manager`,
+  `orchestrator`) instead of generic names like `utils`.
+
+### Data boundary rules
+
+- Keep `t-koma-core` focused on shared protocol/config types.
+- Keep `t-koma-db` focused on persistence and schema concerns.
+- Convert between DB records and provider payloads at gateway boundaries; do
+  not leak provider wire types into DB/core.
+
+### Safety rules
+
+- No endpoint may bypass chat orchestration for interactive conversations.
+- Fail fast on critical persistence failures (do not log-and-continue for core
+  chat writes).
+- Workspace boundary checks must be canonicalization-aware (symlink-safe).
+
+### Pre-alpha policy
+
+- Prefer clean architecture over backward compatibility shims.
+- Remove temporary aliases/adapters once migrations are complete.
+- If a compatibility shim is added temporarily, include a TODO with removal
+  condition in the same PR.
+
+### Refactor checklist (before merge)
+
+- `cargo check --all-features --all-targets`
+- `cargo clippy --all-features --all-targets`
+- `cargo test` (no `live-tests`)
+- Verify touched files still follow module ownership and layering rules above.
 
 ## Testing Rules (Short)
 

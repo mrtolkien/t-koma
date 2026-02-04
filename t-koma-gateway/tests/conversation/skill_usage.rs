@@ -7,8 +7,8 @@
 use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::AnthropicClient,
-    tools::{load_skill::LoadSkillTool, Tool, ToolContext},
+    providers::anthropic::AnthropicClient,
+    tools::{Tool, ToolContext, load_skill::LoadSkillTool},
 };
 
 /// Test that the model can discover and load a skill.
@@ -24,8 +24,8 @@ use t_koma_gateway::{
 #[tokio::test]
 async fn test_skill_discovery_and_load() {
     t_koma_core::load_dotenv();
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .expect("ANTHROPIC_API_KEY must be set for live tests");
+    let api_key =
+        std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set for live tests");
 
     // Set up temp directory with test skill
     let temp_dir = tempfile::TempDir::new().unwrap();
@@ -84,10 +84,14 @@ Skill directory: {:?}
     // First request - ask the model to use the skill
     let response = client
         .send_conversation(
-            Some(vec![t_koma_gateway::models::prompt::SystemBlock::new(&system_prompt_text)]),
+            Some(vec![t_koma_gateway::prompt::render::SystemBlock::new(
+                &system_prompt_text,
+            )]),
             vec![],
             tools.clone(),
-            Some("I have the test-echo skill available. Please use it to demonstrate skill loading."),
+            Some(
+                "I have the test-echo skill available. Please use it to demonstrate skill loading.",
+            ),
             None,
             None,
         )
@@ -106,36 +110,39 @@ Skill directory: {:?}
 
     // Check if the model used the load_skill tool
     let has_load_skill = response.content.iter().any(|b| matches!(b,
-        t_koma_gateway::models::anthropic::ContentBlock::ToolUse { name, .. } if name == "load_skill"
+        t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { name, .. } if name == "load_skill"
     ));
 
     println!("Model requested skill load: {}", has_load_skill);
-    assert!(has_load_skill, "Model should have requested to load the skill");
+    assert!(
+        has_load_skill,
+        "Model should have requested to load the skill"
+    );
 
     // Build conversation history
     let mut messages = vec![];
-    messages.push(t_koma_gateway::models::anthropic::history::ApiMessage {
-        role: "user".to_string(),
-        content: vec![t_koma_gateway::models::anthropic::history::ApiContentBlock::Text {
+    messages.push(t_koma_gateway::chat::history::ChatMessage {
+        role: t_koma_gateway::chat::history::ChatRole::User,
+        content: vec![t_koma_gateway::chat::history::ChatContentBlock::Text {
             text: "I have the test-echo skill available. Please use it to demonstrate skill loading.".to_string(),
             cache_control: None,
         }],
     });
 
     // Add assistant's response with tool_use
-    let assistant_content: Vec<t_koma_gateway::models::anthropic::history::ApiContentBlock> =
+    let assistant_content: Vec<t_koma_gateway::chat::history::ChatContentBlock> =
         response
             .content
             .iter()
             .map(|b| match b {
-                t_koma_gateway::models::anthropic::ContentBlock::Text { text } => {
-                    t_koma_gateway::models::anthropic::history::ApiContentBlock::Text {
+                t_koma_gateway::providers::anthropic::ContentBlock::Text { text } => {
+                    t_koma_gateway::chat::history::ChatContentBlock::Text {
                         text: text.clone(),
                         cache_control: None,
                     }
                 }
-                t_koma_gateway::models::anthropic::ContentBlock::ToolUse { id, name, input } => {
-                    t_koma_gateway::models::anthropic::history::ApiContentBlock::ToolUse {
+                t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { id, name, input } => {
+                    t_koma_gateway::chat::history::ChatContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: input.clone(),
@@ -144,8 +151,8 @@ Skill directory: {:?}
             })
             .collect();
 
-    messages.push(t_koma_gateway::models::anthropic::history::ApiMessage {
-        role: "assistant".to_string(),
+    messages.push(t_koma_gateway::chat::history::ChatMessage {
+        role: t_koma_gateway::chat::history::ChatRole::Assistant,
         content: assistant_content,
     });
 
@@ -154,7 +161,7 @@ Skill directory: {:?}
         .content
         .iter()
         .filter_map(|b| {
-            if let t_koma_gateway::models::anthropic::ContentBlock::ToolUse { id, name, input } = b
+            if let t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { id, name, input } = b
             {
                 Some((id.clone(), name.clone(), input.clone()))
             } else {
@@ -168,33 +175,30 @@ Skill directory: {:?}
         if name == "load_skill" {
             let result = load_skill_tool.execute(input, &mut context).await;
             println!("Load skill result: {:?}", result.is_ok());
-            tool_results.push(
-                t_koma_gateway::models::anthropic::history::ToolResultData {
-                    tool_use_id: id,
-                    content: result.unwrap_or_else(|e| format!("Error: {}", e)),
-                    is_error: None,
-                },
-            );
+            tool_results.push(t_koma_gateway::chat::history::ToolResultData {
+                tool_use_id: id,
+                content: result.unwrap_or_else(|e| format!("Error: {}", e)),
+                is_error: None,
+            });
         }
     }
 
     // Add tool result message
     assert!(!tool_results.is_empty(), "Should have tool results");
-    messages.push(
-        t_koma_gateway::models::anthropic::history::build_tool_result_message(
-            tool_results,
-        ),
-    );
+    messages
+        .push(t_koma_gateway::chat::history::build_tool_result_message(tool_results));
 
     // Get final response from the model
     let final_response = client
         .send_conversation(
-            Some(vec![t_koma_gateway::models::prompt::SystemBlock::new(&system_prompt_text)]),
-            messages, 
-            tools, 
-            None, 
-            None, 
-            None
+            Some(vec![t_koma_gateway::prompt::render::SystemBlock::new(
+                &system_prompt_text,
+            )]),
+            messages,
+            tools,
+            None,
+            None,
+            None,
         )
         .await
         .expect("Second API call failed");

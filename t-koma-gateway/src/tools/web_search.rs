@@ -1,8 +1,10 @@
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::tools::{Tool, ToolContext};
-use crate::web::search::{brave::BraveSearchProvider, SearchError, WebSearchQuery, WebSearchService};
+use crate::web::search::{
+    SearchError, WebSearchQuery, WebSearchService, brave::BraveSearchProvider,
+};
 
 #[derive(Debug, Deserialize)]
 struct WebSearchInput {
@@ -108,9 +110,8 @@ impl Tool for WebSearchTool {
             ));
         }
 
-        let brave_key = std::env::var("BRAVE_API_KEY").map_err(|_| {
-            "BRAVE_API_KEY is not set (required for web_search)".to_string()
-        })?;
+        let brave_key = std::env::var("BRAVE_API_KEY")
+            .map_err(|_| "BRAVE_API_KEY is not set (required for web_search)".to_string())?;
 
         let min_interval_ms = settings.tools.web.search.min_interval_ms.max(1000);
         let provider = BraveSearchProvider::new(

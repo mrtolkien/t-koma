@@ -12,9 +12,8 @@ use super::{SearchError, SearchProvider, WebSearchQuery, WebSearchResponse, WebS
 static BRAVE_LAST_REQUEST: OnceLock<Mutex<std::time::Instant>> = OnceLock::new();
 
 fn brave_last_request() -> &'static Mutex<std::time::Instant> {
-    BRAVE_LAST_REQUEST.get_or_init(|| {
-        Mutex::new(std::time::Instant::now() - Duration::from_secs(60))
-    })
+    BRAVE_LAST_REQUEST
+        .get_or_init(|| Mutex::new(std::time::Instant::now() - Duration::from_secs(60)))
 }
 
 #[derive(Debug, Clone)]
@@ -26,7 +25,11 @@ pub struct BraveSearchProvider {
 }
 
 impl BraveSearchProvider {
-    pub fn new(api_key: String, timeout: Duration, min_interval: Duration) -> Result<Self, SearchError> {
+    pub fn new(
+        api_key: String,
+        timeout: Duration,
+        min_interval: Duration,
+    ) -> Result<Self, SearchError> {
         let mut headers = HeaderMap::new();
         headers.insert(
             "X-Subscription-Token",
@@ -55,7 +58,10 @@ impl BraveSearchProvider {
         *last = std::time::Instant::now();
     }
 
-    async fn execute_request(&self, query: &WebSearchQuery) -> Result<WebSearchResponse, SearchError> {
+    async fn execute_request(
+        &self,
+        query: &WebSearchQuery,
+    ) -> Result<WebSearchResponse, SearchError> {
         self.wait_for_slot().await;
 
         let mut request = self
@@ -80,7 +86,10 @@ impl BraveSearchProvider {
             request = request.query(&[("freshness", freshness)]);
         }
 
-        let response = request.send().await.map_err(|e| SearchError::RequestFailed(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
 
         if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
             let retry_after = response
@@ -96,7 +105,10 @@ impl BraveSearchProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(SearchError::RequestFailed(format!("HTTP {}: {}", status, body)));
+            return Err(SearchError::RequestFailed(format!(
+                "HTTP {}: {}",
+                status, body
+            )));
         }
 
         let payload: BraveSearchResponse = response
@@ -122,7 +134,10 @@ impl BraveSearchProvider {
         })
     }
 
-    async fn execute_with_backoff(&self, query: &WebSearchQuery) -> Result<WebSearchResponse, SearchError> {
+    async fn execute_with_backoff(
+        &self,
+        query: &WebSearchQuery,
+    ) -> Result<WebSearchResponse, SearchError> {
         match self.execute_request(query).await {
             Ok(resp) => Ok(resp),
             Err(SearchError::RateLimited(delay)) => {

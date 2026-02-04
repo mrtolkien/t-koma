@@ -1,5 +1,4 @@
 use std::io::{self, Write};
-use std::str::FromStr;
 
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -182,10 +181,8 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
             let model_config = settings
                 .default_model_config()
                 .ok_or("Default model is not configured")?;
-            let provider = t_koma_core::message::ProviderType::from_str(&model_config.provider)
-                .map_err(|e| format!("Invalid provider in config: {}", e))?;
             provider_selection::ProviderSelection {
-                provider,
+                provider: model_config.provider,
                 model: model_config.model.clone(),
             }
         }
@@ -299,12 +296,12 @@ async fn run_provider_config_mode(ws_url: &str) -> Result<(), Box<dyn std::error
     if settings
         .models
         .get(&alias)
-        .map(|model| model.provider == "openrouter")
+        .map(|model| model.provider == t_koma_core::ProviderType::OpenRouter)
         .unwrap_or(false)
     {
         match Secrets::from_env() {
             Ok(secrets) => {
-                if !secrets.has_provider("openrouter") {
+                if !secrets.has_provider_type(t_koma_core::ProviderType::OpenRouter) {
                     println!("Warning: OPENROUTER_API_KEY is not set. You can set it later.");
                 }
             }

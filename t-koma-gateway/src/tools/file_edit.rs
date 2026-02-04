@@ -1,7 +1,7 @@
-use serde_json::{json, Value};
-use tokio::fs;
-use super::{Tool, ToolContext};
 use super::context::resolve_local_path;
+use super::{Tool, ToolContext};
+use serde_json::{Value, json};
+use tokio::fs;
 
 pub struct FileEditTool;
 
@@ -94,18 +94,16 @@ impl Tool for FileEditTool {
         let file_path = args["file_path"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'file_path' argument".to_string())?;
-        
+
         let old_string = args["old_string"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'old_string' argument".to_string())?;
-            
+
         let new_string = args["new_string"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'new_string' argument".to_string())?;
-            
-        let expected_replacements = args["expected_replacements"]
-            .as_u64()
-            .unwrap_or(1);
+
+        let expected_replacements = args["expected_replacements"].as_u64().unwrap_or(1);
 
         let resolved_path = resolve_local_path(context, file_path)?;
 
@@ -119,7 +117,7 @@ impl Tool for FileEditTool {
 
         if occurrences == 0 {
             return Err(format!(
-                "Could not find 'old_string' in file '{}'. Ensure exact match including whitespace.", 
+                "Could not find 'old_string' in file '{}'. Ensure exact match including whitespace.",
                 resolved_path.display()
             ));
         }
@@ -135,9 +133,13 @@ impl Tool for FileEditTool {
         let new_content = content.replace(old_string, new_string);
 
         // Write back to file
-        fs::write(&resolved_path, new_content)
-            .await
-            .map_err(|e| format!("Failed to write to file '{}': {}", resolved_path.display(), e))?;
+        fs::write(&resolved_path, new_content).await.map_err(|e| {
+            format!(
+                "Failed to write to file '{}': {}",
+                resolved_path.display(),
+                e
+            )
+        })?;
 
         Ok(format!(
             "Successfully replaced {} occurrence(s) in '{}'.",
@@ -150,8 +152,8 @@ impl Tool for FileEditTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[tokio::test]
     async fn test_replace_single_occurrence() {

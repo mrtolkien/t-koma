@@ -35,6 +35,8 @@
 mod secrets;
 mod settings;
 
+use crate::message::ProviderType;
+
 pub use secrets::{Secrets, SecretsError};
 pub use settings::{
     ModelConfig,
@@ -102,9 +104,9 @@ impl Config {
             .get(default_alias)
             .ok_or_else(|| ConfigError::DefaultModelNotFound(default_alias.to_string()))?;
 
-        if !secrets.has_provider(&default_model.provider) {
+        if !secrets.has_provider_type(default_model.provider) {
             return Err(ConfigError::DefaultModelProviderNotConfigured {
-                provider: default_model.provider.clone(),
+                provider: default_model.provider.to_string(),
                 alias: default_alias.to_string(),
             });
         }
@@ -125,13 +127,13 @@ impl Config {
     }
 
     /// Check if a provider is available (has API key configured).
-    pub fn has_provider(&self, provider: &str) -> bool {
-        self.secrets.has_provider(provider)
+    pub fn has_provider(&self, provider: ProviderType) -> bool {
+        self.secrets.has_provider_type(provider)
     }
 
     /// Get the default provider name.
-    pub fn default_provider(&self) -> &str {
-        &self.default_model_config().provider
+    pub fn default_provider(&self) -> ProviderType {
+        self.default_model_config().provider
     }
 
     /// Get the default model identifier.
@@ -216,7 +218,7 @@ mod tests {
         settings.models.insert(
             "default".to_string(),
             ModelConfig {
-                provider: "anthropic".to_string(),
+                provider: ProviderType::Anthropic,
                 model: "test-model".to_string(),
             },
         );
@@ -228,14 +230,14 @@ mod tests {
             secrets,
             settings: settings.clone(),
         };
-        assert!(!config.has_provider("anthropic"));
+        assert!(!config.has_provider(ProviderType::Anthropic));
 
         // Case 2: With API key - should succeed
         unsafe { env::set_var("ANTHROPIC_API_KEY", "sk-test") }
         let secrets = Secrets::from_env_inner().unwrap();
         let config = Config { secrets, settings };
-        assert!(config.has_provider("anthropic"));
-        assert_eq!(config.default_provider(), "anthropic");
+        assert!(config.has_provider(ProviderType::Anthropic));
+        assert_eq!(config.default_provider(), ProviderType::Anthropic);
         assert_eq!(config.default_model_id(), "test-model");
     }
 
@@ -250,14 +252,14 @@ mod tests {
         settings.models.insert(
             "a".to_string(),
             ModelConfig {
-                provider: "anthropic".to_string(),
+                provider: ProviderType::Anthropic,
                 model: "anthropic-model-a".to_string(),
             },
         );
         settings.models.insert(
             "b".to_string(),
             ModelConfig {
-                provider: "openrouter".to_string(),
+                provider: ProviderType::OpenRouter,
                 model: "gpt-4".to_string(),
             },
         );

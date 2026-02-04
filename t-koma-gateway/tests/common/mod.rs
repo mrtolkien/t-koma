@@ -1,14 +1,14 @@
 //! Shared helpers for integration tests.
 
-use t_koma_core::Config;
 use std::collections::HashMap;
 use std::sync::Arc;
+use t_koma_core::Config;
 
-use t_koma_gateway::models::anthropic::AnthropicClient;
-use t_koma_gateway::models::openrouter::OpenRouterClient;
-use t_koma_gateway::models::Provider;
-use t_koma_gateway::state::{AppState, ModelEntry};
 use t_koma_db::{GhostDbPool, GhostRepository, KomaDbPool, Operator, OperatorRepository, Platform};
+use t_koma_gateway::providers::Provider;
+use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::openrouter::OpenRouterClient;
+use t_koma_gateway::state::{AppState, ModelEntry};
 
 #[allow(dead_code)]
 pub struct DefaultModelInfo {
@@ -33,7 +33,7 @@ pub fn load_default_model() -> DefaultModelInfo {
             let client = AnthropicClient::new(api_key, &model_config.model);
             DefaultModelInfo {
                 alias,
-                provider: model_config.provider.clone(),
+                provider: model_config.provider.to_string(),
                 model: model_config.model.clone(),
                 client: Arc::new(client),
             }
@@ -50,7 +50,7 @@ pub fn load_default_model() -> DefaultModelInfo {
             );
             DefaultModelInfo {
                 alias,
-                provider: model_config.provider.clone(),
+                provider: model_config.provider.to_string(),
                 model: model_config.model.clone(),
                 client: Arc::new(client),
             }
@@ -73,11 +73,7 @@ pub fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
         },
     );
 
-    Arc::new(AppState::new(
-        default_model.alias,
-        models,
-        db,
-    ))
+    Arc::new(AppState::new(default_model.alias, models, db))
 }
 
 #[allow(dead_code)]
@@ -94,8 +90,8 @@ pub async fn setup_test_environment(
     ghost_name: &str,
 ) -> Result<TestEnvironment, Box<dyn std::error::Error>> {
     let koma_db = t_koma_db::test_helpers::create_test_koma_pool().await?;
-    let operator = OperatorRepository::create_new(koma_db.pool(), operator_name, Platform::Api)
-        .await?;
+    let operator =
+        OperatorRepository::create_new(koma_db.pool(), operator_name, Platform::Api).await?;
     let operator = OperatorRepository::approve(koma_db.pool(), &operator.id).await?;
     let ghost = GhostRepository::create(koma_db.pool(), &operator.id, ghost_name).await?;
     let ghost_db = GhostDbPool::new(&ghost.name).await?;

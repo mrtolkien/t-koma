@@ -14,10 +14,8 @@
 use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::history::build_api_messages,
-    models::prompt::build_system_prompt,
-    prompt::SystemPrompt,
-    tools::manager::ToolManager,
+    chat::history::build_history_messages, prompt::render::build_system_prompt,
+    prompt::SystemPrompt, tools::manager::ToolManager,
 };
 #[cfg(feature = "live-tests")]
 use uuid::Uuid;
@@ -132,8 +130,8 @@ async fn test_comprehensive_coding_workflow() {
         &operator.id,
         Some("New Tools Workflow Test"),
     )
-        .await
-        .expect("Failed to create session");
+    .await
+    .expect("Failed to create session");
 
     println!("Created session: {}", session.id);
 
@@ -198,7 +196,7 @@ async fn test_comprehensive_coding_workflow() {
     let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages1 = build_api_messages(&history1, Some(50));
+    let api_messages1 = build_history_messages(&history1, Some(50));
 
     let _response1 = state
         .send_conversation_with_tools(
@@ -240,7 +238,7 @@ async fn test_comprehensive_coding_workflow() {
     let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages2 = build_api_messages(&history2, Some(50));
+    let api_messages2 = build_history_messages(&history2, Some(50));
 
     let _response2 = state
         .send_conversation_with_tools(
@@ -282,7 +280,7 @@ async fn test_comprehensive_coding_workflow() {
     let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages3 = build_api_messages(&history3, Some(50));
+    let api_messages3 = build_history_messages(&history3, Some(50));
 
     let _response3 = state
         .send_conversation_with_tools(
@@ -324,7 +322,7 @@ async fn test_comprehensive_coding_workflow() {
     let history4 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages4 = build_api_messages(&history4, Some(50));
+    let api_messages4 = build_history_messages(&history4, Some(50));
 
     let _response4 = state
         .send_conversation_with_tools(
@@ -369,7 +367,7 @@ async fn test_comprehensive_coding_workflow() {
     let history5 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages5 = build_api_messages(&history5, Some(50));
+    let api_messages5 = build_history_messages(&history5, Some(50));
 
     let _response5 = state
         .send_conversation_with_tools(
@@ -386,7 +384,13 @@ async fn test_comprehensive_coding_workflow() {
         .expect("Failed to create file");
 
     // Verify: Check database for tool use
-    assert_last_tool_used(ghost_db.pool(), &session.id, "create_file", Some(&new_module)).await;
+    assert_last_tool_used(
+        ghost_db.pool(),
+        &session.id,
+        "create_file",
+        Some(&new_module),
+    )
+    .await;
 
     // Also verify the file was actually created on disk
     let math_content = tokio::fs::read_to_string(&new_module).await;
@@ -428,7 +432,7 @@ async fn test_comprehensive_coding_workflow() {
     let history6 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages6 = build_api_messages(&history6, Some(50));
+    let api_messages6 = build_history_messages(&history6, Some(50));
 
     let _response6 = state
         .send_conversation_with_tools(
@@ -440,9 +444,9 @@ async fn test_comprehensive_coding_workflow() {
             tools.clone(),
             Some(&edit_message),
             model,
-    )
-    .await
-    .expect("Failed to edit file");
+        )
+        .await
+        .expect("Failed to edit file");
 
     // Verify: replace should have been used during this step, even if a read follows.
     assert_tool_used_since(
@@ -483,7 +487,7 @@ async fn test_comprehensive_coding_workflow() {
     let history7 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages7 = build_api_messages(&history7, Some(50));
+    let api_messages7 = build_history_messages(&history7, Some(50));
 
     let _response7 = state
         .send_conversation_with_tools(

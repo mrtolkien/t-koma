@@ -10,10 +10,10 @@
 use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::history::build_api_messages,
-    models::prompt::build_system_prompt,
+    chat::history::build_history_messages,
+    prompt::render::build_system_prompt,
     prompt::SystemPrompt,
-    tools::{file_edit::FileEditTool, shell::ShellTool, Tool},
+    tools::{Tool, file_edit::FileEditTool, shell::ShellTool},
 };
 #[cfg(feature = "live-tests")]
 use uuid::Uuid;
@@ -38,13 +38,10 @@ async fn test_file_create_edit_delete_workflow() {
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(
-        ghost_db.pool(),
-        &operator.id,
-        Some("File Operations Test"),
-    )
-        .await
-        .expect("Failed to create session");
+    let session =
+        SessionRepository::create(ghost_db.pool(), &operator.id, Some("File Operations Test"))
+            .await
+            .expect("Failed to create session");
 
     println!("Created session: {}", session.id);
 
@@ -82,7 +79,7 @@ async fn test_file_create_edit_delete_workflow() {
     let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages1 = build_api_messages(&history1, Some(50));
+    let api_messages1 = build_history_messages(&history1, Some(50));
 
     let response1 = state
         .send_conversation_with_tools(
@@ -138,7 +135,7 @@ async fn test_file_create_edit_delete_workflow() {
     let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages2 = build_api_messages(&history2, Some(50));
+    let api_messages2 = build_history_messages(&history2, Some(50));
 
     let response2 = state
         .send_conversation_with_tools(
@@ -192,7 +189,7 @@ async fn test_file_create_edit_delete_workflow() {
     let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages3 = build_api_messages(&history3, Some(50));
+    let api_messages3 = build_history_messages(&history3, Some(50));
 
     let response3 = state
         .send_conversation_with_tools(
@@ -249,8 +246,8 @@ async fn test_replace_tool_exact_match_requirement() {
         &operator.id,
         Some("File Edit Exact Match Test"),
     )
-        .await
-        .expect("Failed to create session");
+    .await
+    .expect("Failed to create session");
 
     // Create temp file with multiline content
     let temp_file = format!("/tmp/t_koma_test_exact_{}.txt", uuid::Uuid::new_v4());
@@ -291,7 +288,7 @@ async fn test_replace_tool_exact_match_requirement() {
     let history = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages = build_api_messages(&history, Some(50));
+    let api_messages = build_history_messages(&history, Some(50));
 
     let response = state
         .send_conversation_with_tools(

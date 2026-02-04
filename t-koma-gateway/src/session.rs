@@ -1,12 +1,12 @@
-use tracing::{error, info};
+use tracing::info;
 
-use crate::models::anthropic::history::{ApiMessage, build_api_messages};
-use crate::models::prompt::{SystemBlock, build_system_prompt};
-use crate::models::provider::{
+use crate::chat::history::{ChatMessage, build_history_messages};
+use crate::prompt::SystemPrompt;
+use crate::prompt::render::{SystemBlock, build_system_prompt};
+use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderResponse, extract_all_text, has_tool_uses,
 };
-use crate::prompt::SystemPrompt;
-use crate::tools::context::approval_required_path;
+use crate::tools::context::{approval_required_path, is_within_workspace};
 use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
@@ -147,7 +147,7 @@ impl SessionChat {
         let system_blocks = build_system_prompt(&system_prompt);
 
         // Build API messages from history
-        let api_messages = build_api_messages(&history, Some(50));
+        let api_messages = build_history_messages(&history, Some(50));
 
         // Send to provider with tool loop
         let response = self
@@ -160,7 +160,7 @@ impl SessionChat {
                 session_id,
                 system_blocks,
                 api_messages,
-                Some(message),
+                None,
                 DEFAULT_TOOL_LOOP_LIMIT,
             )
             .await?;
@@ -179,7 +179,7 @@ impl SessionChat {
         model: &str,
         session_id: &str,
         system_blocks: Vec<SystemBlock>,
-        api_messages: Vec<ApiMessage>,
+        api_messages: Vec<ChatMessage>,
         new_message: Option<&str>,
         max_iterations: usize,
     ) -> Result<String, ChatError> {
@@ -215,7 +215,7 @@ impl SessionChat {
 
             // Save ghost message with tool_use blocks
             self.save_ghost_response(ghost_db, session_id, model, &response)
-                .await;
+                .await?;
 
             if iteration + 1 == max_iterations {
                 return Err(ChatError::ToolLoopLimitReached(PendingToolContinuation {
@@ -237,11 +237,11 @@ impl SessionChat {
 
             // Save tool results to database
             self.save_tool_results(ghost_db, session_id, &tool_results)
-                .await;
+                .await?;
 
             // Build new API messages including the tool results
             let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
-            let new_api_messages = build_api_messages(&history, Some(50));
+            let new_api_messages = build_history_messages(&history, Some(50));
 
             // Send tool results back to the provider
             response = provider
@@ -260,7 +260,7 @@ impl SessionChat {
         // Extract and save final text response
         let text = self
             .finalize_response(ghost_db, session_id, provider_name, model, &response)
-            .await;
+            .await?;
 
         Ok(text)
     }
@@ -272,7 +272,7 @@ impl SessionChat {
         session_id: &str,
         model: &str,
         response: &ProviderResponse,
-    ) {
+    ) -> Result<(), ChatError> {
         let ghost_content: Vec<DbContentBlock> = response
             .content
             .iter()
@@ -295,20 +295,15 @@ impl SessionChat {
             })
             .collect();
 
-        if let Err(e) = SessionRepository::add_message(
+        SessionRepository::add_message(
             ghost_db.pool(),
             session_id,
             MessageRole::Ghost,
             ghost_content,
             Some(model),
         )
-        .await
-        {
-            error!(
-                "[session:{}] Failed to save ghost message: {}",
-                session_id, e
-            );
-        }
+        .await?;
+        Ok(())
     }
 
     /// Execute all tool_use blocks from a response and return the results
@@ -373,12 +368,7 @@ impl SessionChat {
                 is_error: None,
             });
 
-            if let Err(e) = self.persist_tool_context(koma_db, tool_context).await {
-                error!(
-                    "[session:{}] Failed to persist tool context: {}",
-                    session_id, e
-                );
-            }
+            self.persist_tool_context(koma_db, tool_context).await?;
         }
 
         Ok(())
@@ -430,7 +420,7 @@ impl SessionChat {
         }
 
         self.save_tool_results(ghost_db, session_id, &tool_results)
-            .await;
+            .await?;
 
         self.resume_after_tool_results(
             ghost_db,
@@ -444,6 +434,7 @@ impl SessionChat {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn resume_tool_loop(
         &self,
         ghost_db: &GhostDbPool,
@@ -467,7 +458,7 @@ impl SessionChat {
         .await?;
 
         self.save_tool_results(ghost_db, session_id, &tool_results)
-            .await;
+            .await?;
 
         self.resume_after_tool_results(
             ghost_db,
@@ -481,6 +472,7 @@ impl SessionChat {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn resume_after_tool_results(
         &self,
         ghost_db: &GhostDbPool,
@@ -496,7 +488,7 @@ impl SessionChat {
         let tools = self.tool_manager.get_tools();
         let system_prompt = SystemPrompt::with_tools(&tools);
         let system_blocks = build_system_prompt(&system_prompt);
-        let api_messages = build_api_messages(&history, Some(50));
+        let api_messages = build_history_messages(&history, Some(50));
 
         self.send_with_tool_loop(
             ghost_db,
@@ -532,12 +524,11 @@ impl SessionChat {
             cwd = workspace_root.join(cwd);
         }
 
-        let mut context = ToolContext::new(
-            ghost_name,
-            workspace_root.clone(),
-            cwd,
-            false,
-        );
+        let mut context = ToolContext::new(ghost_name, workspace_root.clone(), cwd, false);
+
+        if !is_within_workspace(&context, context.cwd()) {
+            context.set_cwd(workspace_root.clone());
+        }
 
         let cwd_missing = tokio::fs::metadata(context.cwd()).await.is_err();
         if cwd_missing {
@@ -561,12 +552,8 @@ impl SessionChat {
         }
 
         let cwd = context.cwd().to_string_lossy().to_string();
-        GhostRepository::update_tool_state_by_name(
-            koma_db.pool(),
-            context.ghost_name(),
-            &cwd,
-        )
-        .await?;
+        GhostRepository::update_tool_state_by_name(koma_db.pool(), context.ghost_name(), &cwd)
+            .await?;
         context.clear_dirty();
         Ok(())
     }
@@ -577,21 +564,16 @@ impl SessionChat {
         ghost_db: &GhostDbPool,
         session_id: &str,
         tool_results: &[DbContentBlock],
-    ) {
-        if let Err(e) = SessionRepository::add_message(
+    ) -> Result<(), ChatError> {
+        SessionRepository::add_message(
             ghost_db.pool(),
             session_id,
             MessageRole::Operator,
             tool_results.to_vec(),
             None,
         )
-        .await
-        {
-            error!(
-                "[session:{}] Failed to save tool results: {}",
-                session_id, e
-            );
-        }
+        .await?;
+        Ok(())
     }
 
     /// Extract final text response and save it to the database
@@ -602,7 +584,7 @@ impl SessionChat {
         provider_name: &str,
         model: &str,
         response: &ProviderResponse,
-    ) -> String {
+    ) -> Result<String, ChatError> {
         let text = extract_all_text(response);
 
         info!(
@@ -618,22 +600,16 @@ impl SessionChat {
         );
 
         let final_content = vec![DbContentBlock::Text { text: text.clone() }];
-        if let Err(e) = SessionRepository::add_message(
+        SessionRepository::add_message(
             ghost_db.pool(),
             session_id,
             MessageRole::Ghost,
             final_content,
             Some(model),
         )
-        .await
-        {
-            error!(
-                "[session:{}] Failed to save final ghost message: {}",
-                session_id, e
-            );
-        }
+        .await?;
 
-        text
+        Ok(text)
     }
 }
 

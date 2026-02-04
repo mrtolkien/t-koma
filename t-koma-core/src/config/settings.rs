@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::message::ProviderType;
 
 /// Settings loaded from TOML configuration file.
 ///
@@ -47,8 +49,12 @@ pub struct Settings {
 /// Model configuration entry
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelConfig {
-    /// Provider name (e.g. "anthropic", "openrouter")
-    pub provider: String,
+    /// Provider type (e.g. "anthropic", "openrouter")
+    #[serde(
+        deserialize_with = "deserialize_model_provider",
+        serialize_with = "serialize_model_provider"
+    )]
+    pub provider: ProviderType,
     /// Model identifier
     pub model: String,
 }
@@ -286,6 +292,21 @@ impl Settings {
     pub fn default_model_config(&self) -> Option<&ModelConfig> {
         self.models.get(&self.default_model)
     }
+}
+
+fn deserialize_model_provider<'de, D>(deserializer: D) -> Result<ProviderType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    value.parse().map_err(serde::de::Error::custom)
+}
+
+fn serialize_model_provider<S>(provider: &ProviderType, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(provider.as_str())
 }
 
 
@@ -559,7 +580,7 @@ cache_ttl_minutes = 2
         );
         assert_eq!(
             settings.models.get("alpha").unwrap().provider,
-            "anthropic"
+            ProviderType::Anthropic
         );
         assert_eq!(
             settings.openrouter.http_referer,
@@ -608,7 +629,7 @@ host = "0.0.0.0"
         settings.models.insert(
             "kimi25".to_string(),
             ModelConfig {
-                provider: "openrouter".to_string(),
+                provider: ProviderType::OpenRouter,
                 model: "moonshotai/kimi-k2.5".to_string(),
             },
         );

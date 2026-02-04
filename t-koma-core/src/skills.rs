@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 use tracing::warn;
 
@@ -274,7 +274,7 @@ impl Skill {
     /// Returns `Ok(String)` with the file content, or `Err(SkillError)`
     /// if the file doesn't exist or cannot be read.
     pub fn read_reference(&self, name: &str) -> Result<String, SkillError> {
-        let path = self.path.join("references").join(name);
+        let path = safe_child_file_path(&self.path.join("references"), name)?;
         fs::read_to_string(&path).map_err(SkillError::Io)
     }
 
@@ -289,9 +289,25 @@ impl Skill {
     /// Returns `Ok(String)` with the file content, or `Err(SkillError)`
     /// if the file doesn't exist or cannot be read.
     pub fn read_script(&self, name: &str) -> Result<String, SkillError> {
-        let path = self.path.join("scripts").join(name);
+        let path = safe_child_file_path(&self.path.join("scripts"), name)?;
         fs::read_to_string(&path).map_err(SkillError::Io)
     }
+}
+
+fn safe_child_file_path(base_dir: &Path, name: &str) -> Result<PathBuf, SkillError> {
+    let path = Path::new(name);
+    let mut components = path.components();
+    let valid_name = matches!(components.next(), Some(Component::Normal(_)))
+        && components.next().is_none();
+
+    if !valid_name {
+        return Err(SkillError::InvalidFormat(format!(
+            "Invalid file name '{}': nested, absolute, and parent paths are not allowed",
+            name
+        )));
+    }
+
+    Ok(base_dir.join(path))
 }
 
 #[cfg(test)]
@@ -307,6 +323,18 @@ mod tests {
         let mut file = fs::File::create(&skill_md).unwrap();
         file.write_all(content.as_bytes()).unwrap();
         skill_md
+    }
+
+    fn create_basic_skill(dir: &TempDir) -> Skill {
+        let path = create_test_skill_file(
+            dir,
+            r#"---
+name: test-skill
+description: A test skill.
+---
+"#,
+        );
+        Skill::from_file(&path).unwrap()
     }
 
     #[test]
@@ -471,5 +499,35 @@ description: A test skill.
         let refs = skill.list_references();
 
         assert_eq!(refs.len(), 1);
+    }
+
+    #[test]
+    fn test_read_reference_rejects_path_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let skill = create_basic_skill(&temp_dir);
+        for path in ["../secret.txt", "nested/file.md", absolute_test_path()] {
+            let err = skill.read_reference(path).unwrap_err();
+            assert!(matches!(err, SkillError::InvalidFormat(_)));
+        }
+    }
+
+    #[test]
+    fn test_read_script_rejects_path_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let skill = create_basic_skill(&temp_dir);
+        for path in ["../secret.sh", "nested/run.sh", absolute_test_path()] {
+            let err = skill.read_script(path).unwrap_err();
+            assert!(matches!(err, SkillError::InvalidFormat(_)));
+        }
+    }
+
+    #[cfg(target_family = "windows")]
+    fn absolute_test_path() -> &'static str {
+        "C:\\secret.txt"
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    fn absolute_test_path() -> &'static str {
+        "/secret.txt"
     }
 }

@@ -9,10 +9,10 @@ use insta::assert_json_snapshot;
 use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    models::anthropic::history::build_api_messages,
-    models::prompt::build_system_prompt,
+    chat::history::build_history_messages,
+    prompt::render::build_system_prompt,
     prompt::SystemPrompt,
-    tools::{shell::ShellTool, Tool},
+    tools::{Tool, shell::ShellTool},
 };
 #[cfg(feature = "live-tests")]
 use uuid::Uuid;
@@ -65,13 +65,10 @@ async fn test_multi_turn_story_conversation() {
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(
-        ghost_db.pool(),
-        &operator.id,
-        Some("Multi-turn Story Test"),
-    )
-        .await
-        .expect("Failed to create session");
+    let session =
+        SessionRepository::create(ghost_db.pool(), &operator.id, Some("Multi-turn Story Test"))
+            .await
+            .expect("Failed to create session");
 
     println!("Created session: {}", session.id);
 
@@ -86,7 +83,7 @@ async fn test_multi_turn_story_conversation() {
 
     // === TURN 1: Ask for a short story ===
     let turn1_message = "Tell me a very short story (2-3 sentences) about a robot learning to paint. Remember this story exactly.";
-    
+
     // Save user message
     SessionRepository::add_message(
         ghost_db.pool(),
@@ -104,7 +101,7 @@ async fn test_multi_turn_story_conversation() {
     let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages1 = build_api_messages(&history1, Some(50));
+    let api_messages1 = build_history_messages(&history1, Some(50));
 
     // Send to model through AppState
     let response1 = state
@@ -138,7 +135,7 @@ async fn test_multi_turn_story_conversation() {
 
     // === TURN 2: Ask to repeat the same story ===
     let turn2_message = "Now tell me the exact same story again, word for word.";
-    
+
     // Save user message
     SessionRepository::add_message(
         ghost_db.pool(),
@@ -156,7 +153,7 @@ async fn test_multi_turn_story_conversation() {
     let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages2 = build_api_messages(&history2, Some(50));
+    let api_messages2 = build_history_messages(&history2, Some(50));
 
     // Send to model through AppState
     let response2 = state
@@ -190,7 +187,7 @@ async fn test_multi_turn_story_conversation() {
 
     // === TURN 3: Verify context with a follow-up question ===
     let turn3_message = "What was the main character in that story?";
-    
+
     // Save user message
     SessionRepository::add_message(
         ghost_db.pool(),
@@ -208,7 +205,7 @@ async fn test_multi_turn_story_conversation() {
     let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages3 = build_api_messages(&history3, Some(50));
+    let api_messages3 = build_history_messages(&history3, Some(50));
 
     // Send to model through AppState
     let response3 = state
@@ -262,7 +259,10 @@ async fn test_multi_turn_story_conversation() {
     // Turn 1: user + assistant = 2
     // Turn 2: user + assistant = 2 (+ 2 = 4)
     // Turn 3: user + assistant = 2 (+ 2 = 6)
-    assert_eq!(msg_count3, 6, "Expected 6 messages total (3 turns x 2 messages)");
+    assert_eq!(
+        msg_count3, 6,
+        "Expected 6 messages total (3 turns x 2 messages)"
+    );
 
     println!("\n✅ Multi-turn conversation test completed successfully!");
     println!("Session ID: {}", session.id);
@@ -285,13 +285,10 @@ async fn test_multi_turn_with_tool_use() {
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(
-        ghost_db.pool(),
-        &operator.id,
-        Some("Multi-turn Tool Test"),
-    )
-        .await
-        .expect("Failed to create session");
+    let session =
+        SessionRepository::create(ghost_db.pool(), &operator.id, Some("Multi-turn Tool Test"))
+            .await
+            .expect("Failed to create session");
 
     // Set up system prompt and tools
     let system_prompt = SystemPrompt::new();
@@ -302,7 +299,7 @@ async fn test_multi_turn_with_tool_use() {
 
     // === TURN 1: Ask to run pwd ===
     let turn1_message = "What directory are we in? Use the shell tool to find out.";
-    
+
     SessionRepository::add_message(
         ghost_db.pool(),
         &session.id,
@@ -318,7 +315,7 @@ async fn test_multi_turn_with_tool_use() {
     let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages1 = build_api_messages(&history1, Some(50));
+    let api_messages1 = build_history_messages(&history1, Some(50));
 
     let response1 = state
         .send_conversation_with_tools(
@@ -344,7 +341,7 @@ async fn test_multi_turn_with_tool_use() {
 
     // === TURN 2: Ask what command was run ===
     let turn2_message = "What command did you just run to find that out?";
-    
+
     SessionRepository::add_message(
         ghost_db.pool(),
         &session.id,
@@ -360,7 +357,7 @@ async fn test_multi_turn_with_tool_use() {
     let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
-    let api_messages2 = build_api_messages(&history2, Some(50));
+    let api_messages2 = build_history_messages(&history2, Some(50));
 
     let response2 = state
         .send_conversation_with_tools(
@@ -393,10 +390,13 @@ async fn test_multi_turn_with_tool_use() {
 
     println!("Total messages in session: {}", msg_count);
     println!("Ghost: {}", ghost.name);
-    
+
     // Should have: user1, assistant1 (with tool_use), user1_tool_result, user2, assistant2
     // That's 5 message rows
-    assert!(msg_count >= 4, "Expected at least 4 messages (including tool interactions)");
+    assert!(
+        msg_count >= 4,
+        "Expected at least 4 messages (including tool interactions)"
+    );
 
     println!("\n✅ Multi-turn tool use test completed successfully!");
 }
