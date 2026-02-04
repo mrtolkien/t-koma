@@ -214,6 +214,12 @@ impl App {
             WsResponse::GhostList { .. } => {
                 // TODO: Surface ghost list in UI if needed
             }
+            WsResponse::GatewayRestarting => {
+                self.status = "Gateway restarting...".to_string();
+            }
+            WsResponse::GatewayRestarted => {
+                self.status = "Gateway restarted".to_string();
+            }
         }
     }
 

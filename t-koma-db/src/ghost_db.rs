@@ -63,6 +63,9 @@ impl GhostDbPool {
     /// Get workspace path for a ghost
     pub fn workspace_path_for(ghost_name: &str) -> DbResult<PathBuf> {
         let ghost_name = validate_ghost_name(ghost_name)?;
+        if let Ok(override_dir) = std::env::var("T_KOMA_DATA_DIR") {
+            return Ok(PathBuf::from(override_dir).join("ghosts").join(ghost_name));
+        }
         let data_dir = dirs::data_dir().ok_or(DbError::NoConfigDir)?;
         Ok(data_dir.join("t-koma").join("ghosts").join(ghost_name))
     }
@@ -88,5 +91,24 @@ impl GhostDbPool {
             ghost_name,
             workspace_path,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GhostDbPool;
+    use crate::ENV_MUTEX;
+
+    #[test]
+    fn test_workspace_path_for_uses_env_override() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let value = dir.path().to_string_lossy().to_string();
+        // SAFETY: test-scoped env mutation.
+        unsafe { std::env::set_var("T_KOMA_DATA_DIR", &value) };
+        let path = GhostDbPool::workspace_path_for("Alpha").unwrap();
+        // SAFETY: test-scoped env mutation cleanup.
+        unsafe { std::env::remove_var("T_KOMA_DATA_DIR") };
+        assert_eq!(path, dir.path().join("ghosts").join("Alpha"));
     }
 }

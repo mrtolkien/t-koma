@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde::Serialize;
 use tokio::sync::{RwLock, broadcast};
 #[cfg(feature = "live-tests")]
 use tracing::{error, info};
@@ -22,7 +23,8 @@ struct PendingInterface {
 }
 
 /// Log entry for broadcasting events to listeners
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LogEntry {
     /// Discord message received
     DiscordMessage {
@@ -193,6 +195,29 @@ impl AppState {
     /// Broadcast a log entry
     pub async fn log(&self, entry: LogEntry) {
         let _ = self.log_tx.send(entry);
+    }
+
+    /// Restart the gateway process by spawning a replacement process and exiting.
+    pub async fn restart_gateway(&self) -> Result<(), String> {
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+
+        std::process::Command::new(&executable)
+            .args(args)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+
+        self.log(LogEntry::Info {
+            message: "Gateway restart requested via WebSocket".to_string(),
+        })
+        .await;
+
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            std::process::exit(0);
+        });
+
+        Ok(())
     }
 
     /// Send a chat message and get the AI response

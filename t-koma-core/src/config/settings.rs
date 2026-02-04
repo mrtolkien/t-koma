@@ -361,6 +361,11 @@ impl Settings {
     ///
     /// Uses XDG config directory: `~/.config/t-koma/config.toml`
     pub fn config_path() -> Result<PathBuf, SettingsError> {
+        if let Ok(override_dir) = std::env::var("T_KOMA_CONFIG_DIR") {
+            let dir = PathBuf::from(override_dir);
+            return Ok(dir.join("config.toml"));
+        }
+
         let config_dir = dirs::config_dir()
             .ok_or(SettingsError::ConfigDirNotFound)?
             .join("t-koma");
@@ -655,5 +660,19 @@ host = "0.0.0.0"
         assert_eq!(loaded.gateway.port, 4000);
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_config_path_uses_env_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = dir.path().to_string_lossy().to_string();
+
+        // SAFETY: test-scoped env mutation.
+        unsafe { std::env::set_var("T_KOMA_CONFIG_DIR", &value) };
+        let path = Settings::config_path().unwrap();
+        // SAFETY: test-scoped env mutation cleanup.
+        unsafe { std::env::remove_var("T_KOMA_CONFIG_DIR") };
+
+        assert_eq!(path, dir.path().join("config.toml"));
     }
 }

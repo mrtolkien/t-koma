@@ -151,6 +151,8 @@ pub enum WsMessage {
     SelectProvider { provider: ProviderType, model: String },
     /// Request available models from a provider
     ListAvailableModels { provider: ProviderType },
+    /// Request gateway restart
+    RestartGateway,
     /// Ping to keep connection alive
     Ping,
 }
@@ -185,6 +187,10 @@ pub enum WsResponse {
     ProviderSelected { provider: String, model: String },
     /// Available models list
     AvailableModels { provider: String, models: Vec<ModelInfo> },
+    /// Gateway is beginning restart flow
+    GatewayRestarting,
+    /// Gateway restart flow completed
+    GatewayRestarted,
     /// Error response
     Error { message: String },
     /// Pong response to ping
@@ -251,6 +257,16 @@ mod tests {
     }
 
     #[test]
+    fn test_ws_message_restart_gateway_serialization() {
+        let msg = WsMessage::RestartGateway;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"restart_gateway\""));
+
+        let decoded: WsMessage = serde_json::from_str(&json).unwrap();
+        assert!(matches!(decoded, WsMessage::RestartGateway));
+    }
+
+    #[test]
     fn test_ws_response_serialization() {
         let resp = WsResponse::Response {
             id: "msg_001".to_string(),
@@ -268,6 +284,16 @@ mod tests {
         assert!(json.contains("\"done\":true"));
         assert!(json.contains("\"usage\""));
         assert!(json.contains("\"cache_read_tokens\":1000"));
+    }
+
+    #[test]
+    fn test_ws_response_gateway_restarting_serialization() {
+        let resp = WsResponse::GatewayRestarting;
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"type\":\"gateway_restarting\""));
+
+        let decoded: WsResponse = serde_json::from_str(&json).unwrap();
+        assert!(matches!(decoded, WsResponse::GatewayRestarting));
     }
 
 

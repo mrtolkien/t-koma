@@ -147,6 +147,19 @@ impl GhostRepository {
         Ok(rows.into_iter().map(Ghost::from).collect())
     }
 
+    /// List all ghosts.
+    pub async fn list_all(pool: &SqlitePool) -> DbResult<Vec<Ghost>> {
+        let rows = sqlx::query_as::<_, GhostRow>(
+            "SELECT id, name, owner_operator_id, cwd, created_at
+             FROM ghosts
+             ORDER BY created_at ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(Ghost::from).collect())
+    }
+
     /// Get tool state (cwd + allow flag) for a ghost by name
     pub async fn get_tool_state_by_name(
         pool: &SqlitePool,
@@ -186,6 +199,21 @@ impl GhostRepository {
         .rows_affected();
 
         if updated == 0 {
+            return Err(DbError::GhostNotFound(name.to_string()));
+        }
+
+        Ok(())
+    }
+
+    /// Delete a ghost by name.
+    pub async fn delete_by_name(pool: &SqlitePool, name: &str) -> DbResult<()> {
+        let deleted = sqlx::query("DELETE FROM ghosts WHERE name = ?")
+            .bind(name)
+            .execute(pool)
+            .await?
+            .rows_affected();
+
+        if deleted == 0 {
             return Err(DbError::GhostNotFound(name.to_string()));
         }
 
@@ -252,5 +280,30 @@ mod tests {
 
         let duplicate = GhostRepository::create(pool, &operator.id, "Alpha").await;
         assert!(duplicate.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_all_and_delete_by_name() {
+        let db = create_test_koma_pool().await.unwrap();
+        let pool = db.pool();
+
+        let operator = OperatorRepository::create_new(pool, "Test Operator", Platform::Api)
+            .await
+            .unwrap();
+
+        GhostRepository::create(pool, &operator.id, "Alpha")
+            .await
+            .unwrap();
+        GhostRepository::create(pool, &operator.id, "Beta")
+            .await
+            .unwrap();
+
+        let all = GhostRepository::list_all(pool).await.unwrap();
+        assert_eq!(all.len(), 2);
+
+        GhostRepository::delete_by_name(pool, "Alpha").await.unwrap();
+        let remaining = GhostRepository::list_all(pool).await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].name, "Beta");
     }
 }

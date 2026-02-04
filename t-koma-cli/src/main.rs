@@ -9,23 +9,21 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 mod admin;
-mod app;
 mod client;
-mod gateway_spawner;
 mod log_follower;
 mod model_config;
 mod provider_selection;
-mod ui;
+mod tui;
 
-use app::App;
 use client::WsClient;
 use futures::StreamExt;
 use log_follower::LogFollower;
 use model_config::{apply_gateway_selection, configure_models_local, print_models};
 use provider_selection::{
-    ProviderSelectionMode, select_provider_interactive, select_provider_interactive_with_mode,
+    ProviderSelectionMode, select_provider_interactive_with_mode,
 };
-use t_koma_core::{Secrets, Settings, WsResponse};
+use tui::app::TuiApp;
+use t_koma_core::{Secrets, Settings};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,6 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
+        .with_writer(std::io::sink)
         .init();
 
     // Load settings (no default model validation in CLI startup)
@@ -77,7 +76,7 @@ fn show_menu() -> Result<u32, Box<dyn std::error::Error>> {
     println!("\n╔════════════════════════════════════╗");
     println!("║           t-koma CLI               ║");
     println!("╠════════════════════════════════════╣");
-    println!("║  1. Chat with t-koma               ║");
+    println!("║  1. Open control plane TUI         ║");
     println!("║  2. Follow T-KOMA logs             ║");
     println!("║  3. Manage operators (admin)       ║");
     println!("║  4. Manage model config            ║");
@@ -93,102 +92,8 @@ fn show_menu() -> Result<u32, Box<dyn std::error::Error>> {
 
 /// Run the chat TUI mode
 async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let ws_url = ws_url_for_cli(ws_url);
-    // Try to auto-start gateway if not running (chat mode only)
-    let _gateway_process = match gateway_spawner::ensure_gateway_running(&ws_url).await {
-        Ok(process) => {
-            if process.is_some() {
-                info!("Started gateway automatically");
-            }
-            process
-        }
-        Err(e) => {
-            warn!("Could not auto-start gateway: {}", e);
-            info!("Assuming gateway is managed externally or will be started manually");
-            None
-        }
-    };
-
-    // First, connect to WebSocket and do provider selection in normal mode
-    println!("\nConnecting to T-KOMA...");
-
-    let (ws_tx, ws_rx) = WsClient::connect(&ws_url).await?;
-
-    // Create channels for communication
-    let (tx, mut rx) = mpsc::unbounded_channel();
-
-    // Spawn task to forward WebSocket messages
-    tokio::spawn(async move {
-        let mut ws_rx = ws_rx;
-        while let Some(msg) = ws_rx.next().await {
-            if tx.send(msg).is_err() {
-                break;
-            }
-        }
-    });
-
-    // Wait for session creation before provider selection
-    println!("Waiting for session...");
-    let mut session_ready = false;
-    while !session_ready {
-        match rx.recv().await {
-            Some(WsResponse::InterfaceSelectionRequired { message }) => {
-                println!("{}", message);
-                print!("Select [new/existing]: ");
-                io::stdout().flush()?;
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
-                let choice = input.trim().to_string();
-                if ws_tx
-                    .send(t_koma_core::WsMessage::SelectInterface { choice })
-                    .is_err()
-                {
-                    println!("Failed to send interface choice.");
-                    return Ok(());
-                }
-            }
-            Some(WsResponse::SessionCreated { .. }) => {
-                session_ready = true;
-                println!("✓ Session created");
-            }
-            Some(WsResponse::Error { message }) => {
-                println!("Error: {}", message);
-                return Ok(());
-            }
-            Some(WsResponse::Response { content, .. }) => {
-                if content.contains("Connected to T-KOMA") {
-                    // Continue waiting for SessionCreated
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Run provider selection interactively
-    println!("\n--- Provider Selection ---");
-    let _provider_selection = match select_provider_interactive(&ws_tx, &mut rx).await {
-        Ok(selection) => {
-            info!(
-                "Selected provider: {:?}, model: {}",
-                selection.provider, selection.model
-            );
-            selection
-        }
-        Err(e) => {
-            println!("Provider selection failed: {}", e);
-            println!("Falling back to configured default model.");
-            let settings = Settings::load()?;
-            let model_config = settings
-                .default_model_config()
-                .ok_or("Default model is not configured")?;
-            provider_selection::ProviderSelection {
-                provider: model_config.provider,
-                model: model_config.model.clone(),
-            }
-        }
-    };
-
-    println!("\nStarting chat interface...\n");
+    let _ = ws_url;
+    println!("\nStarting control plane TUI...\n");
 
     // Now setup terminal and run TUI
     terminal::enable_raw_mode()?;
@@ -198,7 +103,7 @@ async fn run_chat_mode(ws_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create app and run
-    let mut app = App::new_with_channels(ws_url, ws_tx, rx);
+    let mut app = TuiApp::new().await;
 
     let result = match app.run(&mut terminal).await {
         Ok(()) => {
