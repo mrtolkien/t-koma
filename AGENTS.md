@@ -68,6 +68,12 @@ Key types:
   `SessionRepository`
 - `OperatorStatus`, `Platform`, `ContentBlock`
 
+Path override knobs for testing:
+- `T_KOMA_CONFIG_DIR`: overrides config root dir used by `Settings` (expects
+  `config.toml` inside this dir).
+- `T_KOMA_DATA_DIR`: overrides data root dir used by `KomaDbPool` and ghost
+  workspace/DB paths.
+
 Ghost tool state persistence:
 - `ghosts.cwd` stores the current working directory for tools.
 

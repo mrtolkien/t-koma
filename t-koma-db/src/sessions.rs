@@ -293,6 +293,15 @@ impl SessionRepository {
         Ok(row.try_get::<i64, _>("count").unwrap_or(0))
     }
 
+    /// Count messages created at or after the provided unix timestamp.
+    pub async fn count_messages_since(pool: &SqlitePool, since_unix_seconds: i64) -> DbResult<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM messages WHERE created_at >= ?")
+            .bind(since_unix_seconds)
+            .fetch_one(pool)
+            .await?;
+        Ok(row.try_get::<i64, _>("count").unwrap_or(0))
+    }
+
     /// Delete a session if it belongs to the operator
     pub async fn delete(
         pool: &SqlitePool,
@@ -467,5 +476,31 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_messages_since() {
+        let db = create_test_ghost_pool("RecentGhost").await.unwrap();
+        let pool = db.pool();
+
+        let session = SessionRepository::create(pool, "operator1", None)
+            .await
+            .unwrap();
+        SessionRepository::add_message(
+            pool,
+            &session.id,
+            MessageRole::Operator,
+            vec![ContentBlock::Text {
+                text: "Hello".to_string(),
+            }],
+            None,
+        )
+        .await
+        .unwrap();
+
+        let count = SessionRepository::count_messages_since(pool, Utc::now().timestamp() - 300)
+            .await
+            .unwrap();
+        assert!(count >= 1);
     }
 }

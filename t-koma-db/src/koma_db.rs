@@ -47,6 +47,10 @@ impl KomaDbPool {
 
     /// Get database file path
     pub fn db_path() -> DbResult<PathBuf> {
+        if let Ok(override_dir) = std::env::var("T_KOMA_DATA_DIR") {
+            return Ok(PathBuf::from(override_dir).join("koma.sqlite3"));
+        }
+
         let data_dir = dirs::data_dir().ok_or(DbError::NoConfigDir)?;
         Ok(data_dir.join("t-koma").join("koma.sqlite3"))
     }
@@ -70,5 +74,24 @@ impl KomaDbPool {
     /// Create a KomaDbPool from an existing SqlitePool (for testing)
     pub fn from_pool(pool: SqlitePool) -> Self {
         Self { pool }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KomaDbPool;
+    use crate::ENV_MUTEX;
+
+    #[test]
+    fn test_db_path_uses_env_override() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let value = dir.path().to_string_lossy().to_string();
+        // SAFETY: test-scoped env mutation.
+        unsafe { std::env::set_var("T_KOMA_DATA_DIR", &value) };
+        let path = KomaDbPool::db_path().unwrap();
+        // SAFETY: test-scoped env mutation cleanup.
+        unsafe { std::env::remove_var("T_KOMA_DATA_DIR") };
+        assert_eq!(path, dir.path().join("koma.sqlite3"));
     }
 }

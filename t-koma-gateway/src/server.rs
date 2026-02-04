@@ -616,6 +616,26 @@ async fn handle_websocket(
                                 ))
                                 .await;
                         }
+                        WsMessage::RestartGateway => match state.restart_gateway().await {
+                            Ok(()) => {
+                                let response = WsResponse::GatewayRestarting;
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&response).unwrap().into(),
+                                    ))
+                                    .await;
+                            }
+                            Err(e) => {
+                                let error_response = WsResponse::Error {
+                                    message: format!("Failed to restart gateway: {}", e),
+                                };
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&error_response).unwrap().into(),
+                                    ))
+                                    .await;
+                            }
+                        },
                         WsMessage::Ping => {
                             let pong = WsResponse::Pong;
                             let pong_json = serde_json::to_string(&pong).unwrap();
@@ -1344,8 +1364,12 @@ async fn handle_logs_websocket(socket: axum::extract::ws::WebSocket, state: Arc<
         tokio::select! {
             // Receive log entries from broadcast
             Ok(entry) = log_rx.recv() => {
-                let log_line = entry.to_string();
-                if sender.send(Message::Text(log_line.into())).await.is_err() {
+                let payload = serde_json::json!({
+                    "type": "log_entry",
+                    "entry": entry
+                })
+                .to_string();
+                if sender.send(Message::Text(payload.into())).await.is_err() {
                     break;
                 }
             }

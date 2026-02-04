@@ -27,3 +27,6 @@ pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, Ses
 // Re-export test helpers when running tests or when test-helpers feature is enabled
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
+
+#[cfg(test)]
+pub(crate) static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
