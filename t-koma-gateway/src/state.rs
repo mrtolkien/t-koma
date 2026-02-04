@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use serde::Serialize;
+use std::sync::OnceLock;
 use tokio::sync::{RwLock, broadcast};
 #[cfg(feature = "live-tests")]
 use tracing::{error, info};
@@ -44,6 +45,30 @@ pub enum LogEntry {
     WebSocket { event: String, client_id: String },
     /// General info message
     Info { message: String },
+    /// Operator message received via chat
+    OperatorMessage {
+        operator_id: String,
+        ghost_name: String,
+        content: String,
+    },
+    /// Ghost response sent back to operator
+    GhostMessage {
+        ghost_name: String,
+        content: String,
+    },
+    /// Routing decision for operator -> ghost/session
+    Routing {
+        platform: String,
+        operator_id: String,
+        ghost_name: String,
+        session_id: String,
+    },
+    /// Generic tracing event from gateway runtime
+    Trace {
+        level: String,
+        target: String,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for LogEntry {
@@ -83,7 +108,43 @@ impl std::fmt::Display for LogEntry {
             LogEntry::Info { message } => {
                 write!(f, "[{}] [INFO] {}", timestamp, message)
             }
+            LogEntry::OperatorMessage {
+                operator_id,
+                ghost_name,
+                content,
+            } => write!(
+                f,
+                "[{}] [OP] {} -> {}: {}",
+                timestamp, operator_id, ghost_name, content
+            ),
+            LogEntry::GhostMessage {
+                ghost_name,
+                content,
+            } => write!(f, "[{}] [GHOST] {} -> operator: {}", timestamp, ghost_name, content),
+            LogEntry::Routing {
+                platform,
+                operator_id,
+                ghost_name,
+                session_id,
+            } => write!(
+                f,
+                "[{}] [ROUTE] {} {} -> {} ({})",
+                timestamp, platform, operator_id, ghost_name, session_id
+            ),
+            LogEntry::Trace {
+                level,
+                target,
+                message,
+            } => write!(f, "[{}] [{}] {} {}", timestamp, level, target, message),
         }
+    }
+}
+
+static GLOBAL_LOG_TX: OnceLock<broadcast::Sender<LogEntry>> = OnceLock::new();
+
+pub fn emit_global_log(entry: LogEntry) {
+    if let Some(tx) = GLOBAL_LOG_TX.get() {
+        let _ = tx.send(entry);
     }
 }
 
@@ -130,6 +191,7 @@ impl AppState {
         koma_db: t_koma_db::KomaDbPool,
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
+        let _ = GLOBAL_LOG_TX.set(log_tx.clone());
         let session_chat = SessionChat::new();
 
         Self {
@@ -240,9 +302,17 @@ impl AppState {
         operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
+        self.log(LogEntry::OperatorMessage {
+            operator_id: operator_id.to_string(),
+            ghost_name: ghost_name.to_string(),
+            content: message.to_string(),
+        })
+        .await;
+
         let model = self.default_model();
         let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
-        self.session_chat
+        let text = self
+            .session_chat
             .chat(
                 &ghost_db,
                 &self.koma_db,
@@ -253,7 +323,15 @@ impl AppState {
                 operator_id,
                 message,
             )
-            .await
+            .await?;
+
+        self.log(LogEntry::GhostMessage {
+            ghost_name: ghost_name.to_string(),
+            content: text.clone(),
+        })
+        .await;
+
+        Ok(text)
     }
 
     /// Send a chat message using a specific model alias
@@ -265,13 +343,21 @@ impl AppState {
         operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
+        self.log(LogEntry::OperatorMessage {
+            operator_id: operator_id.to_string(),
+            ghost_name: ghost_name.to_string(),
+            content: message.to_string(),
+        })
+        .await;
+
         let model = self
             .models
             .get(model_alias)
             .unwrap_or_else(|| self.default_model());
 
         let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
-        self.session_chat
+        let text = self
+            .session_chat
             .chat(
                 &ghost_db,
                 &self.koma_db,
@@ -282,7 +368,15 @@ impl AppState {
                 operator_id,
                 message,
             )
-            .await
+            .await?;
+
+        self.log(LogEntry::GhostMessage {
+            ghost_name: ghost_name.to_string(),
+            content: text.clone(),
+        })
+        .await;
+
+        Ok(text)
     }
 
     /// Get or initialize a GHOST database pool by name

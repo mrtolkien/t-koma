@@ -747,6 +747,15 @@ async fn handle_websocket(
                                 }
                             };
 
+                            state
+                                .log(LogEntry::Routing {
+                                    platform: "ws".to_string(),
+                                    operator_id: op_id.clone(),
+                                    ghost_name: ghost_name.clone(),
+                                    session_id: target_session_id.clone(),
+                                })
+                                .await;
+
                             let step_limit = parse_step_limit(content.trim());
                             if content.trim().eq_ignore_ascii_case("approve")
                                 || content.trim().eq_ignore_ascii_case("deny")

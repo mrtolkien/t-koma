@@ -71,6 +71,7 @@ impl EventHandler for Bot {
         let platform = t_koma_db::Platform::Discord;
 
         info!(
+            event_kind = "chat_io",
             "[session:-] Discord message from {} ({}): {}",
             operator_name, operator_external_id, msg.content
         );
@@ -489,6 +490,15 @@ impl EventHandler for Bot {
                 }
             };
 
+        self.state
+            .log(crate::LogEntry::Routing {
+                platform: "discord".to_string(),
+                operator_id: operator_id.clone(),
+                ghost_name: ghost_name.clone(),
+                session_id: session.id.clone(),
+            })
+            .await;
+
         if clean_content.eq_ignore_ascii_case("approve")
             || clean_content.eq_ignore_ascii_case("deny")
             || parse_step_limit(clean_content).is_some()
@@ -682,14 +692,6 @@ impl EventHandler for Bot {
                 return;
             }
         };
-
-        // Log the response
-        self.state
-            .log(crate::LogEntry::DiscordResponse {
-                user: operator_name.clone(),
-                content: final_text.clone(),
-            })
-            .await;
 
         // Send response back to Discord
         if let Err(e) = msg.channel_id.say(&ctx.http, &final_text).await {

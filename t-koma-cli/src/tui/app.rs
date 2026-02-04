@@ -67,7 +67,9 @@ struct PromptState {
 #[derive(Debug, Clone)]
 struct GateRow {
     time: String,
+    level: String,
     source: String,
+    core: String,
     message: String,
 }
 
@@ -116,6 +118,7 @@ pub struct TuiApp {
 
     metrics: Metrics,
     metrics_last_refresh: Instant,
+    anim_tick: usize,
 }
 
 impl TuiApp {
@@ -158,6 +161,7 @@ impl TuiApp {
 
             metrics: Metrics::default(),
             metrics_last_refresh: Instant::now() - Duration::from_secs(30),
+            anim_tick: 0,
         };
 
         app.start_logs_stream();
@@ -208,6 +212,7 @@ impl TuiApp {
     }
 
     async fn tick(&mut self) {
+        self.anim_tick = self.anim_tick.wrapping_add(1);
         let mut drained = Vec::new();
         if let Some(rx) = &mut self.gate_rx {
             for _ in 0..200 {
@@ -247,7 +252,15 @@ impl TuiApp {
     }
 
     fn draw(&self, frame: &mut Frame) {
-        let (header, main) = main_layout(frame.area());
+        let pulse = glow_color(self.anim_tick);
+        let outer = Block::default()
+            .title("╼ T-KOMA CYBERDECK ╾")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(pulse).add_modifier(Modifier::BOLD));
+        let inner_area = outer.inner(frame.area());
+        frame.render_widget(outer, frame.area());
+
+        let (header, main) = main_layout(inner_area);
         self.draw_header(frame, header);
 
         let (categories_area, right_area) = sidebar_layout(main);
@@ -267,20 +280,31 @@ impl TuiApp {
     }
 
     fn draw_header(&self, frame: &mut Frame, area: Rect) {
+        let pulse = glow_color(self.anim_tick);
+        let dot_color = pulse_red(self.anim_tick);
+        let marquee = marquee_text("ようこそ、パペットマスター様", 36, self.anim_tick / 4);
         let model = if self.settings.default_model.is_empty() {
             "(unset)"
         } else {
             &self.settings.default_model
         };
 
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(40), Constraint::Length(18)])
+            .split(area);
+
         let top = Line::from(vec![
             Span::styled("T-KOMA CONTROL PLANE", theme::header_title()),
             Span::raw(" | "),
-            Span::raw(format!("Operators {}", self.metrics.operator_count)),
+            Span::styled(format!("󰀄 {}", self.metrics.operator_count), Style::default().fg(Color::Green)),
             Span::raw(" | "),
-            Span::raw(format!("Ghosts {}", self.metrics.ghost_count)),
+            Span::styled(format!("󰊠 {}", self.metrics.ghost_count), Style::default().fg(Color::Cyan)),
             Span::raw(" | "),
-            Span::raw(format!("Msgs/5m {}", self.metrics.recent_message_count)),
+            Span::styled(
+                format!("󰭻/5m {}", self.metrics.recent_message_count),
+                Style::default().fg(Color::Yellow),
+            ),
         ]);
 
         let gate_style = if self.gate_connected {
@@ -299,19 +323,38 @@ impl TuiApp {
                 gate_style.add_modifier(Modifier::BOLD),
             ),
             Span::raw(" | "),
-            Span::raw(format!("Default model {}", model)),
+            Span::styled(format!("󰒓 {}", model), Style::default().fg(Color::Magenta)),
             Span::raw(" | "),
-            Span::raw(format!("Category {}", self.selected_category().label())),
+            Span::styled(
+                format!("󰍹 {}", self.selected_category().label()),
+                Style::default().fg(Color::Cyan),
+            ),
             Span::raw(" | "),
-            Span::raw(&self.status),
+            Span::styled(marquee, Style::default().fg(Color::LightBlue)),
         ]);
 
         let p = Paragraph::new(vec![top, second]).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(pulse)),
         );
-        frame.render_widget(p, area);
+        frame.render_widget(p, chunks[0]);
+
+        let dot_style = if self.gate_connected {
+            Style::default().fg(dot_color).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        let pulse_lines = vec![
+            Line::from(Span::styled("   ╭──────╮   ", dot_style)),
+            Line::from(Span::styled("   │ ████ │   ", dot_style)),
+            Line::from(Span::styled("   │ ████ │   ", dot_style)),
+            Line::from(Span::styled("   ╰──────╯   ", dot_style)),
+        ];
+        let pulse_widget = Paragraph::new(pulse_lines)
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(Style::default().fg(dot_color).add_modifier(Modifier::BOLD));
+        frame.render_widget(pulse_widget, chunks[1]);
     }
 
     fn draw_categories(&self, frame: &mut Frame, area: Rect) {
@@ -319,9 +362,13 @@ impl TuiApp {
             .iter()
             .enumerate()
             .map(|(idx, cat)| {
-                let mut item = ListItem::new(cat.label());
+                let mut item = ListItem::new(format!(" {}", cat.label()));
                 if idx == self.category_idx {
-                    item = item.style(theme::selected());
+                    item = item.style(
+                        Style::default()
+                            .fg(glow_color(self.anim_tick))
+                            .add_modifier(Modifier::BOLD),
+                    );
                 }
                 item
             })
@@ -330,7 +377,7 @@ impl TuiApp {
         let block = Block::default()
             .title("Categories")
             .borders(Borders::ALL)
-            .border_style(theme::border(self.focus == FocusPane::Categories));
+            .border_style(border_glow(self.focus == FocusPane::Categories, self.anim_tick));
         frame.render_widget(List::new(items).block(block), area);
     }
 
@@ -351,7 +398,7 @@ impl TuiApp {
         let block = Block::default()
             .title("Options")
             .borders(Borders::ALL)
-            .border_style(theme::border(self.focus == FocusPane::Options));
+            .border_style(border_glow(self.focus == FocusPane::Options, self.anim_tick));
         frame.render_widget(List::new(items).block(block), area);
     }
 
@@ -359,7 +406,7 @@ impl TuiApp {
         let block = Block::default()
             .title("Content")
             .borders(Borders::ALL)
-            .border_style(theme::border(self.focus == FocusPane::Content));
+            .border_style(border_glow(self.focus == FocusPane::Content, self.anim_tick));
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -373,14 +420,7 @@ impl TuiApp {
                     )));
                 }
 
-                for line in self.diff_preview_lines() {
-                    lines.push(line);
-                }
-
-                if !lines.is_empty() {
-                    lines.push(Line::from(""));
-                }
-                lines.extend(highlight_toml(&self.settings_toml));
+                lines.extend(highlight_toml_with_diff(&self.settings_toml, &self.disk_toml));
 
                 let text = Text::from(lines);
                 let p = Paragraph::new(text)
@@ -433,13 +473,14 @@ impl TuiApp {
                 frame.render_widget(List::new(items), inner);
             }
             Category::Gate => {
-                let lines = self.filtered_gate_lines();
-                let p = Paragraph::new(lines.join("\n"))
+                let lines = self.filtered_gate_lines_colored();
+                let p = Paragraph::new(Text::from(lines))
                     .scroll((self.gate_scroll, 0))
                     .wrap(Wrap { trim: false });
                 frame.render_widget(p, inner);
             }
         }
+
     }
 
     fn draw_prompt_overlay(&self, frame: &mut Frame, kind: PromptKind) {
@@ -652,9 +693,12 @@ impl TuiApp {
                 self.gate_rows.clear();
                 self.status = "Logs cleared".to_string();
             }
-            KeyCode::Char('1') => self.gate_filter = GateFilter::Gateway,
-            KeyCode::Char('2') => self.gate_filter = GateFilter::Ghost,
-            KeyCode::Char('3') => self.gate_filter = GateFilter::Operator,
+            KeyCode::Char('1') => self.gate_filter = GateFilter::All,
+            KeyCode::Char('2') => self.gate_filter = GateFilter::Gateway,
+            KeyCode::Char('3') => self.gate_filter = GateFilter::Ghost,
+            KeyCode::Char('4') => self.gate_filter = GateFilter::Operator,
+            KeyCode::Char('5') => self.gate_filter = GateFilter::Transport,
+            KeyCode::Char('6') => self.gate_filter = GateFilter::Error,
             KeyCode::Esc => self.gate_search = None,
             _ => {}
         }
@@ -1148,15 +1192,19 @@ impl TuiApp {
         });
     }
 
-    fn filtered_gate_lines(&self) -> Vec<String> {
+    fn filtered_gate_lines_colored(&self) -> Vec<Line<'static>> {
         let mut rows: Vec<&GateRow> = self
             .gate_rows
             .iter()
             .filter(|row| match self.gate_filter {
                 GateFilter::All => true,
-                GateFilter::Gateway => row.source == "gateway" || row.source == "ws" || row.source == "http",
+                GateFilter::Gateway => {
+                    row.source == "gateway" || row.source == "trace" || row.source == "route"
+                }
                 GateFilter::Ghost => row.source == "ghost",
                 GateFilter::Operator => row.source == "operator",
+                GateFilter::Transport => row.source == "ws" || row.source == "http",
+                GateFilter::Error => row.level == "ERROR" || row.level == "WARN",
             })
             .collect();
 
@@ -1165,54 +1213,73 @@ impl TuiApp {
             rows.retain(|row| row.message.to_lowercase().contains(&s));
         }
 
+        let mut lines = vec![Line::from(vec![
+            Span::styled(
+                "filters: [1]all [2]gateway [3]ghost [4]operator [5]transport [6]warn/error",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])];
+
         if rows.is_empty() {
-            return vec!["No log data".to_string()];
+            lines.push(Line::from(Span::styled(
+                "No log data",
+                Style::default().fg(Color::DarkGray),
+            )));
+            return lines;
         }
 
-        rows.into_iter()
-            .map(|row| format!("{} | {:8} | {}", row.time, row.source, row.message))
-            .collect()
-    }
+        for row in rows {
+            let source_style = match row.source.as_str() {
+                "ghost" => Style::default().fg(Color::Cyan),
+                "operator" => Style::default().fg(Color::Yellow),
+                "route" => Style::default().fg(Color::LightMagenta),
+                "ws" | "http" => Style::default().fg(Color::Magenta),
+                "trace" => Style::default().fg(Color::LightBlue),
+                _ => Style::default().fg(Color::White),
+            };
+            let level_style = match row.level.as_str() {
+                "ERROR" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                "WARN" => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                "INFO" => Style::default().fg(Color::Green),
+                _ => Style::default().fg(Color::DarkGray),
+            };
 
-    fn diff_preview_lines(&self) -> Vec<Line<'static>> {
-        let old_lines: Vec<&str> = self.disk_toml.lines().collect();
-        let new_lines: Vec<&str> = self.settings_toml.lines().collect();
-        let max_len = old_lines.len().max(new_lines.len());
+            lines.push(Line::from(vec![
+                Span::styled(format!("{} ", row.time), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{:>5} ", row.level), level_style),
+                Span::styled(format!("{:>9} ", row.source), source_style),
+                Span::styled(
+                    format!(" {}", truncate_for_cell(&row.core, 120)),
+                    Style::default().fg(Color::LightBlue),
+                ),
+            ]));
 
-        let mut output = vec![];
-        for i in 0..max_len {
-            let old = old_lines.get(i).copied();
-            let new = new_lines.get(i).copied();
-            if old == new {
-                continue;
-            }
-            match (old, new) {
-                (Some(a), Some(b)) => {
-                    output.push(Line::from(vec![
-                        Span::styled("~ ", Style::default().fg(Color::Yellow)),
-                        Span::styled(format!("{} -> {}", a, b), Style::default().fg(Color::Yellow)),
-                    ]));
-                }
-                (None, Some(b)) => {
-                    output.push(Line::from(vec![
-                        Span::styled("+ ", Style::default().fg(Color::Green)),
-                        Span::styled(b.to_string(), Style::default().fg(Color::Green)),
-                    ]));
-                }
-                (Some(a), None) => {
-                    output.push(Line::from(vec![
-                        Span::styled("- ", Style::default().fg(Color::Red)),
-                        Span::styled(a.to_string(), Style::default().fg(Color::Red)),
-                    ]));
-                }
-                (None, None) => {}
-            }
-            if output.len() >= 12 {
-                break;
+            let body_style = match row.source.as_str() {
+                "operator" => Style::default().fg(Color::Yellow),
+                "ghost" => Style::default().fg(Color::Cyan),
+                "route" => Style::default().fg(Color::LightMagenta),
+                _ => Style::default().fg(Color::White),
+            };
+            let marker = match row.source.as_str() {
+                "operator" => "  ↳ ",
+                "ghost" => "  ⇢ ",
+                "route" => "  ⤷ ",
+                _ => "  · ",
+            };
+            for msg_line in markdown_to_lines(&row.message) {
+                let mut spans = vec![Span::styled(marker, body_style)];
+                spans.extend(msg_line.spans.into_iter().map(|s| {
+                    if s.style == Style::default() {
+                        Span::styled(s.content.to_string(), body_style)
+                    } else {
+                        s
+                    }
+                }));
+                lines.push(Line::from(spans));
             }
         }
 
-        output
+        lines
     }
 }
 
@@ -1225,33 +1292,132 @@ fn parse_gate_row(text: &str) -> Option<GateRow> {
     if json.get("type") == Some(&serde_json::Value::String("log_entry".to_string())) {
         let entry = json.get("entry")?;
         let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("info");
+        if kind == "discord_response" {
+            return None;
+        }
+        let level = entry
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("INFO")
+            .to_string();
         let source = match kind {
-            "discord_message" | "discord_response" => "ghost",
+            "discord_message" => "operator",
+            "discord_response" => "ghost",
+            "operator_message" => "operator",
+            "ghost_message" => "ghost",
+            "routing" => "route",
             "web_socket" => "ws",
             "http_request" => "http",
+            "trace" => "trace",
             _ => "gateway",
         }
         .to_string();
 
-        let message = if let Some(message) = entry.get("message").and_then(|v| v.as_str()) {
-            message.to_string()
-        } else if let Some(event) = entry.get("event").and_then(|v| v.as_str()) {
-            event.to_string()
-        } else {
-            entry.to_string()
+        let (core, message) = match kind {
+            "discord_message" => {
+                let user = entry.get("user").and_then(|v| v.as_str()).unwrap_or("user");
+                let channel = entry
+                    .get("channel")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("channel");
+                let content = entry
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                (format!("@{} #{}", user, channel), content.to_string())
+            }
+            "discord_response" => {
+                let user = entry.get("user").and_then(|v| v.as_str()).unwrap_or("user");
+                let content = entry
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                (format!("to @{}", user), content.to_string())
+            }
+            "operator_message" => {
+                let ghost_name = entry
+                    .get("ghost_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let content = entry
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                (format!("to @{}", ghost_name), content.to_string())
+            }
+            "ghost_message" => {
+                let ghost_name = entry
+                    .get("ghost_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("ghost");
+                let content = entry
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                (format!("from {}", ghost_name), content.to_string())
+            }
+            "web_socket" => {
+                let event = entry.get("event").and_then(|v| v.as_str()).unwrap_or("event");
+                let client = entry
+                    .get("client_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("client");
+                (client.to_string(), event.to_string())
+            }
+            "http_request" => {
+                let method = entry.get("method").and_then(|v| v.as_str()).unwrap_or("-");
+                let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("-");
+                let status = entry.get("status").and_then(|v| v.as_i64()).unwrap_or(0);
+                (format!("{} {}", method, path), status.to_string())
+            }
+            "trace" => {
+                let target = entry.get("target").and_then(|v| v.as_str()).unwrap_or("");
+                let message = entry.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                (target.to_string(), message.to_string())
+            }
+            "routing" => {
+                let operator_id = entry
+                    .get("operator_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("operator");
+                let ghost_name = entry
+                    .get("ghost_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("ghost");
+                let session_id = entry
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("session");
+                (
+                    format!("{} -> @{}", operator_id, ghost_name),
+                    format!("session {}", session_id),
+                )
+            }
+            _ => (
+                kind.to_string(),
+                entry
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| entry.to_string()),
+            ),
         };
 
         return Some(GateRow {
             time: Utc::now().format("%H:%M:%S").to_string(),
+            level,
             source,
-            message,
+            core,
+            message: truncate_for_message(&message, 4000),
         });
     }
 
     Some(GateRow {
         time: Utc::now().format("%H:%M:%S").to_string(),
+        level: "INFO".to_string(),
         source: "gateway".to_string(),
-        message: text.to_string(),
+        core: "raw".to_string(),
+        message: truncate_for_message(text, 4000),
     })
 }
 
@@ -1289,6 +1455,28 @@ fn highlight_toml(content: &str) -> Vec<Line<'static>> {
             Line::from(Span::raw(line.to_string()))
         })
         .collect()
+}
+
+fn highlight_toml_with_diff(content: &str, disk_content: &str) -> Vec<Line<'static>> {
+    let current: Vec<&str> = content.lines().collect();
+    let disk: Vec<&str> = disk_content.lines().collect();
+    let mut lines = Vec::with_capacity(current.len());
+
+    for (idx, line) in current.iter().enumerate() {
+        let changed = disk.get(idx).copied() != Some(*line);
+        let marker = if changed { "▋" } else { " " };
+        let marker_style = if changed {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let mut rendered = highlight_toml(line).into_iter().next().unwrap_or_else(|| Line::from(""));
+        rendered.spans.insert(0, Span::styled(format!("{:>4} {} ", idx + 1, marker), marker_style));
+        lines.push(rendered);
+    }
+
+    lines
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -1329,6 +1517,136 @@ fn load_disk_config() -> Option<String> {
 fn shell_quote(value: &str) -> String {
     let escaped = value.replace('\'', "'\\''");
     format!("'{}'", escaped)
+}
+
+fn glow_color(tick: usize) -> Color {
+    let phase = tick % 200;
+    let up = if phase <= 100 { phase } else { 200 - phase } as u8;
+    let boost = (up as u16 * 90 / 100) as u8;
+    Color::Rgb(0, 160 + boost, 170 + boost / 2)
+}
+
+fn pulse_red(tick: usize) -> Color {
+    let phase = tick % 200;
+    let up = if phase <= 100 { phase } else { 200 - phase } as u8;
+    let boost = (up as u16 * 130 / 100) as u8;
+    Color::Rgb(120 + boost, 10, 10)
+}
+
+fn border_glow(has_focus: bool, tick: usize) -> Style {
+    if has_focus {
+        Style::default()
+            .fg(glow_color(tick))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Rgb(45, 60, 68))
+    }
+}
+
+fn marquee_text(text: &str, width: usize, offset: usize) -> String {
+    let mut chars: Vec<char> = format!("{}   ", text).chars().collect();
+    if chars.is_empty() {
+        return String::new();
+    }
+    let len = chars.len();
+    let start = offset % len;
+    chars.rotate_left(start);
+    let visible: String = chars.into_iter().take(width).collect();
+    format!("{visible:width$}")
+}
+
+fn markdown_to_lines(message: &str) -> Vec<Line<'static>> {
+    message
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("### ") || trimmed.starts_with("## ") || trimmed.starts_with("# ")
+            {
+                return Line::from(Span::styled(
+                    trimmed.trim_start_matches('#').trim().to_string(),
+                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                ));
+            }
+            if let Some(rest) = trimmed.strip_prefix("- ") {
+                let mut spans = vec![Span::styled("• ", Style::default().fg(Color::Magenta))];
+                spans.extend(parse_inline_markdown(rest));
+                return Line::from(spans);
+            }
+            Line::from(parse_inline_markdown(trimmed))
+        })
+        .collect()
+}
+
+fn parse_inline_markdown(input: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut rest = input;
+
+    while !rest.is_empty() {
+        if let Some(stripped) = rest.strip_prefix("**")
+            && let Some(end) = stripped.find("**")
+        {
+            let bold = &stripped[..end];
+            spans.push(Span::styled(
+                bold.to_string(),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ));
+            rest = &stripped[end + 2..];
+            continue;
+        }
+
+        if let Some(stripped) = rest.strip_prefix('`')
+            && let Some(end) = stripped.find('`')
+        {
+            let code = &stripped[..end];
+            spans.push(Span::styled(
+                code.to_string(),
+                Style::default().fg(Color::Yellow).bg(Color::Rgb(20, 30, 45)),
+            ));
+            rest = &stripped[end + 1..];
+            continue;
+        }
+
+        let next_bold = rest.find("**");
+        let next_code = rest.find('`');
+        let next = match (next_bold, next_code) {
+            (Some(a), Some(b)) => a.min(b),
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (None, None) => rest.len(),
+        };
+
+        let plain = &rest[..next];
+        spans.push(Span::raw(plain.to_string()));
+        rest = &rest[next..];
+    }
+
+    if spans.is_empty() {
+        vec![Span::raw(String::new())]
+    } else {
+        spans
+    }
+}
+
+fn truncate_for_cell(s: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_chars {
+        s.to_string()
+    } else if max_chars > 1 {
+        let kept: String = chars.into_iter().take(max_chars - 1).collect();
+        format!("{kept}…")
+    } else {
+        "…".to_string()
+    }
+}
+
+fn truncate_for_message(s: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_chars {
+        s.to_string()
+    } else {
+        let kept: String = chars.into_iter().take(max_chars).collect();
+        format!("{kept}\n…[truncated]")
+    }
 }
 
 #[cfg(test)]
