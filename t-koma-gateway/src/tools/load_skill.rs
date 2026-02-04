@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::Tool;
+use super::{Tool, ToolContext};
 
 /// Tool for loading skill content.
 ///
@@ -67,7 +67,7 @@ impl Tool for LoadSkillTool {
         )
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, _context: &mut ToolContext) -> Result<String, String> {
         let skill_name = args["skill_name"]
             .as_str()
             .ok_or_else(|| "Missing 'skill_name' parameter".to_string())?;
@@ -111,6 +111,7 @@ mod tests {
     #[tokio::test]
     async fn test_load_skill_success() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
         let skill_dir = temp_dir.path().join("test-skill");
         std::fs::create_dir(&skill_dir).unwrap();
 
@@ -128,7 +129,7 @@ This is the skill content."#;
         let tool = LoadSkillTool::new(temp_dir.path().to_path_buf());
         let args = json!({"skill_name": "test-skill"});
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("Test Skill"));
     }
@@ -136,11 +137,12 @@ This is the skill content."#;
     #[tokio::test]
     async fn test_load_skill_not_found() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let tool = LoadSkillTool::new(temp_dir.path().to_path_buf());
         let args = json!({"skill_name": "nonexistent"});
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -148,11 +150,12 @@ This is the skill content."#;
     #[tokio::test]
     async fn test_load_skill_missing_param() {
         let temp_dir = TempDir::new().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let tool = LoadSkillTool::new(temp_dir.path().to_path_buf());
         let args = json!({});
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Missing"));
     }

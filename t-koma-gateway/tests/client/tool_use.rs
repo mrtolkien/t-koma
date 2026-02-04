@@ -7,7 +7,7 @@ use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{extract_all_text, ProviderContentBlock};
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::tools::{file_edit::FileEditTool, shell::ShellTool, Tool};
+use t_koma_gateway::tools::{file_edit::FileEditTool, shell::ShellTool, Tool, ToolContext};
 
 #[cfg(feature = "live-tests")]
 use crate::common;
@@ -57,6 +57,8 @@ async fn test_pwd_tool_execution() {
 
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let mut context = ToolContext::new_for_tests(temp_dir.path());
 
     // First request - ask the model to run pwd
     let response = client
@@ -143,7 +145,7 @@ async fn test_pwd_tool_execution() {
         assert_eq!(name, "run_shell_command");
 
         // Execute the shell command
-        let result = shell_tool.execute(input).await;
+        let result = shell_tool.execute(input, &mut context).await;
         assert!(result.is_ok(), "Shell command should succeed");
 
         let output = result.unwrap();

@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::tools::Tool;
+use crate::tools::{Tool, ToolContext};
 use crate::web::fetch::{http::HttpFetchProvider, FetchError, WebFetchRequest, WebFetchService};
 
 #[derive(Debug, Deserialize)]
@@ -66,7 +66,7 @@ impl Tool for WebFetchTool {
         )
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, _context: &mut ToolContext) -> Result<String, String> {
         let input: WebFetchInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         t_koma_core::load_dotenv();

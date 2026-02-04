@@ -8,7 +8,7 @@ use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     models::anthropic::AnthropicClient,
-    tools::{load_skill::LoadSkillTool, Tool},
+    tools::{load_skill::LoadSkillTool, Tool, ToolContext},
 };
 
 /// Test that the model can discover and load a skill.
@@ -63,6 +63,7 @@ You: "Successfully loaded and using the test-echo skill!"
 
     // Set up tools
     let load_skill_tool = LoadSkillTool::new(skills_dir.clone());
+    let mut context = ToolContext::new_for_tests(temp_dir.path());
     let tools: Vec<&dyn Tool> = vec![&load_skill_tool];
 
     // Build system prompt with skills listed
@@ -165,7 +166,7 @@ Skill directory: {:?}
     let mut tool_results = Vec::new();
     for (id, name, input) in tool_uses {
         if name == "load_skill" {
-            let result = load_skill_tool.execute(input).await;
+            let result = load_skill_tool.execute(input, &mut context).await;
             println!("Load skill result: {:?}", result.is_ok());
             tool_results.push(
                 t_koma_gateway::models::anthropic::history::ToolResultData {

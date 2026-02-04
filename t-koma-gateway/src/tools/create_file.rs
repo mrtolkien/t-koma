@@ -1,7 +1,8 @@
 use serde_json::{json, Value};
 use tokio::fs;
 
-use super::Tool;
+use super::{Tool, ToolContext};
+use super::context::resolve_local_path;
 
 pub struct CreateFileTool;
 
@@ -13,7 +14,7 @@ You have access to a `create_file` tool for creating new files.
 **IMPORTANT:** This tool will FAIL if the file already exists. This prevents accidental overwrites.
 
 **Guidelines:**
-1. Use absolute paths when possible
+1. Use absolute paths or paths relative to the current working directory
 2. Ensure parent directories exist (create them with `run_shell_command` if needed)
 3. The tool will fail if the file already exists - use `read_file` first to check
 4. For editing existing files, use the `replace` tool instead
@@ -50,7 +51,7 @@ impl Tool for CreateFileTool {
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Absolute path where the file should be created. Parent directory must exist."
+                "description": "Path where the file should be created (absolute or relative to the current working directory). Parent directory must exist."
                 },
                 "content": {
                     "type": "string",
@@ -61,7 +62,7 @@ impl Tool for CreateFileTool {
         })
     }
 
-    async fn execute(&self, args: Value) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let file_path = args["file_path"]
             .as_str()
             .ok_or_else(|| "Missing or invalid 'file_path' argument".to_string())?;
@@ -70,24 +71,26 @@ impl Tool for CreateFileTool {
             .as_str()
             .ok_or_else(|| "Missing or invalid 'content' argument".to_string())?;
 
+        let resolved_path = resolve_local_path(context, file_path)?;
+
         // Check if file already exists
-        if fs::try_exists(file_path)
+        if fs::try_exists(&resolved_path)
             .await
             .map_err(|e| format!("Failed to check file existence: {}", e))?
         {
             return Err(format!(
                 "File '{}' already exists. Use the 'replace' tool to modify existing files.",
-                file_path
+                resolved_path.display()
             ));
         }
 
         // Write file content
-        fs::write(file_path, content)
+        fs::write(&resolved_path, content)
             .await
-            .map_err(|e| format!("Failed to create file '{}': {}", file_path, e))?;
+            .map_err(|e| format!("Failed to create file '{}': {}", resolved_path.display(), e))?;
 
         // Get file size for confirmation
-        let metadata = fs::metadata(file_path)
+        let metadata = fs::metadata(&resolved_path)
             .await
             .map_err(|e| format!("Failed to get file metadata: {}", e))?;
 
@@ -96,7 +99,9 @@ impl Tool for CreateFileTool {
 
         Ok(format!(
             "Successfully created file '{}' ({} bytes, {} lines).",
-            file_path, size, lines
+            resolved_path.display(),
+            size,
+            lines
         ))
     }
 }
@@ -112,6 +117,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test_file.txt");
         let path_str = file_path.to_str().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let tool = CreateFileTool;
         let args = json!({
@@ -119,7 +125,7 @@ mod tests {
             "content": "Hello, World!\nThis is a test."
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Successfully created file"));
@@ -137,6 +143,7 @@ mod tests {
         let file_path = temp_dir.path().join("existing.txt");
         fs::write(&file_path, "existing content").await.unwrap();
         let path_str = file_path.to_str().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let tool = CreateFileTool;
         let args = json!({
@@ -144,7 +151,7 @@ mod tests {
             "content": "new content"
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("already exists"));
     }
@@ -154,6 +161,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("nonexistent_dir").join("file.txt");
         let path_str = file_path.to_str().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let tool = CreateFileTool;
         let args = json!({
@@ -161,7 +169,7 @@ mod tests {
             "content": "content"
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         // Should fail because parent directory doesn't exist
         assert!(result.unwrap_err().contains("Failed to create file"));
@@ -172,6 +180,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("empty.txt");
         let path_str = file_path.to_str().unwrap();
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
 
         let tool = CreateFileTool;
         let args = json!({
@@ -179,7 +188,7 @@ mod tests {
             "content": ""
         });
 
-        let result = tool.execute(args).await;
+        let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("Successfully created file"));

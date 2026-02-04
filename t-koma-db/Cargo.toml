@@ -19,6 +19,9 @@ rusqlite = "0.32"
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Regex
+regex = "1"
+
 # Error handling
 thiserror = { workspace = true }
 
