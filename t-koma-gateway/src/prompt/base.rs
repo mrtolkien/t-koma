@@ -62,7 +62,8 @@ their descriptions in the system prompt to decide which tool to call.
 - Local tools are confined to the ghost workspace unless the operator grants approval
 
 ### Tool Result Format
-Tool results will be provided in the conversation after you make a tool_use request. Use this information to answer the user's question.
+Tool results will be provided in the conversation after you make a tool_use request.
+Use this information to answer the user's question.
 "#;
 
 /// Instructions for code-related tasks
