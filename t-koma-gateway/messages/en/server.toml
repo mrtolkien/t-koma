@@ -1,0 +1,98 @@
+[health-status]
+body = "ok"
+
+[health-koma]
+body = "running"
+
+[failed-load-interface]
+body = "Failed to load interface"
+
+[interface-invalid-operator]
+body = "Interface is not linked to a valid operator."
+
+[failed-load-operator]
+body = "Failed to load operator"
+
+[interface-required]
+body = "T-KOMA (ティーコマ): This interface must belong to an EXISTING or NEW OPERATOR (オペレータ). Reply with NEW or EXISTING."
+
+[access-pending]
+body = "Your access request is pending approval"
+
+[access-denied]
+body = "Your access request was denied."
+
+[unknown-operator-status]
+body = "Unknown operator status"
+
+[existing-operator-todo]
+body = "Existing operator binding not implemented yet. TODO."
+
+[reply-with-new-or-existing]
+body = "Reply with NEW or EXISTING."
+
+[failed-create-operator]
+body = "Failed to create operator"
+
+[failed-create-interface]
+body = "Failed to create interface"
+
+[operator-created-awaiting-approval]
+body = "Operator created. Awaiting approval via management CLI."
+
+[select-new-or-existing-first]
+body = "Select NEW or EXISTING operator first."
+
+[failed-list-ghosts]
+body = "Failed to list ghosts"
+
+[no-ghosts-for-operator]
+body = "No GHOST (ゴースト) exists for this operator. Create one via Discord first."
+
+[unknown-ghost-name-server]
+body = "Unknown ghost name"
+
+[failed-load-ghost]
+body = "Failed to load ghost"
+
+[ghost-not-owned]
+body = "Ghost does not belong to this operator"
+
+[failed-init-ghost-session]
+body = "Failed to initialize ghost session"
+
+[failed-create-session]
+body = "Failed to create session"
+
+[no-active-ghost]
+body = "No active ghost selected"
+
+[failed-init-ghost-db]
+body = "Failed to initialize ghost DB"
+
+[failed-init-session]
+body = "Failed to initialize session"
+
+[invalid-session]
+body = "Invalid session"
+
+[failed-list-sessions]
+body = "Failed to list sessions"
+
+[failed-switch-session]
+body = "Failed to switch session"
+
+[failed-delete-session]
+body = "Failed to delete session"
+
+[connected-puppet-master]
+body = "Connected to T-KOMA (ティーコマ) as the Puppet Master."
+
+[connected-logs]
+body = "Connected to T-KOMA (ティーコマ) logs"
+
+[error-internal-operator-status]
+body = "Internal error checking operator status"
+
+[anonymous-operator]
+body = "Anonymous Operator"

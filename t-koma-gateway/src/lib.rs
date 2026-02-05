@@ -1,5 +1,5 @@
 pub mod chat;
-pub mod deterministic_messages;
+pub mod content;
 pub mod discord;
 pub mod log_bridge;
 pub mod providers;

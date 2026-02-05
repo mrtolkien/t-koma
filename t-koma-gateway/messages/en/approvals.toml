@@ -1,0 +1,19 @@
+[approval-required]
+body = "Approval required to leave the workspace. Reply with APPROVE or DENY. Approval applies to the next action only."
+
+[approval-required-with-path]
+vars = ["path"]
+body = "Approval required to leave the workspace (requested: {{path}}). Reply with APPROVE or DENY. Approval applies to the next action only."
+
+[tool-loop-limit-reached]
+vars = ["limit", "extra"]
+body = "Tool execution reached the safety limit ({{limit}} steps). Reply with APPROVE to allow {{extra}} more steps, or reply with STEPS <n> to set a maximum."
+
+[tool-loop-denied]
+body = "Tool continuation denied."
+
+[no-pending-tool-loop]
+body = "There is no pending tool continuation to resolve."
+
+[no-pending-approval]
+body = "There is no pending approval to resolve."
