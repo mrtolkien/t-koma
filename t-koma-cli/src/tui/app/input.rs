@@ -1,0 +1,270 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use crate::tui::state::{Category, FocusPane, GateFilter};
+
+use super::{state::PromptKind, TuiApp};
+
+impl TuiApp {
+    pub(super) async fn handle_key(&mut self, key: KeyEvent) {
+        if self.prompt.kind.is_some() {
+            self.handle_prompt_key(key).await;
+            return;
+        }
+
+        match key.code {
+            KeyCode::Char('q') => self.should_exit = true,
+            KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => self.should_exit = true,
+            KeyCode::Esc => self.should_exit = true,
+            KeyCode::Tab => self.focus = self.focus.next(self.selected_category().has_options()),
+            KeyCode::Left | KeyCode::Char('h') => {
+                self.focus = self.focus.prev(self.selected_category().has_options())
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                self.focus = self.focus.next(self.selected_category().has_options())
+            }
+            KeyCode::Up | KeyCode::Char('k') => self.navigate_up().await,
+            KeyCode::Down | KeyCode::Char('j') => self.navigate_down().await,
+            KeyCode::Enter => self.activate().await,
+            _ => self.handle_gate_shortcuts(key).await,
+        }
+    }
+
+    async fn navigate_up(&mut self) {
+        match self.focus {
+            FocusPane::Categories => {
+                if self.category_idx > 0 {
+                    self.category_idx -= 1;
+                    self.options_idx = 0;
+                    self.content_idx = 0;
+                    self.sync_selection().await;
+                }
+            }
+            FocusPane::Options => {
+                if self.options_idx > 0 {
+                    self.options_idx -= 1;
+                    self.sync_selection().await;
+                }
+            }
+            FocusPane::Content => match self.selected_category() {
+                Category::Config => self.config_scroll = self.config_scroll.saturating_sub(1),
+                Category::Gate => self.gate_scroll = self.gate_scroll.saturating_sub(1),
+                _ => {
+                    if self.content_idx > 0 {
+                        self.content_idx -= 1;
+                    }
+                }
+            },
+        }
+    }
+
+    async fn navigate_down(&mut self) {
+        match self.focus {
+            FocusPane::Categories => {
+                if self.category_idx + 1 < Category::ALL.len() {
+                    self.category_idx += 1;
+                    self.options_idx = 0;
+                    self.content_idx = 0;
+                    self.sync_selection().await;
+                }
+            }
+            FocusPane::Options => {
+                let len = self.options_for(self.selected_category()).len();
+                if self.options_idx + 1 < len {
+                    self.options_idx += 1;
+                    self.sync_selection().await;
+                }
+            }
+            FocusPane::Content => match self.selected_category() {
+                Category::Config => self.config_scroll = self.config_scroll.saturating_add(1),
+                Category::Gate => self.gate_scroll = self.gate_scroll.saturating_add(1),
+                Category::Operators => {
+                    if self.content_idx + 1 < self.operators.len() {
+                        self.content_idx += 1;
+                    }
+                }
+                Category::Ghosts => {
+                    if self.content_idx + 1 < self.ghosts.len() {
+                        self.content_idx += 1;
+                    }
+                }
+            },
+        }
+    }
+
+    async fn activate(&mut self) {
+        match self.focus {
+            FocusPane::Categories => {
+                self.focus = if self.selected_category().has_options() {
+                    FocusPane::Options
+                } else {
+                    FocusPane::Content
+                };
+            }
+            FocusPane::Options => self.activate_option().await,
+            FocusPane::Content => {
+                if self.selected_category() == Category::Operators
+                    && self.operator_view == super::state::OperatorView::Pending
+                {
+                    self.approve_selected_operator().await;
+                }
+            }
+        }
+    }
+
+    async fn activate_option(&mut self) {
+        match self.selected_category() {
+            Category::Config => match self.options_idx {
+                0 => self.begin_prompt(PromptKind::AddModel, None),
+                1 => self.begin_prompt(PromptKind::SetDefaultModel, None),
+                2 => {
+                    self.settings.discord.enabled = !self.settings.discord.enabled;
+                    self.settings_dirty = true;
+                    self.refresh_settings_toml();
+                    self.status = format!("discord.enabled={}", self.settings.discord.enabled);
+                }
+                3 => {
+                    if let Err(e) = self.edit_in_editor() {
+                        self.status = format!("Editor failed: {}", e);
+                    }
+                }
+                4 => self.reload_settings(),
+                5 => self.save_settings(),
+                6 => self.restore_backup(),
+                _ => {}
+            },
+            Category::Operators => match self.options_idx {
+                0 => {
+                    self.operator_view = super::state::OperatorView::All;
+                    self.refresh_operators().await;
+                }
+                1 => self.begin_prompt(PromptKind::AddOperator, None),
+                2 => {
+                    self.operator_view = super::state::OperatorView::Pending;
+                    self.refresh_operators().await;
+                }
+                _ => {}
+            },
+            Category::Ghosts => match self.options_idx {
+                0 => self.refresh_ghosts().await,
+                1 => self.begin_prompt(PromptKind::NewGhost, None),
+                2 => {
+                    if let Some(name) = self.ghosts.get(self.content_idx).map(|g| g.name.clone()) {
+                        self.begin_prompt(PromptKind::DeleteGhostConfirmOne, Some(name));
+                    } else {
+                        self.status = "No ghost selected".to_string();
+                    }
+                }
+                _ => {}
+            },
+            Category::Gate => {}
+        }
+
+        self.refresh_metrics().await;
+    }
+
+    async fn handle_gate_shortcuts(&mut self, key: KeyEvent) {
+        if self.selected_category() != Category::Gate {
+            if self.selected_category() == Category::Operators
+                && self.focus == FocusPane::Content
+                && self.operator_view == super::state::OperatorView::Pending
+            {
+                match key.code {
+                    KeyCode::Char('a') => self.approve_selected_operator().await,
+                    KeyCode::Char('d') => self.deny_selected_operator().await,
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        match key.code {
+            KeyCode::Char('r') => self.restart_gateway().await,
+            KeyCode::Char('/') => self.begin_prompt(PromptKind::GateSearch, None),
+            KeyCode::Char(' ') => {
+                self.gate_paused = !self.gate_paused;
+                self.status = if self.gate_paused {
+                    "Log stream paused".to_string()
+                } else {
+                    "Log stream resumed".to_string()
+                };
+            }
+            KeyCode::Char('c') => {
+                self.gate_rows.clear();
+                self.status = "Logs cleared".to_string();
+            }
+            KeyCode::Char('1') => self.gate_filter = GateFilter::All,
+            KeyCode::Char('2') => self.gate_filter = GateFilter::Gateway,
+            KeyCode::Char('3') => self.gate_filter = GateFilter::Ghost,
+            KeyCode::Char('4') => self.gate_filter = GateFilter::Operator,
+            KeyCode::Char('5') => self.gate_filter = GateFilter::Transport,
+            KeyCode::Char('6') => self.gate_filter = GateFilter::Error,
+            KeyCode::Esc => self.gate_search = None,
+            _ => {}
+        }
+    }
+
+    fn begin_prompt(&mut self, kind: PromptKind, target_ghost: Option<String>) {
+        self.prompt.kind = Some(kind);
+        self.prompt.buffer.clear();
+        self.prompt.target_ghost = target_ghost;
+    }
+
+    async fn handle_prompt_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.prompt = super::state::PromptState::default();
+            }
+            KeyCode::Backspace => {
+                self.prompt.buffer.pop();
+            }
+            KeyCode::Char(c) => {
+                self.prompt.buffer.push(c);
+            }
+            KeyCode::Enter => {
+                let kind = self.prompt.kind;
+                let input = self.prompt.buffer.trim().to_string();
+                let target = self.prompt.target_ghost.clone();
+                self.prompt = super::state::PromptState::default();
+
+                match kind {
+                    Some(PromptKind::AddOperator) => self.add_operator(&input).await,
+                    Some(PromptKind::AddModel) => self.add_model(&input),
+                    Some(PromptKind::SetDefaultModel) => self.set_default_model(&input),
+                    Some(PromptKind::NewGhost) => self.add_ghost(&input).await,
+                    Some(PromptKind::DeleteGhostConfirmOne) => {
+                        if input == "DELETE" {
+                            self.begin_prompt(PromptKind::DeleteGhostConfirmTwo, target);
+                        } else {
+                            self.status = "Delete aborted".to_string();
+                        }
+                    }
+                    Some(PromptKind::DeleteGhostConfirmTwo) => {
+                        self.delete_ghost_confirmed(target.as_deref(), &input).await;
+                    }
+                    Some(PromptKind::GateSearch) => {
+                        self.gate_search = if input.is_empty() { None } else { Some(input) };
+                    }
+                    None => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) async fn sync_selection(&mut self) {
+        match self.selected_category() {
+            Category::Operators => {
+                self.operator_view = if self.options_idx == 2 {
+                    super::state::OperatorView::Pending
+                } else {
+                    super::state::OperatorView::All
+                };
+                self.refresh_operators().await;
+            }
+            Category::Ghosts => self.refresh_ghosts().await,
+            Category::Config => {}
+            Category::Gate => {}
+        }
+        self.refresh_metrics().await;
+    }
+}
