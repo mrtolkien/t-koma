@@ -5,6 +5,8 @@
 #[cfg(feature = "live-tests")]
 use insta::assert_json_snapshot;
 #[cfg(feature = "live-tests")]
+use serde::Serialize;
+#[cfg(feature = "live-tests")]
 use t_koma_gateway::tools::{Tool, ToolContext, file_edit::FileEditTool, shell::ShellTool};
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{ProviderContentBlock, extract_all_text};
@@ -220,5 +222,81 @@ async fn test_tool_use_file_edit() {
             ".id" => "[id]",
             ".content[].id" => "[tool_use_id]"
         }
+    );
+}
+
+#[cfg(feature = "live-tests")]
+#[derive(Serialize)]
+struct MultiToolSummary {
+    text_present: bool,
+    tool_use_count: usize,
+    tool_use_names: Vec<String>,
+}
+
+/// Test tool use - asks the model to include text plus two tool calls in one response
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_tool_use_text_and_multiple_tools_same_response() {
+    let default_model = common::load_default_model();
+    let client = default_model.client;
+    let shell_tool = ShellTool;
+    let file_edit_tool = FileEditTool;
+    let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
+
+    let prompt = r#"In a single response:
+1) Write one short sentence of normal text.
+2) Call the run_shell_command tool with {"command":"echo multi-tool-1"}.
+3) Call the replace tool with {"file_path":"/tmp/multi_tool_test.txt","old_string":"alpha","new_string":"beta"}.
+Do not ask questions. Do not wait for tool results. Do not add any extra text."#;
+
+    let response = client
+        .send_conversation(None, vec![], tools, Some(prompt), None, None)
+        .await
+        .expect("API call failed");
+
+    let text = extract_all_text(&response);
+    assert!(!text.trim().is_empty(), "Expected response text");
+
+    let tool_use_names: Vec<String> = response
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ProviderContentBlock::ToolUse { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(
+        tool_use_names.len(),
+        2,
+        "Expected exactly two tool calls in the response"
+    );
+
+    let text_present = response
+        .content
+        .iter()
+        .any(|block| matches!(block, ProviderContentBlock::Text { .. }));
+
+    let mut tool_use_names_sorted = tool_use_names.clone();
+    tool_use_names_sorted.sort();
+
+    let summary = MultiToolSummary {
+        text_present,
+        tool_use_count: tool_use_names_sorted.len(),
+        tool_use_names: tool_use_names_sorted,
+    };
+
+    assert_json_snapshot!(
+        summary,
+        @r###"
+    {
+      "text_present": true,
+      "tool_use_count": 2,
+      "tool_use_names": [
+        "replace",
+        "run_shell_command"
+      ]
+    }
+    "###
     );
 }
