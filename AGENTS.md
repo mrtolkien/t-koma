@@ -20,8 +20,8 @@ important information in vibe/knowledge.
 - OPERATOR (オペレータ): End user. Approved via management CLI.
 - INTERFACE: A messaging endpoint for an operator (Discord, TUI). An operator
   can have multiple interfaces.
-- GHOST (ゴースト): Agent with its own DB and workspace (same folder
-  as ghost DB).
+- GHOST (ゴースト): Agent with its own DB and workspace (same folder as ghost
+  DB).
 - SESSION: A chat thread between an operator and a ghost (stored in ghost DB).
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
@@ -60,8 +60,8 @@ Relationship summary:
   `.../t-koma/ghosts/{name}/db.sqlite3`.
 - Ghost workspace CWD is the same folder as its DB.
 - Reference schemas: `t-koma-db/schema.sql`, `t-koma-db/ghost_schema.sql`.
-- Shared SQLite runtime bootstrap lives in
-  `t-koma-db/src/sqlite_runtime.rs` (sqlite-vec init, pool options, PRAGMAs).
+- Shared SQLite runtime bootstrap lives in `t-koma-db/src/sqlite_runtime.rs`
+  (sqlite-vec init, pool options, PRAGMAs).
 
 Key types:
 
@@ -71,12 +71,14 @@ Key types:
 - `OperatorStatus`, `Platform`, `ContentBlock`
 
 Path override knobs for testing:
+
 - `T_KOMA_CONFIG_DIR`: overrides config root dir used by `Settings` (expects
   `config.toml` inside this dir).
 - `T_KOMA_DATA_DIR`: overrides data root dir used by `KomaDbPool` and ghost
   workspace/DB paths.
 
 Ghost tool state persistence:
+
 - `ghosts.cwd` stores the current working directory for tools.
 
 Test helpers:
@@ -88,8 +90,7 @@ Test helpers:
 
 Transport layers (Discord, WebSocket) do NOT manage tools. They call
 `SessionChat.chat()` via `AppState`. Keep tool logic in
-`t-koma-gateway/src/session.rs`.
-Provider-neutral chat history is defined in
+`t-koma-gateway/src/session.rs`. Provider-neutral chat history is defined in
 `t-koma-gateway/src/chat/history.rs`; provider adapters convert from that
 neutral model internally.
 
@@ -129,8 +130,8 @@ These are hard rules to preserve code quality and discoverability.
 
 - Keep `t-koma-core` focused on shared protocol/config types.
 - Keep `t-koma-db` focused on persistence and schema concerns.
-- Convert between DB records and provider payloads at gateway boundaries; do
-  not leak provider wire types into DB/core.
+- Convert between DB records and provider payloads at gateway boundaries; do not
+  leak provider wire types into DB/core.
 
 ### Safety rules
 
@@ -185,6 +186,14 @@ Full examples live in:
 - `web_fetch` performs HTTP fetch + HTML-to-text conversion (no JavaScript).
 - Rate limits for Brave are enforced at ~1 query/second.
 - Reference: `vibe/knowledge/web_tools.md`.
+
+## Gateway Content (Brief)
+
+- Messages: add to `t-koma-gateway/messages/en/*.toml` as `[message-id]` with
+  `body` and optional `vars`/`title`. Use `{{var}}`.
+- Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
+  and a `# loaded:` comment.
+- Update `t-koma-gateway/src/content/ids.rs` after changes.
 
 ## Common Tasks (Pointer Only)
 

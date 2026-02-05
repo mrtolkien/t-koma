@@ -1,0 +1,95 @@
+[ghost-name-prompt]
+body = '''
+┌───────────────────────────────────────────────┐
+│ T-KOMA (ティーコマ) // GHOST INITIALIZATION    │
+├───────────────────────────────────────────────┤
+│ PUPPET MASTER ACCESS WARNING                   │
+│ The Puppet Master has full access to this     │
+│ GHOST (ゴースト)'s memory and workspace.      │
+│                                               │
+│ Only proceed if you trust the Puppet Master.  │
+├───────────────────────────────────────────────┤
+│ Enter a GHOST name (letters/numbers, spaces,  │
+│ '-', '_' plus kanji/katakana). Example: ALPHA │
+└───────────────────────────────────────────────┘
+
+'''
+
+[ghost-created-header]
+body = '''
+┌───────────────────────────────┐
+│ GHOST (ゴースト) ONLINE        │
+└───────────────────────────────┘
+
+'''
+
+[ghost-created-header-with-name]
+vars = ["ghost_name"]
+body = '''
+┌───────────────────────────────┐
+│ GHOST (ゴースト) ONLINE        │
+└───────────────────────────────┘
+GHOST: {{ghost_name}}
+
+'''
+
+[active-ghost-set]
+vars = ["ghost_name"]
+body = '''
+Active GHOST set to: {{ghost_name}}
+
+┌───────────────────────────────┐
+│ GHOST (ゴースト) ONLINE        │
+└───────────────────────────────┘
+
+'''
+
+[invalid-ghost-name]
+vars = ["error", "ghost_name_prompt"]
+body = '''
+Invalid ghost name. {{error}}
+
+{{ghost_name_prompt}}
+
+'''
+
+[unknown-ghost-name]
+vars = ["ghost_list"]
+body = '''
+Unknown GHOST name.
+
+{{ghost_list}}
+
+'''
+
+[select-ghost-prompt]
+vars = ["ghost_list"]
+body = '''
+Select a GHOST by typing: `ghost: NAME`
+
+{{ghost_list}}
+
+'''
+
+[ghost-list]
+vars = ["ghost_list"]
+body = '''
+┌───────────────────────────────┐
+│ AVAILABLE GHOSTS (ゴースト)   │
+├───────────────────────────────┤
+{{ghost_list}}
+└───────────────────────────────┘
+
+'''
+
+[error-failed-load-ghosts]
+body = "Sorry, I failed to load your ghosts."
+
+[error-failed-init-ghost-storage]
+body = "Failed to initialize ghost storage."
+
+[error-ghost-boot-failed]
+body = "Ghost failed to boot. Try again later."
+
+[error-missing-bootstrap]
+body = "t-koma-gateway/prompts/bootstrap.md missing; cannot initialize ghost."

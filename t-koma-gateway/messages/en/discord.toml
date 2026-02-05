@@ -1,0 +1,33 @@
+[discord-interface-prompt]
+body = '''
+┌───────────────────────────────────────────────┐
+│ T-KOMA (ティーコマ) // INTERFACE BINDING       │
+├───────────────────────────────────────────────┤
+│ This interface must belong to:                │
+│   - an EXISTING OPERATOR (オペレータ)          │
+│   - a NEW OPERATOR (オペレータ)                │
+│                                               │
+│ Reply with:                                   │
+│   NEW  -> create a new operator               │
+│   EXISTING -> link to an existing operator    │
+└───────────────────────────────────────────────┘
+
+'''
+
+[discord-existing-operator-todo]
+body = "Linking an existing operator is not implemented yet. TODO."
+
+[error-failed-create-operator-discord]
+body = "Failed to create operator."
+
+[error-failed-create-interface-discord]
+body = "Failed to create interface."
+
+[error-failed-load-operator-discord]
+body = "Failed to load operator."
+
+[error-failed-create-session-discord]
+body = "Failed to create a session for your ghost."
+
+[error-init-session-discord]
+body = "Sorry, an error occurred initializing your session."

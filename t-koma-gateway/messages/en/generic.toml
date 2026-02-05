@@ -1,0 +1,8 @@
+[error-generic]
+body = "Sorry, an error occurred. Please try again later."
+
+[error-processing-request]
+body = "Sorry, I encountered an error processing your request."
+
+[access-pending-discord]
+body = "Your access request is pending approval. The Puppet Master will review it."
