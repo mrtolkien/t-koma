@@ -14,7 +14,7 @@ use super::{
     reference_topic_list::ReferenceTopicListTool,
     reference_topic_search::ReferenceTopicSearchTool,
     reference_topic_update::ReferenceTopicUpdateTool,
-    search::SearchTool, shell::ShellTool,
+    search::SearchTool, search_diary::SearchDiaryTool, shell::ShellTool,
     web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
@@ -52,6 +52,7 @@ impl ToolManager {
             Box::new(MemoryNoteValidateTool),
             Box::new(MemoryNoteCommentTool),
             Box::new(ReferenceTopicCreateTool),
+            Box::new(SearchDiaryTool),
             Box::new(ReferenceTopicSearchTool),
             Box::new(ReferenceTopicListTool),
             Box::new(ReferenceTopicUpdateTool),
@@ -117,6 +118,7 @@ mod tests {
         assert!(tool_names.contains(&"list_dir"));
         assert!(tool_names.contains(&"web_search"));
         assert!(tool_names.contains(&"web_fetch"));
+        assert!(tool_names.contains(&"search_diary"));
     }
 
     #[tokio::test]
