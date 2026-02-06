@@ -6,7 +6,7 @@ use walkdir::WalkDir;
 use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
-use crate::ingest::{ingest_markdown, ingest_reference_file, ingest_reference_topic};
+use crate::ingest::{ingest_diary_entry, ingest_markdown, ingest_reference_file, ingest_reference_topic};
 use crate::models::{KnowledgeScope, SourceRole};
 use crate::paths::{ghost_diary_root, ghost_notes_root, shared_notes_root, shared_references_root};
 use crate::storage::{
@@ -34,8 +34,12 @@ pub async fn reconcile_ghost(
     let diary_root = ghost_diary_root(settings, ghost_name)?;
     let owner = Some(ghost_name.to_string());
 
-    index_markdown_tree(settings, store, embedder, &notes_root, KnowledgeScope::GhostNote, owner.clone()).await?;
-    index_markdown_tree(settings, store, embedder, &diary_root, KnowledgeScope::GhostDiary, owner).await?;
+    index_markdown_tree(settings, store, embedder, &notes_root, KnowledgeScope::GhostNote, owner).await?;
+    index_diary_tree(settings, store, embedder, &diary_root, ghost_name).await?;
+
+    // TODO: ghost reference indexing — GhostReference scope exists in the enum
+    // but index_reference_topics() and reference_search() hardcode SharedReference.
+    // Add ghost-scoped reference indexing here when needed.
 
     Ok(())
 }
@@ -138,6 +142,57 @@ async fn index_reference_files(
         .bind(role.as_str())
         .execute(store)
         .await?;
+    }
+
+    Ok(())
+}
+
+/// Index diary entries — plain markdown files named `YYYY-MM-DD.md` (no front matter).
+async fn index_diary_tree(
+    settings: &KnowledgeSettings,
+    store: &SqlitePool,
+    embedder: &EmbeddingClient,
+    root: &Path,
+    ghost_name: &str,
+) -> KnowledgeResult<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+
+    let date_re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
+
+    for entry in WalkDir::new(root).into_iter().filter_map(|entry| entry.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|v| v.to_str()) != Some("md") {
+            continue;
+        }
+        // Only process files whose stem matches YYYY-MM-DD
+        match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) if date_re.is_match(s) => {}
+            _ => continue,
+        }
+
+        let raw = tokio::fs::read_to_string(path).await?;
+        let ingested = ingest_diary_entry(settings, ghost_name, path, &raw).await?;
+
+        if is_unchanged(store, path, &ingested.note.content_hash).await? {
+            continue;
+        }
+
+        upsert_note(store, &ingested.note).await?;
+        replace_links(store, &ingested.note.id, Some(ghost_name), &ingested.links).await?;
+        let chunk_ids = replace_chunks(
+            store,
+            &ingested.note.id,
+            &ingested.note.title,
+            &ingested.note.note_type,
+            &ingested.chunks,
+        )
+        .await?;
+        embed_chunks(settings, embedder, store, &ingested.chunks, &chunk_ids).await?;
     }
 
     Ok(())
