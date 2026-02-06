@@ -3,9 +3,12 @@ use serde_json::Value;
 use super::{
     Tool, ToolContext, change_directory::ChangeDirectoryTool, create_file::CreateFileTool,
     file_edit::FileEditTool, find_files::FindFilesTool, list_dir::ListDirTool,
-    memory_capture::MemoryCaptureTool, memory_get::MemoryGetTool, memory_search::MemorySearchTool,
-    read_file::ReadFileTool, reference_search::ReferenceSearchTool, search::SearchTool,
-    shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
+    memory_capture::MemoryCaptureTool, memory_get::MemoryGetTool,
+    memory_note_comment::MemoryNoteCommentTool, memory_note_create::MemoryNoteCreateTool,
+    memory_note_update::MemoryNoteUpdateTool, memory_note_validate::MemoryNoteValidateTool,
+    memory_search::MemorySearchTool, read_file::ReadFileTool,
+    reference_search::ReferenceSearchTool, search::SearchTool, shell::ShellTool,
+    web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
 /// Central manager for all AI tools
@@ -35,6 +38,10 @@ impl ToolManager {
             Box::new(MemoryGetTool),
             Box::new(MemoryCaptureTool),
             Box::new(ReferenceSearchTool),
+            Box::new(MemoryNoteCreateTool),
+            Box::new(MemoryNoteUpdateTool),
+            Box::new(MemoryNoteValidateTool),
+            Box::new(MemoryNoteCommentTool),
         ];
         Self { tools }
     }

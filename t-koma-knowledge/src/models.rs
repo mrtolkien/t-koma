@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum KnowledgeScope {
@@ -133,4 +134,40 @@ pub struct NoteDocument {
     pub parent_id: Option<String>,
     pub comments_json: Option<String>,
     pub body: String,
+}
+
+/// Input for creating a new note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteCreateRequest {
+    pub title: String,
+    pub note_type: String,
+    pub scope: MemoryScope,
+    pub body: String,
+    pub parent: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub source: Option<Vec<String>>,
+    pub trust_score: Option<i64>,
+}
+
+/// Input for updating an existing note.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NoteUpdateRequest {
+    pub note_id: String,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub trust_score: Option<i64>,
+    pub parent: Option<String>,
+}
+
+/// Result of a note create/update operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteWriteResult {
+    pub note_id: String,
+    pub path: PathBuf,
+}
+
+/// Generate a stable note ID.
+pub fn generate_note_id() -> String {
+    Uuid::new_v4().to_string()
 }
