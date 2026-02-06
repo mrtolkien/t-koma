@@ -6,9 +6,9 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
-    KnowledgeScope, NoteCreateRequest, NoteDocument, NoteQuery, NoteResult, NoteSearchScope,
-    NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus, ReferenceQuery,
-    ReferenceSearchResult, TopicCreateRequest, TopicCreateResult, TopicListEntry,
+    DiaryQuery, DiarySearchResult, KnowledgeScope, NoteCreateRequest, NoteDocument, NoteQuery,
+    NoteResult, NoteSearchScope, NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus,
+    ReferenceQuery, ReferenceSearchResult, TopicCreateRequest, TopicCreateResult, TopicListEntry,
     TopicSearchResult, TopicUpdateRequest, WriteScope,
 };
 use crate::paths::knowledge_db_path;
@@ -90,6 +90,24 @@ impl KnowledgeEngine {
         results.truncate(max_results);
 
         Ok(results)
+    }
+
+    /// Search diary entries for a ghost using hybrid BM25 + dense search.
+    pub async fn search_diary(
+        &self,
+        ghost_name: &str,
+        query: DiaryQuery,
+    ) -> KnowledgeResult<Vec<DiarySearchResult>> {
+        self.maybe_reconcile(ghost_name, KnowledgeScope::GhostDiary)
+            .await?;
+        search::search_diary(
+            &self.settings,
+            &self.embedder,
+            self.store.pool(),
+            &query,
+            ghost_name,
+        )
+        .await
     }
 
     pub async fn memory_get(
