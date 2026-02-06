@@ -108,12 +108,12 @@ pub(crate) async fn topic_create_execute(
         };
 
         let file_note_id = generate_note_id();
-        let file_ingested = crate::ingest::ingest_markdown(
+        let file_ingested = crate::ingest::ingest_reference_file(
             settings,
-            KnowledgeScope::Reference,
-            None,
             &file_path,
             &file_content,
+            &file_note_id,
+            file_name,
         )
         .await?;
         crate::storage::upsert_note(pool, &file_ingested.note).await?;

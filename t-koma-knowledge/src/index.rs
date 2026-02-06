@@ -58,7 +58,9 @@ async fn index_reference_topics(
             continue;
         }
         let path = entry.path();
-        if path.extension().and_then(|v| v.to_str()) != Some("md") {
+        // Only process topic.md files — other .md files in reference dirs
+        // are fetched content (no front matter) handled by index_reference_files.
+        if path.file_name().and_then(|v| v.to_str()) != Some("topic.md") {
             continue;
         }
 
