@@ -163,6 +163,17 @@ These are hard rules to preserve code quality and discoverability.
 - Convert between DB records and provider payloads at gateway boundaries; do not
   leak provider wire types into DB/core.
 
+### Tool design rules
+
+- **Create tools with extreme caution.** Too many tools confuses models — they
+  struggle to select the right tool at the right time. Prefer fewer,
+  well-designed tools over many granular ones.
+- Administrative operations (delete, refresh, bulk management) belong in the
+  CLI/TUI, not as ghost-facing tools. Only expose tools that the ghost needs
+  during a conversation.
+- Each tool must have a clear, non-overlapping purpose. If two tools could
+  plausibly handle the same request, merge them or sharpen their descriptions.
+
 ### Safety rules
 
 - No endpoint may bypass chat orchestration for interactive conversations.
@@ -227,21 +238,56 @@ The knowledge system lives in `t-koma-knowledge` with gateway tools in
 - **SHARED**: Visible to all ghosts. Stored in `xdg_data/knowledge/`.
 - **PRIVATE** (ghost_private, ghost_projects, ghost_diary): Owned by a single
   ghost. Stored in ghost workspace subdirs.
-- **REFERENCE**: System-maintained read-only corpus. Indexed from topic files.
+- **REFERENCE**: Ghost-curated reference corpus. Ghosts create reference topics
+  by fetching external sources (git repos, web docs) and writing curated
+  descriptions. Always shared. Staleness tracked via `fetched_at` +
+  `max_age_days`. Spec: `vibe/specs/ghost-reference-management.md`.
 
 Cross-scope rule: ghost notes can link to shared notes, but shared notes never
 see private data.
 
 ### Tools
 
+Memory tools:
+
 - `memory_search`: Hybrid BM25 + dense search across scopes.
 - `memory_get`: Retrieve a note by ID or title.
 - `memory_capture`: Write raw text to ghost or shared inbox.
-- `reference_search`: Search reference corpus only.
 - `memory_note_create`: Create a structured note with front matter.
 - `memory_note_update`: Patch an existing note (title, body, tags, etc.).
 - `memory_note_validate`: Mark a note as validated, optionally adjust trust.
 - `memory_note_comment`: Append a timestamped comment to a note.
+
+Reference tools:
+
+- `reference_search`: Search within a reference topic's files.
+- `reference_topic_create`: Create a new reference topic from git/web sources.
+- `reference_topic_search`: Semantic search over existing reference topics.
+- `reference_topic_list`: List all topics with staleness info.
+- `reference_topic_update`: Update topic metadata (status, body, tags).
+
+Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools.
+
+### Topic Discovery
+
+- The 10 most recent reference topics are injected into the ghost's system
+  prompt during `add_ghost_prompt_context()` in `session.rs`.
+- For older topics, use `reference_topic_search` with a semantic query.
+- The `reference-researcher` default skill teaches ghosts how to research and
+  create reference topics effectively.
+
+### Approval System
+
+Tools that need operator confirmation use `ApprovalReason` in
+`tools/context.rs`. Current variants:
+
+- `WorkspaceEscape(path)`: Tool wants to access files outside the workspace.
+- `ReferenceTopicCreate { title, summary }`: Ghost wants to fetch external
+  sources into a reference topic.
+
+The two-phase pattern: Phase 1 returns `APPROVAL_REQUIRED:` error with metadata.
+On approval, Phase 2 re-executes with `has_approval()` returning true. See
+`reference_topic_create.rs` for the canonical example.
 
 ### Testing
 
