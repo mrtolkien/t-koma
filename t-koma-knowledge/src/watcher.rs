@@ -35,12 +35,14 @@ pub async fn run_ghost_watcher(
 ) -> KnowledgeResult<()> {
     let store = KnowledgeStore::open(&knowledge_db_path(&settings)?, settings.embedding_dim).await?;
     let embedder = EmbeddingClient::new(&settings);
-    let ghost_root = crate::paths::ghost_notes_root(&settings, &ghost_name)?;
+    let notes = crate::paths::ghost_notes_root(&settings, &ghost_name)?;
+    let diary = crate::paths::ghost_diary_root(&settings, &ghost_name)?;
+    let references = crate::paths::ghost_references_root(&settings, &ghost_name)?;
     run_watcher(
         settings,
         store,
         embedder,
-        vec![ghost_root],
+        vec![notes, diary, references],
         KnowledgeScope::GhostNote,
         Some(ghost_name),
     )
