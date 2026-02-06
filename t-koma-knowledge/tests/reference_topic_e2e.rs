@@ -458,8 +458,6 @@ async fn dioxus_full_pipeline() {
         "top_result": {
             "topic_id": &results[0].topic_id,
             "title": &results[0].title,
-            "status": &results[0].status,
-            "is_stale": results[0].is_stale,
             "tags": &results[0].tags,
         },
     }));
@@ -469,7 +467,6 @@ async fn dioxus_full_pipeline() {
     let list = f.engine.topic_list(false).await.expect("topic_list");
     assert_eq!(list.len(), 1, "should have exactly one topic");
     assert_eq!(list[0].title, "Dioxus - Rust UI Framework");
-    assert!(!list[0].is_stale, "freshly created topic should not be stale");
     assert!(list[0].file_count > 0, "should have files");
 
     // Validate file_count matches what we indexed
@@ -490,10 +487,8 @@ async fn dioxus_full_pipeline() {
         "topic_list": {
             "count": list.len(),
             "title": &list[0].title,
-            "status": &list[0].status,
-            "is_stale": list[0].is_stale,
             "file_count": list[0].file_count,
-            "source_count": list[0].source_count,
+            "collections": list[0].collections,
             "tags": &list[0].tags,
         },
         "recent_topics": {
