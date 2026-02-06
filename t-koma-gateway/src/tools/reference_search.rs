@@ -17,6 +17,7 @@ struct ToolSearchOptions {
     graph_max: Option<usize>,
     bm25_limit: Option<usize>,
     dense_limit: Option<usize>,
+    doc_boost: Option<f32>,
 }
 
 impl From<ToolSearchOptions> for t_koma_knowledge::models::SearchOptions {
@@ -27,6 +28,7 @@ impl From<ToolSearchOptions> for t_koma_knowledge::models::SearchOptions {
             graph_max: value.graph_max,
             bm25_limit: value.bm25_limit,
             dense_limit: value.dense_limit,
+            doc_boost: value.doc_boost,
         }
     }
 }
@@ -40,7 +42,7 @@ impl Tool for ReferenceSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the reference corpus by topic and question."
+        "Search the reference corpus by topic and question. Returns full topic context and ranked file chunks."
     }
 
     fn input_schema(&self) -> Value {
@@ -62,7 +64,8 @@ impl Tool for ReferenceSearchTool {
                         "graph_depth": {"type": "integer", "minimum": 0},
                         "graph_max": {"type": "integer", "minimum": 0},
                         "bm25_limit": {"type": "integer", "minimum": 1},
-                        "dense_limit": {"type": "integer", "minimum": 1}
+                        "dense_limit": {"type": "integer", "minimum": 1},
+                        "doc_boost": {"type": "number", "minimum": 0.0, "description": "Boost multiplier for documentation files. Default: 1.5."}
                     },
                     "additionalProperties": false
                 }
@@ -76,7 +79,9 @@ impl Tool for ReferenceSearchTool {
         Some(
             "Use reference_search to find information in the curated reference corpus.\n\
             - First matches the `topic` against ReferenceTopic notes, then searches within that topic's files.\n\
-            - Always operates on the reference scope (read-only, system-maintained).\n\
+            - Returns the full topic.md body as LLM context alongside ranked file chunks.\n\
+            - Documentation files are boosted over code files by default (1.5x).\n\
+            - Obsolete files are excluded; problematic files are penalized.\n\
             - Use for documentation, source code references, and external knowledge.",
         )
     }

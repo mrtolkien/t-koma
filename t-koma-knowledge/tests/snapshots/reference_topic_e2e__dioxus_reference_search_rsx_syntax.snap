@@ -1,0 +1,20 @@
+---
+source: t-koma-knowledge/tests/reference_topic_e2e.rs
+expression: "build_search_snapshot(question, &results, 3)"
+---
+query: RSX syntax JSX-like markup rendering elements
+total_hits: 8
+unique_files: 6
+top_results:
+  - rank: 1
+    title: dioxuslabs-com-learn-0-6.md
+    note_type: ReferenceFile
+    snippet_preview: "The Dioxus syntax is similar to React's JSX markup, borrowing React's component\nand hooks approach. All components are Rust functions that take `Prope"
+  - rank: 2
+    title: examples/09-reference/rsx_usage.rs
+    note_type: ReferenceFile
+    snippet_preview: "fn app() -> Element {\n    let formatting = \"formatting!\";\n    let formatting_tuple = (\"a\", \"b\");\n    let lazy_fmt = format_args!(\"lazily formatted tex"
+  - rank: 3
+    title: examples/10-integrations/pwa/src/main.rs
+    note_type: ReferenceFile
+    snippet_preview: "fn app() -> Element {\n    rsx! (\n        div { style: \"text-align: center;\",\n            h1 { \"🌗 Dioxus 🚀\" }\n            h3 { \"Frontend that scales.\" "

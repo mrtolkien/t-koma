@@ -27,6 +27,7 @@ impl From<ToolSearchOptions> for t_koma_knowledge::models::SearchOptions {
             graph_max: value.graph_max,
             bm25_limit: value.bm25_limit,
             dense_limit: value.dense_limit,
+            doc_boost: None,
         }
     }
 }

@@ -93,6 +93,8 @@ pub struct SearchOptions {
     pub graph_max: Option<usize>,
     pub bm25_limit: Option<usize>,
     pub dense_limit: Option<usize>,
+    /// Boost multiplier for documentation files in reference search. Overrides config default.
+    pub doc_boost: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +222,105 @@ impl std::str::FromStr for TopicStatus {
     }
 }
 
+/// Role of a reference source: documentation or code.
+///
+/// Determines the `note_type` stored in the DB (`ReferenceDocs` vs `ReferenceCode`)
+/// and influences search ranking via `doc_boost`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceRole {
+    #[default]
+    Code,
+    Docs,
+}
+
+impl SourceRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Code => "code",
+            Self::Docs => "docs",
+        }
+    }
+
+    /// Infer role from source type if not explicitly set.
+    pub fn infer(source_type: &str) -> Self {
+        match source_type {
+            "web" => Self::Docs,
+            _ => Self::Code,
+        }
+    }
+
+    /// Map to the reference note_type for DB storage.
+    pub fn to_note_type(&self) -> &'static str {
+        match self {
+            Self::Docs => "ReferenceDocs",
+            Self::Code => "ReferenceCode",
+        }
+    }
+}
+
+impl std::fmt::Display for SourceRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for SourceRole {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "code" => Ok(Self::Code),
+            "docs" => Ok(Self::Docs),
+            other => Err(format!("unknown source role: {}", other)),
+        }
+    }
+}
+
+/// Status of an individual reference file within a topic.
+///
+/// Controls search ranking and filtering:
+/// - **Active**: normal ranking
+/// - **Problematic**: included but penalized (0.5x score)
+/// - **Obsolete**: excluded from search entirely
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ReferenceFileStatus {
+    #[default]
+    Active,
+    /// Partially wrong — check topic notes for caveats.
+    Problematic,
+    /// Completely wrong / outdated — excluded from search.
+    Obsolete,
+}
+
+impl ReferenceFileStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Problematic => "problematic",
+            Self::Obsolete => "obsolete",
+        }
+    }
+}
+
+impl std::fmt::Display for ReferenceFileStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for ReferenceFileStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(Self::Active),
+            "problematic" => Ok(Self::Problematic),
+            "obsolete" => Ok(Self::Obsolete),
+            other => Err(format!("unknown reference file status: {}", other)),
+        }
+    }
+}
+
 /// Source descriptor for a reference topic.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicSourceInput {
@@ -229,6 +330,8 @@ pub struct TopicSourceInput {
     #[serde(rename = "ref")]
     pub ref_name: Option<String>,
     pub paths: Option<Vec<String>>,
+    /// Role of the source content (docs vs code). Inferred from source_type if not set.
+    pub role: Option<SourceRole>,
 }
 
 /// Input for creating a new reference topic.
@@ -287,6 +390,17 @@ pub struct TopicUpdateRequest {
     pub max_age_days: Option<i64>,
     pub body: Option<String>,
     pub tags: Option<Vec<String>>,
+}
+
+/// Result of a `reference_search` query, including full topic context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceSearchResult {
+    /// Full topic.md body — context for the LLM.
+    pub topic_body: String,
+    pub topic_title: String,
+    pub topic_id: String,
+    /// Ranked file chunks.
+    pub results: Vec<MemoryResult>,
 }
 
 /// Generate a stable note ID.

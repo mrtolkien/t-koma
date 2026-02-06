@@ -1,0 +1,7 @@
+---
+source: t-koma-knowledge/tests/reference_topic_e2e.rs
+expression: "serde_json::json!({\n    \"summary_length\": summary.len(), \"contains_repo_name\":\n    summary.contains(\"dioxus\") || summary.contains(\"Dioxus\"),\n    \"summary_preview\": summary.chars().take(200).collect::<String>(),\n})"
+---
+contains_repo_name: true
+summary_length: 31
+summary_preview: "DioxusLabs/dioxus: ~51 MB, Rust"

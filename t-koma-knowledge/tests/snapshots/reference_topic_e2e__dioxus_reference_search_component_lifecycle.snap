@@ -1,0 +1,20 @@
+---
+source: t-koma-knowledge/tests/reference_topic_e2e.rs
+expression: "build_search_snapshot(question, &results, 3)"
+---
+query: component lifecycle hooks use_effect cleanup
+total_hits: 8
+unique_files: 6
+top_results:
+  - rank: 1
+    title: examples/05-using-async/backgrounded_futures.rs
+    note_type: ReferenceFile
+    snippet_preview: "fn Child(count: WriteSignal<i32>) -> Element {\n    let mut early_return = use_signal(|| false);\n\n    let early = rsx! {\n        button { onclick: move"
+  - rank: 2
+    title: examples/05-using-async/backgrounded_futures.rs
+    note_type: ReferenceFile
+    snippet_preview: "fn app() -> Element {\n    let mut show_child = use_signal(|| true);\n    let mut count = use_signal(|| 0);\n\n    let child = use_memo(move || {\n        "
+  - rank: 3
+    title: examples/04-managing-state/memo_chain.rs
+    note_type: ReferenceFile
+    snippet_preview: "fn Child(state: Memo<isize>, items: Memo<Vec<isize>>, depth: ReadSignal<usize>) -> Element {\n    // These memos don't get re-computed when early retur"

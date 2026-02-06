@@ -12,6 +12,7 @@ struct TopicSourceInput {
     #[serde(rename = "ref")]
     ref_name: Option<String>,
     paths: Option<Vec<String>>,
+    role: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +71,11 @@ impl Tool for ReferenceTopicCreateTool {
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": "Path filters within the repo (e.g. 'docs/', 'src/'). Omit to fetch entire repo."
+                            },
+                            "role": {
+                                "type": "string",
+                                "enum": ["docs", "code"],
+                                "description": "Role of the source content. 'docs' for documentation (boosted in search), 'code' for source code. Inferred from source type if omitted (web→docs, git→code)."
                             }
                         },
                         "required": ["type", "url"],
@@ -106,7 +112,10 @@ impl Tool for ReferenceTopicCreateTool {
             - The operator will be asked to approve before the fetch begins.\n\
             - If the operator denies (too large), retry with a paths filter: prioritize README.md, docs/, examples/.\n\
             - Always write a meaningful body that summarizes the library's purpose and key concepts.\n\
-            - Always search for existing topics first (check system prompt + reference_topic_search).",
+            - Always search for existing topics first (check system prompt + reference_topic_search).\n\
+            - Set `role: \"docs\"` for documentation sources and `role: \"code\"` for code repos. Web sources default to docs.\n\
+            - ALWAYS look for a separate documentation repo or docsite. Docs are boosted in search results.\n\
+            - Use the `reference-researcher` skill for best practices on creating reference topics.",
         )
     }
 
@@ -163,6 +172,7 @@ fn to_knowledge_request(input: &TopicCreateInput) -> t_koma_knowledge::TopicCrea
                 url: s.url.clone(),
                 ref_name: s.ref_name.clone(),
                 paths: s.paths.clone(),
+                role: s.role.as_deref().and_then(|r| r.parse().ok()),
             })
             .collect(),
         tags: input.tags.clone(),

@@ -1,0 +1,15 @@
+---
+source: t-koma-knowledge/tests/reference_topic_e2e.rs
+expression: "serde_json::json!({\n    \"total_results\": results.len(), \"top_result\":\n    {\n        \"topic_id\": &results[0].topic_id, \"title\": &results[0].title,\n        \"status\": &results[0].status, \"is_stale\": results[0].is_stale, \"tags\":\n        &results[0].tags,\n    },\n})"
+---
+top_result:
+  is_stale: false
+  status: active
+  tags:
+    - dioxus
+    - framework
+    - rust
+    - ui
+  title: Dioxus - Rust UI Framework
+  topic_id: 86086dbe-0380-4479-8c6b-58b5aea8595f
+total_results: 1

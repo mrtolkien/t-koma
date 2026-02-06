@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS reference_files (
     topic_id TEXT NOT NULL,
     note_id TEXT NOT NULL,
     path TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'code',
+    status TEXT NOT NULL DEFAULT 'active',
     PRIMARY KEY(topic_id, note_id)
 );
 

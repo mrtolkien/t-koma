@@ -248,6 +248,21 @@ pub(crate) async fn hydrate_summaries(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<NoteSummary>> {
+    hydrate_summaries_boosted(pool, ranked, scope, ghost_name, 1.0, &[]).await
+}
+
+/// Hydrate summaries with doc_boost and problematic file penalties.
+///
+/// - `doc_boost`: multiplier applied to `ReferenceDocs` notes (1.0 = no boost)
+/// - `problematic_ids`: note IDs with `problematic` status (get 0.5x penalty)
+pub(crate) async fn hydrate_summaries_boosted(
+    pool: &SqlitePool,
+    ranked: &[(i64, f32)],
+    scope: KnowledgeScope,
+    ghost_name: &str,
+    doc_boost: f32,
+    problematic_ids: &[String],
+) -> KnowledgeResult<Vec<NoteSummary>> {
     if ranked.is_empty() {
         return Ok(Vec::new());
     }
@@ -285,6 +300,15 @@ pub(crate) async fn hydrate_summaries(
         if let Some((id, title, note_type, path, trust_score, scope, content)) = row {
             let snippet = content.chars().take(200).collect::<String>();
             let trust_boost = 1.0 + (trust_score as f32 / 20.0);
+            let type_boost = match note_type.as_str() {
+                "ReferenceDocs" => doc_boost,
+                _ => 1.0,
+            };
+            let status_factor = if problematic_ids.contains(&id) {
+                0.5
+            } else {
+                1.0
+            };
             summaries.push(NoteSummary {
                 id,
                 title,
@@ -292,7 +316,7 @@ pub(crate) async fn hydrate_summaries(
                 path: path.into(),
                 scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
                 trust_score,
-                score: *score * trust_boost,
+                score: *score * trust_boost * type_boost * status_factor,
                 snippet,
             });
         }
