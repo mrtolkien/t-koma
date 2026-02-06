@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -10,6 +10,7 @@ use tracing::error;
 #[cfg(feature = "live-tests")]
 use tracing::info;
 
+use crate::content::{self, ids};
 use crate::providers::provider::Provider;
 #[cfg(feature = "live-tests")]
 use crate::providers::provider::{ProviderResponse, extract_all_text};
@@ -152,6 +153,16 @@ pub fn emit_global_log(entry: LogEntry) {
     }
 }
 
+fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
+    match content::message_text(id, None, vars) {
+        Ok(text) => text,
+        Err(err) => {
+            error!("Message render failed for {}: {}", id, err);
+            format!("[missing message: {}]", id)
+        }
+    }
+}
+
 /// Shared application state
 ///
 /// This holds all shared resources and provides the main interface for
@@ -175,6 +186,10 @@ pub struct AppState {
     pending_tool_approvals: RwLock<HashMap<String, PendingToolApproval>>,
     /// Pending tool loop continuations keyed by operator/ghost/session
     pending_tool_loops: RwLock<HashMap<String, PendingToolContinuation>>,
+    /// Active chat requests keyed by operator/ghost/session
+    in_flight_chats: RwLock<HashSet<String>>,
+    /// Last ignored message keyed by operator/ghost/session
+    ignored_messages: RwLock<HashMap<String, String>>,
     /// High-level chat interface - handles all conversation logic including tools
     pub session_chat: SessionChat,
 
@@ -218,6 +233,8 @@ impl AppState {
             pending_interfaces: RwLock::new(HashMap::new()),
             pending_tool_approvals: RwLock::new(HashMap::new()),
             pending_tool_loops: RwLock::new(HashMap::new()),
+            in_flight_chats: RwLock::new(HashSet::new()),
+            ignored_messages: RwLock::new(HashMap::new()),
             session_chat,
             knowledge_engine,
             shared_knowledge_watcher: RwLock::new(None),
@@ -324,16 +341,34 @@ impl AppState {
         operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
+        let chat_key = Self::chat_key(operator_id, ghost_name, session_id);
+        if self.is_chat_in_flight(&chat_key).await {
+            if !Self::is_continue_message(message) {
+                self.set_ignored_message(&chat_key, message).await;
+            }
+            return Ok(render_message(ids::CHAT_BUSY, &[]));
+        }
+
+        let message = if Self::is_continue_message(message) {
+            match self.take_ignored_message(&chat_key).await {
+                Some(ignored) => ignored,
+                None => return Ok(render_message(ids::CHAT_CONTINUE_MISSING, &[])),
+            }
+        } else {
+            message.to_string()
+        };
+
         self.log(LogEntry::OperatorMessage {
             operator_id: operator_id.to_string(),
             ghost_name: ghost_name.to_string(),
-            content: message.to_string(),
+            content: message.clone(),
         })
         .await;
 
         let model = self.default_model();
         let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
-        let text = self
+        self.set_chat_in_flight(&chat_key).await;
+        let response = self
             .session_chat
             .chat(
                 &ghost_db,
@@ -343,9 +378,12 @@ impl AppState {
                 &model.model,
                 session_id,
                 operator_id,
-                message,
+                &message,
             )
-            .await?;
+            .await;
+        self.clear_chat_in_flight(&chat_key).await;
+
+        let text = response?;
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),
@@ -365,10 +403,27 @@ impl AppState {
         operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
+        let chat_key = Self::chat_key(operator_id, ghost_name, session_id);
+        if self.is_chat_in_flight(&chat_key).await {
+            if !Self::is_continue_message(message) {
+                self.set_ignored_message(&chat_key, message).await;
+            }
+            return Ok(render_message(ids::CHAT_BUSY, &[]));
+        }
+
+        let message = if Self::is_continue_message(message) {
+            match self.take_ignored_message(&chat_key).await {
+                Some(ignored) => ignored,
+                None => return Ok(render_message(ids::CHAT_CONTINUE_MISSING, &[])),
+            }
+        } else {
+            message.to_string()
+        };
+
         self.log(LogEntry::OperatorMessage {
             operator_id: operator_id.to_string(),
             ghost_name: ghost_name.to_string(),
-            content: message.to_string(),
+            content: message.clone(),
         })
         .await;
 
@@ -378,7 +433,8 @@ impl AppState {
             .unwrap_or_else(|| self.default_model());
 
         let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
-        let text = self
+        self.set_chat_in_flight(&chat_key).await;
+        let response = self
             .session_chat
             .chat(
                 &ghost_db,
@@ -388,9 +444,12 @@ impl AppState {
                 &model.model,
                 session_id,
                 operator_id,
-                message,
+                &message,
             )
-            .await?;
+            .await;
+        self.clear_chat_in_flight(&chat_key).await;
+
+        let text = response?;
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),
@@ -499,6 +558,39 @@ impl AppState {
 
     fn approval_key(operator_id: &str, ghost_name: &str, session_id: &str) -> String {
         format!("{}:{}:{}", operator_id, ghost_name, session_id)
+    }
+
+    fn chat_key(operator_id: &str, ghost_name: &str, session_id: &str) -> String {
+        format!("{}:{}:{}", operator_id, ghost_name, session_id)
+    }
+
+    fn is_continue_message(message: &str) -> bool {
+        message.trim().eq_ignore_ascii_case("continue")
+    }
+
+    pub async fn is_chat_in_flight(&self, key: &str) -> bool {
+        let guard = self.in_flight_chats.read().await;
+        guard.contains(key)
+    }
+
+    pub async fn set_chat_in_flight(&self, key: &str) {
+        let mut guard = self.in_flight_chats.write().await;
+        guard.insert(key.to_string());
+    }
+
+    pub async fn clear_chat_in_flight(&self, key: &str) {
+        let mut guard = self.in_flight_chats.write().await;
+        guard.remove(key);
+    }
+
+    pub async fn set_ignored_message(&self, key: &str, message: &str) {
+        let mut guard = self.ignored_messages.write().await;
+        guard.insert(key.to_string(), message.to_string());
+    }
+
+    pub async fn take_ignored_message(&self, key: &str) -> Option<String> {
+        let mut guard = self.ignored_messages.write().await;
+        guard.remove(key)
     }
 
     pub async fn is_interface_pending(
