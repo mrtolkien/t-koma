@@ -2,7 +2,9 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use super::Tool;
-use super::context::{ToolContext, is_within_workspace, resolve_local_path};
+use super::context::{
+    ToolContext, is_within_workspace, resolve_local_path, resolve_local_path_unchecked,
+};
 
 pub struct ChangeDirectoryTool;
 
@@ -42,8 +44,25 @@ impl Tool for ChangeDirectoryTool {
     }
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
-        let target_path = match args.get("path").and_then(|value| value.as_str()) {
-            Some(path) if !path.trim().is_empty() => resolve_local_path(context, path)?,
+        let raw_path = args.get("path").and_then(|value| value.as_str());
+        let target_path = match raw_path {
+            Some(path) if !path.trim().is_empty() => {
+                let normalized = resolve_local_path_unchecked(context, path);
+                if !is_within_workspace(context, &normalized) {
+                    if context.operator_access_level()
+                        == t_koma_db::OperatorAccessLevel::PuppetMaster
+                        || context.allow_workspace_escape()
+                    {
+                        normalized
+                    } else {
+                        return Err(
+                            "Error: Operator is not allowed to leave the workspace.".to_string(),
+                        );
+                    }
+                } else {
+                    resolve_local_path(context, path)?
+                }
+            }
             _ => context.workspace_root().to_path_buf(),
         };
 
@@ -98,5 +117,36 @@ mod tests {
         let result = tool.execute(args, &mut context).await;
         assert!(result.is_ok());
         assert_eq!(context.cwd(), temp_dir.path());
+    }
+
+    #[tokio::test]
+    async fn test_change_directory_blocks_outside_workspace_by_default() {
+        let workspace = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+
+        let tool = ChangeDirectoryTool;
+        let args = json!({ "path": outside.path().to_string_lossy() });
+        let mut context = ToolContext::new_for_tests(workspace.path());
+
+        let result = tool.execute(args, &mut context).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("not allowed to leave the workspace"));
+    }
+
+    #[tokio::test]
+    async fn test_change_directory_allows_outside_when_enabled() {
+        let workspace = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+
+        let tool = ChangeDirectoryTool;
+        let args = json!({ "path": outside.path().to_string_lossy() });
+        let mut context = ToolContext::new_for_tests(workspace.path());
+        context.set_allow_workspace_escape(true);
+
+        let result = tool.execute(args, &mut context).await;
+        assert!(result.is_ok());
+        assert_eq!(context.cwd(), outside.path());
     }
 }

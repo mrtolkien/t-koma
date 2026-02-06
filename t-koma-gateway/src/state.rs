@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use chrono::Utc;
 use serde::Serialize;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
@@ -26,6 +27,18 @@ use crate::tools::ToolContext;
 struct PendingInterface {
     platform: t_koma_db::Platform,
     external_id: String,
+}
+
+#[derive(Debug, Default)]
+struct OperatorRateLimitState {
+    last_5m: VecDeque<i64>,
+    last_1h: VecDeque<i64>,
+}
+
+#[derive(Debug)]
+pub enum RateLimitDecision {
+    Allowed,
+    Limited { retry_after: Duration },
 }
 
 /// Log entry for broadcasting events to listeners
@@ -190,6 +203,8 @@ pub struct AppState {
     in_flight_chats: RwLock<HashSet<String>>,
     /// Last ignored message keyed by operator/ghost/session
     ignored_messages: RwLock<HashMap<String, String>>,
+    /// Per-operator message rate limit windows
+    operator_rate_limits: RwLock<HashMap<String, OperatorRateLimitState>>,
     /// High-level chat interface - handles all conversation logic including tools
     pub session_chat: SessionChat,
 
@@ -235,6 +250,7 @@ impl AppState {
             pending_tool_loops: RwLock::new(HashMap::new()),
             in_flight_chats: RwLock::new(HashSet::new()),
             ignored_messages: RwLock::new(HashMap::new()),
+            operator_rate_limits: RwLock::new(HashMap::new()),
             session_chat,
             knowledge_engine,
             shared_knowledge_watcher: RwLock::new(None),
@@ -592,6 +608,84 @@ impl AppState {
         guard.remove(key)
     }
 
+    pub async fn store_pending_message(
+        &self,
+        operator_id: &str,
+        ghost_name: &str,
+        session_id: &str,
+        message: &str,
+    ) {
+        let key = Self::chat_key(operator_id, ghost_name, session_id);
+        self.set_ignored_message(&key, message).await;
+    }
+
+    pub async fn check_operator_rate_limit(
+        &self,
+        operator: &t_koma_db::Operator,
+    ) -> RateLimitDecision {
+        if operator.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster {
+            return RateLimitDecision::Allowed;
+        }
+
+        if operator.rate_limit_5m_max.is_none() && operator.rate_limit_1h_max.is_none() {
+            return RateLimitDecision::Allowed;
+        }
+
+        let now = Utc::now().timestamp();
+        let mut guard = self.operator_rate_limits.write().await;
+        let state = guard
+            .entry(operator.id.clone())
+            .or_insert_with(OperatorRateLimitState::default);
+
+        let cutoff_5m = now - 300;
+        while let Some(&timestamp) = state.last_5m.front() {
+            if timestamp <= cutoff_5m {
+                state.last_5m.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        let cutoff_1h = now - 3600;
+        while let Some(&timestamp) = state.last_1h.front() {
+            if timestamp <= cutoff_1h {
+                state.last_1h.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        let mut retry_after_secs = 0i64;
+        if let Some(max) = operator.rate_limit_5m_max
+            && (state.last_5m.len() as i64) >= max
+            && let Some(&oldest) = state.last_5m.front()
+        {
+            retry_after_secs = retry_after_secs.max(oldest + 300 - now);
+        }
+
+        if let Some(max) = operator.rate_limit_1h_max
+            && (state.last_1h.len() as i64) >= max
+            && let Some(&oldest) = state.last_1h.front()
+        {
+            retry_after_secs = retry_after_secs.max(oldest + 3600 - now);
+        }
+
+        if retry_after_secs > 0 {
+            return RateLimitDecision::Limited {
+                retry_after: Duration::from_secs(retry_after_secs as u64),
+            };
+        }
+
+        if operator.rate_limit_5m_max.is_some() {
+            state.last_5m.push_back(now);
+        }
+        if operator.rate_limit_1h_max.is_some() {
+            state.last_1h.push_back(now);
+        }
+
+        RateLimitDecision::Allowed
+    }
+
     pub async fn is_interface_pending(
         &self,
         platform: t_koma_db::Platform,
@@ -707,6 +801,7 @@ impl AppState {
                 &model.provider,
                 &model.model,
                 session_id,
+                operator_id,
                 pending,
                 decision,
             )
@@ -745,6 +840,7 @@ impl AppState {
                 &model.provider,
                 &model.model,
                 session_id,
+                operator_id,
                 pending,
                 extra_iterations.unwrap_or(DEFAULT_TOOL_LOOP_EXTRA),
             )

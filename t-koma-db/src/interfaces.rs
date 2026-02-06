@@ -126,16 +126,23 @@ impl From<InterfaceRow> for Interface {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_helpers::create_test_koma_pool, OperatorRepository, Platform};
+    use crate::{
+        test_helpers::create_test_koma_pool, OperatorAccessLevel, OperatorRepository, Platform,
+    };
 
     #[tokio::test]
     async fn test_create_interface() {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        let operator = OperatorRepository::create_new(pool, "Test Operator", Platform::Api)
-            .await
-            .unwrap();
+        let operator = OperatorRepository::create_new(
+            pool,
+            "Test Operator",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
         let iface = InterfaceRepository::create(
             pool,
             &operator.id,
