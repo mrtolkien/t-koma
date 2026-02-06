@@ -1,23 +1,33 @@
 //! End-to-end integration test for the reference topic pipeline.
 //!
-//! This test exercises the full ghost reference workflow:
+//! This test exercises the full ghost reference workflow using a **single shared
+//! clone** of the Dioxus repo + a web page fetch.  The expensive setup
+//! (clone → chunk → embed → index) runs once; all assertions share the result.
+//!
+//! Pipeline steps validated:
 //! 1. `topic_approval_summary` — gathers repo metadata via `gh api`
 //! 2. `topic_create` — clones a real repo, fetches a web page, indexes everything
-//! 3. `reference_search` — hybrid BM25 + dense search over indexed content
-//! 4. `topic_search` — semantic search over topic descriptions
-//! 5. `topic_list` / `recent_topics` — listing and prompt injection
+//! 3. Per-file indexing — every indexed file must have ≥ 1 chunk + embedding
+//! 4. `reference_search` — hybrid BM25 + dense search over indexed content
+//! 5. `topic_search` — semantic search over topic descriptions
+//! 6. `topic_list` / `recent_topics` — listing and prompt injection
 //!
 //! Requires:
 //! - `gh` CLI authenticated (for GitHub clone)
 //! - Ollama running with `qwen3-embedding:8b` model
 //! - Network access to github.com and dioxuslabs.com
 //!
-//! Run with: cargo test -p t-koma-knowledge --features slow-tests reference_topic_e2e
+//! Run with:
+//!   cargo test -p t-koma-knowledge --features slow-tests reference_topic_e2e
+//!
+//! For initial snapshot creation, use:
+//!   cargo insta test -p t-koma-knowledge --features slow-tests -- reference_topic_e2e
 
 #![cfg(feature = "slow-tests")]
 
 use insta::assert_yaml_snapshot;
 use serde::Serialize;
+use sqlx::SqlitePool;
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{KnowledgeContext, ReferenceQuery};
@@ -30,16 +40,30 @@ use t_koma_knowledge::{
 struct DioxusFixture {
     engine: KnowledgeEngine,
     context: KnowledgeContext,
-    _topic_id: String,
+    topic_id: String,
+    source_count: usize,
     file_count: usize,
     chunk_count: usize,
+    per_file_chunks: Vec<FileChunkInfo>,
     _temp: TempDir,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct FileChunkInfo {
+    file_path: String,
+    chunk_count: usize,
 }
 
 impl DioxusFixture {
     /// Create a reference topic from the real Dioxus repo (filtered to docs/examples)
-    /// and a web page. This exercises the full pipeline: clone → chunk → embed → index.
+    /// and a web page.  Exercises the full pipeline: clone → chunk → embed → index.
     async fn setup() -> Self {
+        // Enable tracing so source-fetch warnings are visible with --nocapture
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("t_koma_knowledge=debug,warn")
+            .with_test_writer()
+            .try_init();
+
         let temp = TempDir::new().expect("tempdir");
         let shared_root = temp.path().join("knowledge");
         let reference_root = temp.path().join("reference");
@@ -104,18 +128,79 @@ impl DioxusFixture {
             .await
             .expect("topic_create should succeed");
 
-        assert!(result.file_count > 0, "should have fetched files");
-        assert!(result.chunk_count > 0, "should have produced chunks");
+        assert!(
+            result.source_count >= 1,
+            "at least one source should succeed (got {})",
+            result.source_count
+        );
+        assert!(
+            result.file_count > 0,
+            "should have fetched files (got {})",
+            result.file_count
+        );
+        assert!(
+            result.chunk_count > 0,
+            "should have produced chunks (got {})",
+            result.chunk_count
+        );
+
+        // Query per-file chunk counts from the DB to validate every file was indexed
+        let per_file_chunks =
+            query_per_file_chunks(engine.pool(), &result.topic_id).await;
+
+        // CRITICAL: every file in reference_files must have at least 1 chunk
+        for info in &per_file_chunks {
+            assert!(
+                info.chunk_count > 0,
+                "file '{}' has 0 chunks — indexing pipeline is broken for this file",
+                info.file_path,
+            );
+        }
+
+        // The number of files in the DB must match what topic_create reported
+        assert_eq!(
+            per_file_chunks.len(),
+            result.file_count,
+            "reference_files table should have exactly file_count entries \
+             (DB has {}, topic_create reported {})",
+            per_file_chunks.len(),
+            result.file_count,
+        );
 
         Self {
             engine,
             context,
-            _topic_id: result.topic_id,
+            topic_id: result.topic_id,
+            source_count: result.source_count,
             file_count: result.file_count,
             chunk_count: result.chunk_count,
+            per_file_chunks,
             _temp: temp,
         }
     }
+}
+
+/// Query the DB for per-file chunk counts within a topic.
+async fn query_per_file_chunks(pool: &SqlitePool, topic_id: &str) -> Vec<FileChunkInfo> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        r#"SELECT rf.path, COUNT(c.id)
+           FROM reference_files rf
+           JOIN chunks c ON c.note_id = rf.note_id
+           WHERE rf.topic_id = ?
+           GROUP BY rf.path
+           ORDER BY rf.path"#,
+    )
+    .bind(topic_id)
+    .fetch_all(pool)
+    .await
+    .expect("query per-file chunks");
+
+    rows.into_iter()
+        .map(|(path, count)| FileChunkInfo {
+            file_path: path,
+            chunk_count: count as usize,
+        })
+        .collect()
 }
 
 // ── Snapshot helpers ────────────────────────────────────────────────
@@ -124,6 +209,7 @@ impl DioxusFixture {
 struct SearchResultSnapshot {
     query: String,
     total_hits: usize,
+    unique_files: usize,
     top_results: Vec<SearchHit>,
 }
 
@@ -140,9 +226,15 @@ fn build_search_snapshot(
     results: &[t_koma_knowledge::MemoryResult],
     n: usize,
 ) -> SearchResultSnapshot {
+    let unique_files: std::collections::HashSet<&str> = results
+        .iter()
+        .map(|r| r.summary.title.as_str())
+        .collect();
+
     SearchResultSnapshot {
         query: query.to_string(),
         total_hits: results.len(),
+        unique_files: unique_files.len(),
         top_results: results
             .iter()
             .take(n)
@@ -160,6 +252,7 @@ fn build_search_snapshot(
 // ── Test cases ──────────────────────────────────────────────────────
 
 /// Phase 1: Verify topic_approval_summary gathers metadata from GitHub.
+/// (Standalone — no clone needed.)
 #[tokio::test]
 async fn dioxus_approval_summary() {
     let request = TopicCreateRequest {
@@ -190,12 +283,10 @@ async fn dioxus_approval_summary() {
     let engine = KnowledgeEngine::open(settings).await.unwrap();
     let summary = engine.topic_approval_summary(&request).await.unwrap();
 
-    // Summary should contain repo metadata from gh api
     assert!(
         !summary.is_empty(),
         "approval summary should not be empty"
     );
-    // Should mention the repo in some form
     assert!(
         summary.contains("dioxus") || summary.contains("Dioxus") || summary.contains("DioxusLabs"),
         "summary should mention the repo: {summary}"
@@ -208,10 +299,71 @@ async fn dioxus_approval_summary() {
     }));
 }
 
-/// Full pipeline: clone → index → search for component lifecycle.
+/// Full pipeline test: single setup, all assertions share the same indexed data.
+///
+/// This exercises clone → chunk → embed → index → search → list in sequence,
+/// reusing the Dioxus fixture throughout.
 #[tokio::test]
-async fn dioxus_reference_search_component_lifecycle() {
+async fn dioxus_full_pipeline() {
     let f = DioxusFixture::setup().await;
+
+    // ── Per-file indexing validation ────────────────────────────────
+
+    // Verify chunk totals match the sum of per-file chunks
+    let total_from_files: usize = f.per_file_chunks.iter().map(|fi| fi.chunk_count).sum();
+    assert_eq!(
+        total_from_files, f.chunk_count,
+        "sum of per-file chunks ({}) should equal total chunk_count ({})",
+        total_from_files, f.chunk_count,
+    );
+
+    // Verify via DB that every reference_files entry has matching chunks
+    let orphan_count = sqlx::query_as::<_, (i64,)>(
+        r#"SELECT COUNT(*) FROM reference_files rf
+           WHERE rf.topic_id = ?
+           AND NOT EXISTS (
+               SELECT 1 FROM chunks c WHERE c.note_id = rf.note_id
+           )"#,
+    )
+    .bind(&f.topic_id)
+    .fetch_one(f.engine.pool())
+    .await
+    .expect("orphan query")
+    .0;
+
+    assert_eq!(
+        orphan_count, 0,
+        "no reference files should be orphaned (missing chunks)"
+    );
+
+    // Verify every file also has vector embeddings
+    let files_without_embeddings = sqlx::query_as::<_, (String,)>(
+        r#"SELECT rf.path FROM reference_files rf
+           JOIN chunks c ON c.note_id = rf.note_id
+           LEFT JOIN chunk_vec cv ON cv.rowid = c.id
+           WHERE rf.topic_id = ?
+           GROUP BY rf.path
+           HAVING COUNT(cv.rowid) = 0"#,
+    )
+    .bind(&f.topic_id)
+    .fetch_all(f.engine.pool())
+    .await
+    .expect("embedding check");
+
+    assert!(
+        files_without_embeddings.is_empty(),
+        "all files should have embeddings, but these don't: {:?}",
+        files_without_embeddings,
+    );
+
+    assert_yaml_snapshot!("dioxus_per_file_indexing", serde_json::json!({
+        "source_count": f.source_count,
+        "file_count": f.file_count,
+        "chunk_count": f.chunk_count,
+        "per_file_chunks": f.per_file_chunks,
+    }));
+
+    // ── Reference search: component lifecycle ──────────────────────
 
     let question = "component lifecycle hooks use_effect cleanup";
     let results = f
@@ -233,12 +385,8 @@ async fn dioxus_reference_search_component_lifecycle() {
         "dioxus_reference_search_component_lifecycle",
         build_search_snapshot(question, &results, 3)
     );
-}
 
-/// Search for RSX syntax patterns in the indexed Dioxus source.
-#[tokio::test]
-async fn dioxus_reference_search_rsx_syntax() {
-    let f = DioxusFixture::setup().await;
+    // ── Reference search: RSX syntax ───────────────────────────────
 
     let question = "RSX syntax JSX-like markup rendering elements";
     let results = f
@@ -260,12 +408,8 @@ async fn dioxus_reference_search_rsx_syntax() {
         "dioxus_reference_search_rsx_syntax",
         build_search_snapshot(question, &results, 3)
     );
-}
 
-/// Search for state management (use_signal) patterns.
-#[tokio::test]
-async fn dioxus_reference_search_state_management() {
-    let f = DioxusFixture::setup().await;
+    // ── Reference search: state management ─────────────────────────
 
     let question = "state management use_signal reactive hooks";
     let results = f
@@ -287,12 +431,8 @@ async fn dioxus_reference_search_state_management() {
         "dioxus_reference_search_state_management",
         build_search_snapshot(question, &results, 3)
     );
-}
 
-/// Verify topic_search finds the Dioxus topic by description.
-#[tokio::test]
-async fn dioxus_topic_search_by_description() {
-    let f = DioxusFixture::setup().await;
+    // ── Topic search by description ────────────────────────────────
 
     let results = f
         .engine
@@ -302,9 +442,7 @@ async fn dioxus_topic_search_by_description() {
 
     assert!(!results.is_empty(), "should find the Dioxus topic");
 
-    let dioxus_found = results
-        .iter()
-        .any(|r| r.title.contains("Dioxus"));
+    let dioxus_found = results.iter().any(|r| r.title.contains("Dioxus"));
     assert!(dioxus_found, "Dioxus topic should appear in search results");
 
     assert_yaml_snapshot!("dioxus_topic_search_by_description", serde_json::json!({
@@ -317,25 +455,28 @@ async fn dioxus_topic_search_by_description() {
             "tags": &results[0].tags,
         },
     }));
-}
 
-/// Verify topic_list and recent_topics include the created topic.
-#[tokio::test]
-async fn dioxus_topic_list_and_recent() {
-    let f = DioxusFixture::setup().await;
+    // ── Topic list and recent topics ───────────────────────────────
 
-    // topic_list
     let list = f.engine.topic_list(false).await.expect("topic_list");
     assert_eq!(list.len(), 1, "should have exactly one topic");
     assert_eq!(list[0].title, "Dioxus - Rust UI Framework");
     assert!(!list[0].is_stale, "freshly created topic should not be stale");
     assert!(list[0].file_count > 0, "should have files");
 
-    // recent_topics (system prompt injection)
+    // Validate file_count matches what we indexed
+    assert_eq!(
+        list[0].file_count, f.file_count,
+        "topic_list file_count should match topic_create file_count"
+    );
+
     let recent = f.engine.recent_topics().await.expect("recent_topics");
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].1, "Dioxus - Rust UI Framework");
-    assert!(recent[0].2.contains(&"dioxus".to_string()), "tags should include 'dioxus'");
+    assert!(
+        recent[0].2.contains(&"dioxus".to_string()),
+        "tags should include 'dioxus'"
+    );
 
     assert_yaml_snapshot!("dioxus_topic_list_and_recent", serde_json::json!({
         "topic_list": {
@@ -353,6 +494,7 @@ async fn dioxus_topic_list_and_recent() {
             "tag_count": recent[0].2.len(),
         },
         "topic_create_stats": {
+            "source_count": f.source_count,
             "file_count": f.file_count,
             "chunk_count": f.chunk_count,
         },

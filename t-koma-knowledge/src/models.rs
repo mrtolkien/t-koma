@@ -246,6 +246,7 @@ pub struct TopicCreateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicCreateResult {
     pub topic_id: String,
+    pub source_count: usize,
     pub file_count: usize,
     pub chunk_count: usize,
 }

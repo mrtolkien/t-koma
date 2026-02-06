@@ -152,6 +152,7 @@ pub(crate) async fn topic_create_execute(
 
     Ok(TopicCreateResult {
         topic_id,
+        source_count: topic_sources.len(),
         file_count: all_files.len(),
         chunk_count,
     })
