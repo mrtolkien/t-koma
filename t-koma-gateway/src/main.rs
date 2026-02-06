@@ -51,7 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match model_config.provider.as_str() {
             "anthropic" => {
                 if let Some(api_key) = config.anthropic_api_key() {
-                    let client = AnthropicClient::new(api_key, &model_config.model);
+                    let client = AnthropicClient::new(api_key, &model_config.model)
+                        .with_dump_queries(config.settings.logging.dump_queries);
                     info!(
                         "Anthropic client created for alias '{}' with model: {}",
                         alias, model_config.model
@@ -77,7 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let http_referer = config.settings.openrouter.http_referer.clone();
                     let app_name = config.settings.openrouter.app_name.clone();
                     let client =
-                        OpenRouterClient::new(api_key, &model_config.model, http_referer, app_name);
+                        OpenRouterClient::new(api_key, &model_config.model, http_referer, app_name)
+                            .with_dump_queries(config.settings.logging.dump_queries);
                     info!(
                         "OpenRouter client created for alias '{}' with model: {}",
                         alias, model_config.model
