@@ -35,7 +35,7 @@ impl SystemPrompt {
     ///
     /// # Arguments
     /// * `ghost_vars` - Template variables for ghost-context rendering
-    ///   (reference_topics, ghost_identity, ghost_diary, ghost_projects)
+    ///   (reference_topics, ghost_identity, ghost_diary, ghost_projects, system_info)
     pub fn new(ghost_vars: &[(&str, &str)]) -> Self {
         let mut prompt = Self::default();
         prompt.add_instruction(full_system_prompt(ghost_vars), true);
@@ -147,6 +147,7 @@ mod tests {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("system_info", ""),
     ];
 
     #[test]

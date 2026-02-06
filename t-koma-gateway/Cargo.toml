@@ -46,6 +46,7 @@ chrono.workspace = true
 # Utilities
 futures = "0.3"
 uuid = { version = "1.12", features = ["v4"] }
+os_info = "3"
 
 # Discord bot
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }

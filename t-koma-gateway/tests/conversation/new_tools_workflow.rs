@@ -143,6 +143,7 @@ async fn test_comprehensive_coding_workflow() {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("system_info", ""),
     ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let model = default_model.model.as_str();
