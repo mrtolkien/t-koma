@@ -5,30 +5,44 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Storage scope for knowledge artifacts.
+///
+/// The scope determines both the filesystem location and the DB ownership
+/// constraint (owner_ghost IS NULL for shared scopes, NOT NULL for ghost scopes).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum KnowledgeScope {
-    Shared,
-    GhostPrivate,
-    GhostProjects,
+    SharedNote,
+    SharedReference,
+    GhostNote,
+    GhostReference,
     GhostDiary,
-    Reference,
 }
 
 impl KnowledgeScope {
     /// Database string representation of this scope.
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Shared => "shared",
-            Self::GhostPrivate => "ghost_private",
-            Self::GhostProjects => "ghost_projects",
+            Self::SharedNote => "shared_note",
+            Self::SharedReference => "shared_reference",
+            Self::GhostNote => "ghost_note",
+            Self::GhostReference => "ghost_reference",
             Self::GhostDiary => "ghost_diary",
-            Self::Reference => "reference",
         }
     }
 
     /// Whether this scope is shared (owner_ghost IS NULL in DB).
     pub fn is_shared(&self) -> bool {
-        matches!(self, Self::Shared | Self::Reference)
+        matches!(self, Self::SharedNote | Self::SharedReference)
+    }
+
+    /// Whether this scope holds reference topics/files.
+    pub fn is_reference(&self) -> bool {
+        matches!(self, Self::SharedReference | Self::GhostReference)
+    }
+
+    /// Whether this scope holds structured notes (with front matter).
+    pub fn is_note(&self) -> bool {
+        matches!(self, Self::SharedNote | Self::GhostNote)
     }
 }
 
@@ -37,11 +51,11 @@ impl FromStr for KnowledgeScope {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "shared" => Ok(Self::Shared),
-            "ghost_private" => Ok(Self::GhostPrivate),
-            "ghost_projects" => Ok(Self::GhostProjects),
+            "shared_note" => Ok(Self::SharedNote),
+            "shared_reference" => Ok(Self::SharedReference),
+            "ghost_note" => Ok(Self::GhostNote),
+            "ghost_reference" => Ok(Self::GhostReference),
             "ghost_diary" => Ok(Self::GhostDiary),
-            "reference" => Ok(Self::Reference),
             _ => Err(()),
         }
     }
@@ -53,20 +67,28 @@ impl std::fmt::Display for KnowledgeScope {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KnowledgeContext {
-    pub ghost_name: String,
-    pub workspace_root: PathBuf,
+/// Query scope for note searches.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum NoteSearchScope {
+    /// Search shared + ghost notes.
+    #[default]
+    All,
+    /// Only shared notes.
+    SharedOnly,
+    /// Only ghost-owned notes.
+    GhostOnly,
 }
 
+/// Query for searching notes (shared + ghost).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryQuery {
+pub struct NoteQuery {
     pub query: String,
-    pub scope: MemoryScope,
+    pub scope: NoteSearchScope,
     #[serde(default)]
     pub options: SearchOptions,
 }
 
+/// Query for searching within a reference topic's files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReferenceQuery {
     pub topic: String,
@@ -75,15 +97,12 @@ pub struct ReferenceQuery {
     pub options: SearchOptions,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub enum MemoryScope {
-    #[default]
-    All,
-    SharedOnly,
-    GhostOnly,
-    GhostPrivate,
-    GhostProjects,
-    GhostDiary,
+/// Query for searching diary entries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiaryQuery {
+    pub query: String,
+    #[serde(default)]
+    pub options: SearchOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -110,7 +129,7 @@ pub struct NoteSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryResult {
+pub struct NoteResult {
     pub summary: NoteSummary,
     pub parents: Vec<NoteSummary>,
     pub links_out: Vec<NoteSummary>,
@@ -138,17 +157,16 @@ pub struct NoteDocument {
     pub body: String,
 }
 
-/// Scope for write operations (create, capture).
+/// Scope for write operations (create note).
 ///
-/// Unlike `MemoryScope` (which is for reads/queries and includes `All` / `GhostOnly`),
-/// `WriteScope` forces callers to pick a concrete destination.
+/// Forces callers to pick a concrete destination.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum WriteScope {
+    /// Ghost-owned note (default).
     #[default]
-    Private,
-    Projects,
-    Diary,
-    Shared,
+    GhostNote,
+    /// Shared note visible to all ghosts.
+    SharedNote,
 }
 
 /// Input for creating a new note.
@@ -400,7 +418,16 @@ pub struct ReferenceSearchResult {
     pub topic_title: String,
     pub topic_id: String,
     /// Ranked file chunks.
-    pub results: Vec<MemoryResult>,
+    pub results: Vec<NoteResult>,
+}
+
+/// Result of a diary search query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiarySearchResult {
+    pub date: String,
+    pub score: f32,
+    pub snippet: String,
+    pub note_id: String,
 }
 
 /// Generate a stable note ID.

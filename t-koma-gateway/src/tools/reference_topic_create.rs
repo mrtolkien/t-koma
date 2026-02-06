@@ -34,7 +34,7 @@ impl Tool for ReferenceTopicCreateTool {
     }
 
     fn description(&self) -> &str {
-        "Create a new reference topic by fetching external sources (git repos, web pages), indexing with embeddings."
+        "Create a new reference topic by fetching external sources (git repos, web pages), indexing with embeddings. Load the reference-researcher skill first for best results."
     }
 
     fn input_schema(&self) -> Value {
@@ -132,13 +132,8 @@ impl Tool for ReferenceTopicCreateTool {
 
         // Phase 2: if we already have approval, proceed with creation
         if context.has_approval("reference_topic_create") {
-            let ctx = t_koma_knowledge::models::KnowledgeContext {
-                ghost_name: context.ghost_name().to_string(),
-                workspace_root: context.workspace_root().to_path_buf(),
-            };
-
             let result = engine
-                .topic_create(&ctx, request)
+                .topic_create(context.ghost_name(), request)
                 .await
                 .map_err(|e| e.to_string())?;
 

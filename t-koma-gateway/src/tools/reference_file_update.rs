@@ -19,7 +19,7 @@ impl Tool for ReferenceFileUpdateTool {
     }
 
     fn description(&self) -> &str {
-        "Mark a reference file as active, problematic, or obsolete."
+        "Mark a reference file as active, problematic, or obsolete. Load the reference-researcher skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

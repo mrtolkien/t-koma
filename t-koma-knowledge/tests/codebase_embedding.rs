@@ -16,12 +16,12 @@ use serde::Serialize;
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    KnowledgeContext, MemoryQuery, MemoryResult, MemoryScope, NoteCreateRequest, ReferenceQuery,
+    NoteCreateRequest, NoteQuery, NoteResult, NoteSearchScope, ReferenceQuery,
     WriteScope,
 };
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
-// ── Fixture ─────────────────────────────────────────────────────────
+// -- Fixture -----------------------------------------------------------------
 
 /// Source code files from our own crate to index as reference content.
 const CODE_FILES: &[&str] = &[
@@ -39,28 +39,27 @@ const DOC_FILES: &[&str] = &[
     "testing.md",
 ];
 
-/// Build a fully functional engine + context with real embeddings,
+/// Build a fully functional engine with real embeddings,
 /// a reference topic pointing to actual source files and documentation,
 /// and a ghost workspace.
 struct CodebaseFixture {
     engine: KnowledgeEngine,
-    context: KnowledgeContext,
+    ghost_name: String,
     _temp: TempDir,
 }
 
 impl CodebaseFixture {
     async fn setup() -> Self {
         let temp = TempDir::new().expect("tempdir");
-        let shared_root = temp.path().join("knowledge");
-        let reference_root = temp.path().join("reference");
+        let data_root = temp.path().join("data");
+        let shared_notes = data_root.join("shared").join("notes");
+        let reference_root = data_root.join("shared").join("references");
         let topic_dir = reference_root.join("t-koma-knowledge-src");
-        let workspace = temp.path().join("ghost-a-workspace");
+        let ghost_notes = data_root.join("ghosts").join("ghost-a").join("notes");
 
-        tokio::fs::create_dir_all(&shared_root).await.unwrap();
+        tokio::fs::create_dir_all(&shared_notes).await.unwrap();
         tokio::fs::create_dir_all(&topic_dir).await.unwrap();
-        tokio::fs::create_dir_all(workspace.join("private_knowledge"))
-            .await
-            .unwrap();
+        tokio::fs::create_dir_all(&ghost_notes).await.unwrap();
 
         let crate_root = crate_root_dir();
 
@@ -153,24 +152,19 @@ parsing, chunking, storage, and usage guides.
             .unwrap();
 
         let settings = KnowledgeSettings {
-            shared_root_override: Some(shared_root.clone()),
-            reference_root_override: Some(reference_root),
-            knowledge_db_path_override: Some(shared_root.join("index.sqlite3")),
+            data_root_override: Some(data_root),
             // Use a short reconcile window so we can trigger indexing
             reconcile_seconds: 0,
             ..Default::default()
         };
 
         let engine = KnowledgeEngine::open(settings).await.expect("open engine");
-        let context = KnowledgeContext {
-            ghost_name: "ghost-a".to_string(),
-            workspace_root: workspace,
-        };
+        let ghost_name = "ghost-a".to_string();
 
-        // Trigger reconcile by doing a reference search (reconcile_seconds=0 → always runs)
+        // Trigger reconcile by doing a reference search (reconcile_seconds=0 -> always runs)
         let _ = engine
             .reference_search(
-                &context,
+                &ghost_name,
                 ReferenceQuery {
                     topic: "knowledge source".to_string(),
                     question: "warmup".to_string(),
@@ -181,7 +175,7 @@ parsing, chunking, storage, and usage guides.
 
         Self {
             engine,
-            context,
+            ghost_name,
             _temp: temp,
         }
     }
@@ -192,7 +186,7 @@ fn crate_root_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
 
-// ── Snapshot helpers ────────────────────────────────────────────────
+// -- Snapshot helpers --------------------------------------------------------
 
 /// A self-documenting snapshot entry: shows the query, total hit count,
 /// and the top N results with enough snippet to judge relevance.
@@ -212,7 +206,7 @@ struct HitSnapshot {
 }
 
 /// Build a snapshot showing the query and the top `n` results.
-fn build_snapshot(query: &str, results: &[MemoryResult], n: usize) -> SearchSnapshot {
+fn build_snapshot(query: &str, results: &[NoteResult], n: usize) -> SearchSnapshot {
     SearchSnapshot {
         query: query.to_string(),
         total_hits: results.len(),
@@ -230,7 +224,7 @@ fn build_snapshot(query: &str, results: &[MemoryResult], n: usize) -> SearchSnap
     }
 }
 
-// ── Test cases ──────────────────────────────────────────────────────
+// -- Test cases --------------------------------------------------------------
 
 /// Verify that hybrid search (BM25 + dense embeddings) finds relevant source chunks.
 #[tokio::test]
@@ -241,7 +235,7 @@ async fn hybrid_search_finds_search_pipeline() {
     let search_result = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
                 question: question.to_string(),
@@ -278,11 +272,11 @@ async fn scope_isolation_ghost_vs_reference() {
     let _ = f
         .engine
         .note_create(
-            &f.context,
+            &f.ghost_name,
             NoteCreateRequest {
                 title: "Private Search Notes".to_string(),
                 note_type: "Concept".to_string(),
-                scope: WriteScope::Private,
+                scope: WriteScope::GhostNote,
                 body: "BM25 search and dense embeddings pipeline notes.".to_string(),
                 parent: None,
                 tags: Some(vec!["search".to_string()]),
@@ -298,7 +292,7 @@ async fn scope_isolation_ghost_vs_reference() {
     let ref_search = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
                 question: question.to_string(),
@@ -321,10 +315,10 @@ async fn scope_isolation_ghost_vs_reference() {
     let mem_results = f
         .engine
         .memory_search(
-            &f.context,
-            MemoryQuery {
+            &f.ghost_name,
+            NoteQuery {
                 query: question.to_string(),
-                scope: MemoryScope::GhostPrivate,
+                scope: NoteSearchScope::GhostOnly,
                 options: Default::default(),
             },
         )
@@ -367,7 +361,7 @@ async fn toml_front_matter_parsing() {
     let search_result = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "t-koma-knowledge source".to_string(),
                 question: question.to_string(),
@@ -396,7 +390,7 @@ async fn tree_sitter_code_chunking() {
     let search_result = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
                 question: question.to_string(),
@@ -433,7 +427,7 @@ async fn knowledge_graph_link_resolution() {
     let search_result = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
                 question: question.to_string(),

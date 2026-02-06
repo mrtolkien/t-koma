@@ -5,25 +5,28 @@ embeddings). Use it proactively.
 
 ## Storage Scopes
 
-| Scope       | Visibility     | Contents                                                        |
-| ----------- | -------------- | --------------------------------------------------------------- |
-| **SHARED**  | All ghosts     | Cross-ghost knowledge, team documentation, shared reference     |
-| **PRIVATE** | You only       | Personal notes, inbox, diary, projects, identity files          |
-| **REFERENCE** | All ghosts   | Ghost-curated reference corpus from external sources (git repos, web docs) |
+| Scope | Visibility | Contents |
+|-------|-----------|----------|
+| **SharedNote** | All ghosts | Cross-ghost knowledge, team documentation |
+| **SharedReference** | All ghosts | Ghost-curated reference corpus from external sources (git repos, web docs) |
+| **GhostNote (private)** | You only | Personal notes, identity files, inbox |
+| **GhostNote (projects)** | You only | Project-specific notes and research |
+| **GhostDiary** | You only | Daily diary entries (plain markdown, YYYY-MM-DD.md) |
 
-Cross-scope rule: your notes can link to shared notes via `[[wiki links]]`, but
-shared notes never see your private data.
+Cross-scope rule: your notes can link to shared notes and reference topics via
+`[[wiki links]]`, but shared notes never see your private data.
 
 ## Querying Knowledge
 
-| Tool                      | When to use                                                  |
-| ------------------------- | ------------------------------------------------------------ |
-| `memory_search`           | Find notes by keyword or concept across all scopes           |
-| `memory_get`              | Retrieve a specific note by ID or exact title                |
-| `reference_search`        | Search within a reference topic's files (docs boosted over code) |
-| `reference_get`           | Fetch the full content of a specific reference file          |
-| `reference_topic_search`  | Find which reference topic covers a concept                  |
-| `reference_topic_list`    | List all topics with staleness info                          |
+| Tool | When to use |
+|------|-------------|
+| `memory_search` | Find notes by keyword or concept across scopes |
+| `memory_get` | Retrieve a specific note by ID or exact title (skill: `note-writer`) |
+| `search_diary` | Search your diary entries by keyword or concept |
+| `reference_search` | Search within a reference topic's files (docs boosted over code) |
+| `reference_get` | Fetch the full content of a specific reference file |
+| `reference_topic_search` | Find which reference topic covers a concept |
+| `reference_topic_list` | List all topics with staleness info |
 
 ### Search Strategy
 
@@ -35,6 +38,8 @@ shared notes never see your private data.
    `reference_topic_search` with a semantic query.
 4. **Get full files**: once you find a relevant chunk, use `reference_get` or
    `memory_get` to read the complete content.
+5. **Search diary**: use `search_diary` to find past diary entries about a
+   specific event, decision, or concept.
 
 ## Saving to Inbox
 
@@ -63,9 +68,24 @@ the mistake.
 **Web research**: After a web search yields useful results, capture the key
 findings with source URLs before the conversation moves on.
 
-## Structured Notes & Topics
+## Wiki Links
 
-For creating structured notes with front matter, updating existing notes, or
-managing reference topics, use the dedicated skills (e.g.,
-`reference-researcher`). These handle the full lifecycle of knowledge curation
-beyond simple inbox capture.
+Notes can reference any shared content by title using `[[Title]]` or
+`[[Title|alias]]` syntax. Links can target:
+
+- Other notes in the same or shared scopes
+- Reference topics by their title
+
+Links are resolved at index time and stored as edges in the knowledge graph,
+enabling graph-depth traversal during search.
+
+## Skills
+
+For advanced knowledge operations, use the dedicated skills:
+
+- **`note-writer`**: Create structured notes with front matter, update existing
+  notes, validate and comment on notes.
+- **`reference-researcher`**: Research external sources and create searchable
+  reference topics from git repos and web pages.
+- **`knowledge-organizer`**: Understand the physical file layout, formats, and
+  indexing pipeline in detail.

@@ -20,7 +20,7 @@ impl Tool for ReferenceGetTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch the full content of a reference file by note_id or by topic + file_path."
+        "Fetch the full content of a reference file by note_id or by topic + file_path. Load the reference-researcher skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

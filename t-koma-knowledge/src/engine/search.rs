@@ -7,17 +7,18 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::graph::{load_links_in, load_links_out, load_parent, load_tags};
 use crate::models::{
-    KnowledgeScope, MemoryQuery, MemoryResult, MemoryScope, NoteSummary, SearchOptions,
+    DiaryQuery, DiarySearchResult, KnowledgeScope, NoteQuery, NoteResult, NoteSearchScope,
+    NoteSummary, SearchOptions,
 };
 
 pub(crate) async fn search_store(
     settings: &KnowledgeSettings,
     embedder: &EmbeddingClient,
     pool: &SqlitePool,
-    query: &MemoryQuery,
+    query: &NoteQuery,
     scope: KnowledgeScope,
     ghost_name: &str,
-) -> KnowledgeResult<Vec<MemoryResult>> {
+) -> KnowledgeResult<Vec<NoteResult>> {
     let options = merge_options(settings, &query.options);
     let bm25_hits = bm25_search(pool, &query.query, options.bm25_limit, scope, ghost_name).await?;
     let dense_hits = dense_search(
@@ -56,7 +57,7 @@ pub(crate) async fn search_store(
             load_links_in(pool, &summary.id, options.graph_max, scope, ghost_name).await?
         };
         let tags = load_tags(pool, &summary.id, scope, ghost_name).await?;
-        results.push(MemoryResult {
+        results.push(NoteResult {
             summary,
             parents,
             links_out,
@@ -66,6 +67,46 @@ pub(crate) async fn search_store(
     }
 
     Ok(results)
+}
+
+/// Search diary entries using the same hybrid BM25 + dense pipeline, scoped to GhostDiary.
+pub(crate) async fn search_diary(
+    settings: &KnowledgeSettings,
+    embedder: &EmbeddingClient,
+    pool: &SqlitePool,
+    query: &DiaryQuery,
+    ghost_name: &str,
+) -> KnowledgeResult<Vec<DiarySearchResult>> {
+    let scope = KnowledgeScope::GhostDiary;
+    let options = merge_options(settings, &query.options);
+    let bm25_hits = bm25_search(pool, &query.query, options.bm25_limit, scope, ghost_name).await?;
+    let dense_hits = dense_search(
+        embedder,
+        pool,
+        &query.query,
+        options.dense_limit,
+        None,
+        scope,
+        ghost_name,
+    )
+    .await?;
+
+    let rrf = rrf_fuse(settings.search.rrf_k, &bm25_hits, &dense_hits);
+    let mut ranked: Vec<(i64, f32)> = rrf.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.truncate(options.max_results);
+
+    let summaries = hydrate_summaries(pool, &ranked, scope, ghost_name).await?;
+
+    Ok(summaries
+        .into_iter()
+        .map(|s| DiarySearchResult {
+            date: s.title,
+            score: s.score,
+            snippet: s.snippet,
+            note_id: s.id,
+        })
+        .collect())
 }
 
 /// Sanitize user input for FTS5 MATCH by quoting each word.
@@ -314,7 +355,7 @@ pub(crate) async fn hydrate_summaries_boosted(
                 title,
                 note_type,
                 path: path.into(),
-                scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
+                scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
                 trust_score,
                 score: *score * trust_boost * type_boost * status_factor,
                 snippet,
@@ -325,23 +366,18 @@ pub(crate) async fn hydrate_summaries_boosted(
     Ok(summaries)
 }
 
-pub(crate) fn resolve_scopes(scope: &MemoryScope) -> Vec<KnowledgeScope> {
+pub(crate) fn resolve_scopes(scope: &NoteSearchScope) -> Vec<KnowledgeScope> {
     match scope {
-        MemoryScope::All => vec![
-            KnowledgeScope::Shared,
-            KnowledgeScope::GhostPrivate,
-            KnowledgeScope::GhostProjects,
+        NoteSearchScope::All => vec![
+            KnowledgeScope::SharedNote,
+            KnowledgeScope::GhostNote,
             KnowledgeScope::GhostDiary,
         ],
-        MemoryScope::SharedOnly => vec![KnowledgeScope::Shared],
-        MemoryScope::GhostOnly => vec![
-            KnowledgeScope::GhostPrivate,
-            KnowledgeScope::GhostProjects,
+        NoteSearchScope::SharedOnly => vec![KnowledgeScope::SharedNote],
+        NoteSearchScope::GhostOnly => vec![
+            KnowledgeScope::GhostNote,
             KnowledgeScope::GhostDiary,
         ],
-        MemoryScope::GhostPrivate => vec![KnowledgeScope::GhostPrivate],
-        MemoryScope::GhostProjects => vec![KnowledgeScope::GhostProjects],
-        MemoryScope::GhostDiary => vec![KnowledgeScope::GhostDiary],
     }
 }
 

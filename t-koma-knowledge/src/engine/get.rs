@@ -3,22 +3,22 @@ use sqlx::SqlitePool;
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeContext, KnowledgeScope, MemoryScope, NoteDocument, WriteScope,
+    KnowledgeScope, NoteDocument, NoteSearchScope, WriteScope,
 };
-use crate::paths::{ghost_inbox_path, shared_inbox_path};
+use crate::paths::ghost_inbox_path;
 
 use super::KnowledgeEngine;
 use super::search::resolve_scopes;
 
 pub(crate) async fn memory_get(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    ghost_name: &str,
     note_id_or_title: &str,
-    scope: MemoryScope,
+    scope: NoteSearchScope,
 ) -> KnowledgeResult<NoteDocument> {
     let scopes = resolve_scopes(&scope);
     for scope in scopes {
-        let doc = fetch_note(engine.pool(), note_id_or_title, scope, &context.ghost_name).await?;
+        let doc = fetch_note(engine.pool(), note_id_or_title, scope, ghost_name).await?;
         if let Some(doc) = doc {
             return Ok(doc);
         }
@@ -29,14 +29,15 @@ pub(crate) async fn memory_get(
 
 pub(crate) async fn memory_capture(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    ghost_name: &str,
     payload: &str,
     scope: WriteScope,
     source: Option<&str>,
 ) -> KnowledgeResult<String> {
+    let settings = engine.settings();
     let target_path = match scope {
-        WriteScope::Shared => shared_inbox_path(engine.settings())?,
-        _ => ghost_inbox_path(&context.workspace_root),
+        WriteScope::SharedNote => crate::paths::shared_notes_root(settings)?,
+        WriteScope::GhostNote => ghost_inbox_path(settings, ghost_name)?,
     };
     tokio::fs::create_dir_all(&target_path).await?;
 
@@ -180,7 +181,7 @@ pub(crate) async fn fetch_note(
             title,
             note_type,
             path: path.into(),
-            scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
+            scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
             trust_score,
             created_at: DateTime::parse_from_rfc3339(&created_at)
                 .map(|dt| dt.with_timezone(&Utc))

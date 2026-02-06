@@ -137,7 +137,7 @@ fn split_front_matter(raw: &str) -> KnowledgeResult<(String, String)> {
     ))
 }
 
-fn extract_links(body: &str) -> Vec<WikiLink> {
+pub(crate) fn extract_links(body: &str) -> Vec<WikiLink> {
     let pattern = Regex::new(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]").expect("regex");
     pattern
         .captures_iter(body)

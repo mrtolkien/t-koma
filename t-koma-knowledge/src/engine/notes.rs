@@ -1,27 +1,25 @@
 use chrono::{DateTime, Utc};
 
-use crate::KnowledgeSettings;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeContext, KnowledgeScope, MemoryScope, NoteCreateRequest, NoteDocument,
-    NoteUpdateRequest, NoteWriteResult, WriteScope, generate_note_id,
+    KnowledgeScope, NoteCreateRequest, NoteDocument,
+    NoteSearchScope, NoteUpdateRequest, NoteWriteResult, WriteScope, generate_note_id,
 };
 use crate::parser::CommentEntry;
-use crate::paths::{
-    ghost_diary_root, ghost_private_root, ghost_projects_root, shared_knowledge_root,
-};
+use crate::KnowledgeSettings;
+use crate::paths::{ghost_notes_root, shared_notes_root};
 
 use super::KnowledgeEngine;
 
 pub(crate) async fn note_create(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    ghost_name: &str,
     request: NoteCreateRequest,
 ) -> KnowledgeResult<NoteWriteResult> {
     let note_id = generate_note_id();
     let now = Utc::now();
     let (target_dir, scope, owner_ghost) =
-        resolve_write_target(context, engine.settings(), &request.scope)?;
+        resolve_write_target(engine.settings(), ghost_name, &request.scope)?;
     tokio::fs::create_dir_all(&target_dir).await?;
 
     let trust_score = request.trust_score.unwrap_or(5);
@@ -29,7 +27,7 @@ pub(crate) async fn note_create(
         &note_id,
         &request.title,
         &request.note_type,
-        &context.ghost_name,
+        ghost_name,
         trust_score,
         request.parent.as_deref(),
         request.tags.as_deref(),
@@ -87,14 +85,14 @@ pub(crate) async fn note_create(
 
 pub(crate) async fn note_update(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    ghost_name: &str,
     request: NoteUpdateRequest,
 ) -> KnowledgeResult<NoteWriteResult> {
     // Fetch existing note and verify access
     let doc = engine
-        .memory_get(context, &request.note_id, MemoryScope::All)
+        .memory_get(ghost_name, &request.note_id, NoteSearchScope::All)
         .await?;
-    verify_write_access(context, &doc)?;
+    verify_write_access(ghost_name, &doc)?;
 
     // Read existing file
     let raw = tokio::fs::read_to_string(&doc.path).await?;
@@ -130,7 +128,7 @@ pub(crate) async fn note_update(
     let owner_ghost = if scope.is_shared() {
         None
     } else {
-        Some(context.ghost_name.clone())
+        Some(ghost_name.to_string())
     };
     let ingested = crate::ingest::ingest_markdown(
         engine.settings(),
@@ -175,14 +173,14 @@ pub(crate) async fn note_update(
 
 pub(crate) async fn note_validate(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    ghost_name: &str,
     note_id: &str,
     trust_score: Option<i64>,
 ) -> KnowledgeResult<NoteWriteResult> {
     let doc = engine
-        .memory_get(context, note_id, MemoryScope::All)
+        .memory_get(ghost_name, note_id, NoteSearchScope::All)
         .await?;
-    verify_write_access(context, &doc)?;
+    verify_write_access(ghost_name, &doc)?;
 
     let raw = tokio::fs::read_to_string(&doc.path).await?;
     let parsed = crate::parser::parse_note(&raw)?;
@@ -191,7 +189,7 @@ pub(crate) async fn note_validate(
     let now = Utc::now();
     front.last_validated_at = Some(now);
     front.last_validated_by = Some(crate::parser::CreatedBy {
-        ghost: context.ghost_name.clone(),
+        ghost: ghost_name.to_string(),
         model: "tool".to_string(),
     });
     if let Some(score) = trust_score {
@@ -210,7 +208,7 @@ pub(crate) async fn note_validate(
     let owner_ghost = if scope.is_shared() {
         None
     } else {
-        Some(context.ghost_name.clone())
+        Some(ghost_name.to_string())
     };
     let ingested = crate::ingest::ingest_markdown(
         engine.settings(),
@@ -230,21 +228,21 @@ pub(crate) async fn note_validate(
 
 pub(crate) async fn note_comment(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    ghost_name: &str,
     note_id: &str,
     text: &str,
 ) -> KnowledgeResult<NoteWriteResult> {
     let doc = engine
-        .memory_get(context, note_id, MemoryScope::All)
+        .memory_get(ghost_name, note_id, NoteSearchScope::All)
         .await?;
-    verify_write_access(context, &doc)?;
+    verify_write_access(ghost_name, &doc)?;
 
     let raw = tokio::fs::read_to_string(&doc.path).await?;
     let parsed = crate::parser::parse_note(&raw)?;
     let mut front = parsed.front;
 
     let comment = CommentEntry {
-        ghost: context.ghost_name.clone(),
+        ghost: ghost_name.to_string(),
         model: "tool".to_string(),
         at: Utc::now(),
         text: text.to_string(),
@@ -264,7 +262,7 @@ pub(crate) async fn note_comment(
     let owner_ghost = if scope.is_shared() {
         None
     } else {
-        Some(context.ghost_name.clone())
+        Some(ghost_name.to_string())
     };
     let ingested = crate::ingest::ingest_markdown(
         engine.settings(),
@@ -284,37 +282,21 @@ pub(crate) async fn note_comment(
 
 /// Determine the filesystem directory, internal scope, and owner_ghost for writing.
 pub(crate) fn resolve_write_target(
-    context: &KnowledgeContext,
     settings: &KnowledgeSettings,
+    ghost_name: &str,
     scope: &WriteScope,
 ) -> KnowledgeResult<(std::path::PathBuf, KnowledgeScope, Option<String>)> {
     match scope {
-        WriteScope::Shared => {
-            let dir = shared_knowledge_root(settings)?;
-            Ok((dir, KnowledgeScope::Shared, None))
+        WriteScope::SharedNote => {
+            let dir = shared_notes_root(settings)?;
+            Ok((dir, KnowledgeScope::SharedNote, None))
         }
-        WriteScope::Private => {
-            let dir = ghost_private_root(&context.workspace_root);
+        WriteScope::GhostNote => {
+            let dir = ghost_notes_root(settings, ghost_name)?;
             Ok((
                 dir,
-                KnowledgeScope::GhostPrivate,
-                Some(context.ghost_name.clone()),
-            ))
-        }
-        WriteScope::Projects => {
-            let dir = ghost_projects_root(&context.workspace_root);
-            Ok((
-                dir,
-                KnowledgeScope::GhostProjects,
-                Some(context.ghost_name.clone()),
-            ))
-        }
-        WriteScope::Diary => {
-            let dir = ghost_diary_root(&context.workspace_root);
-            Ok((
-                dir,
-                KnowledgeScope::GhostDiary,
-                Some(context.ghost_name.clone()),
+                KnowledgeScope::GhostNote,
+                Some(ghost_name.to_string()),
             ))
         }
     }
@@ -322,7 +304,7 @@ pub(crate) fn resolve_write_target(
 
 /// Verify the calling ghost has write access to a note.
 pub(crate) fn verify_write_access(
-    context: &KnowledgeContext,
+    ghost_name: &str,
     doc: &NoteDocument,
 ) -> KnowledgeResult<()> {
     if doc.scope.is_shared() {
@@ -330,10 +312,10 @@ pub(crate) fn verify_write_access(
         return Ok(());
     }
     // Private notes: only the owner ghost can write
-    if doc.created_by_ghost != context.ghost_name {
+    if doc.created_by_ghost != ghost_name {
         return Err(KnowledgeError::AccessDenied(format!(
             "ghost '{}' cannot modify note owned by '{}'",
-            context.ghost_name, doc.created_by_ghost,
+            ghost_name, doc.created_by_ghost,
         )));
     }
     Ok(())

@@ -42,8 +42,8 @@ impl MemorySearchTool {
                 "query": {"type": "string", "description": "Search query string."},
                 "scope": {
                     "type": "string",
-                    "enum": ["all", "shared", "ghost", "private", "projects", "diary"],
-                    "description": "Scope to search. 'all' = shared + own private. 'shared' = shared only. 'ghost' = all own private. 'private'/'projects'/'diary' = specific ghost scope."
+                    "enum": ["all", "shared", "ghost"],
+                    "description": "Scope to search. 'all' = shared + own ghost notes. 'shared' = shared only. 'ghost' = only your own notes."
                 },
                 "options": {
                     "type": "object",
@@ -62,14 +62,11 @@ impl MemorySearchTool {
         })
     }
 
-    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::MemoryScope {
+    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::NoteSearchScope {
         match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::MemoryScope::SharedOnly,
-            Some("ghost") => t_koma_knowledge::models::MemoryScope::GhostOnly,
-            Some("private") => t_koma_knowledge::models::MemoryScope::GhostPrivate,
-            Some("projects") => t_koma_knowledge::models::MemoryScope::GhostProjects,
-            Some("diary") => t_koma_knowledge::models::MemoryScope::GhostDiary,
-            _ => t_koma_knowledge::models::MemoryScope::All,
+            Some("shared") => t_koma_knowledge::models::NoteSearchScope::SharedOnly,
+            Some("ghost") => t_koma_knowledge::models::NoteSearchScope::GhostOnly,
+            _ => t_koma_knowledge::models::NoteSearchScope::All,
         }
     }
 }
@@ -91,12 +88,11 @@ impl Tool for MemorySearchTool {
     fn prompt(&self) -> Option<&'static str> {
         Some(
             "Use memory_search to retrieve knowledge notes and ghost memory.\n\
-            - Default scope is 'all' (shared + your own private notes).\n\
+            - Default scope is 'all' (shared + your own notes).\n\
             - Use 'shared' to search only shared knowledge visible to all ghosts.\n\
-            - Use 'ghost' to search only your own private notes (private + projects + diary).\n\
-            - Use 'private', 'projects', or 'diary' to narrow to a specific ghost scope.\n\
+            - Use 'ghost' to search only your own notes.\n\
             - Prefer concise, specific queries for better retrieval quality.\n\
-            - You will NEVER see another ghost's private notes regardless of scope.",
+            - You will NEVER see another ghost's notes regardless of scope.",
         )
     }
 
@@ -108,18 +104,13 @@ impl Tool for MemorySearchTool {
         let scope = Self::parse_scope(input.scope);
         let options = input.options.map(Into::into).unwrap_or_default();
 
-        let query = t_koma_knowledge::models::MemoryQuery {
+        let query = t_koma_knowledge::models::NoteQuery {
             query: input.query,
             scope,
             options,
         };
 
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
-
-        let results = engine.memory_search(&ctx, query).await.map_err(|e| e.to_string())?;
+        let results = engine.memory_search(context.ghost_name(), query).await.map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&results).map_err(|e| e.to_string())
     }
 }

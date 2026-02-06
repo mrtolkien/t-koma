@@ -18,7 +18,7 @@ impl Tool for MemoryNoteCommentTool {
     }
 
     fn description(&self) -> &str {
-        "Add a comment entry to a note's front matter."
+        "Add a comment entry to a note's front matter. Load the note-writer skill first for best results."
     }
 
     fn input_schema(&self) -> Value {
@@ -54,13 +54,8 @@ impl Tool for MemoryNoteCommentTool {
         let engine = context.knowledge_engine()
             .ok_or("knowledge engine not available")?;
 
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
-
         let result = engine
-            .note_comment(&ctx, &input.note_id, &input.comment)
+            .note_comment(context.ghost_name(), &input.note_id, &input.comment)
             .await
             .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&result).map_err(|e| e.to_string())

@@ -100,12 +100,7 @@ impl Tool for ReferenceSearchTool {
             options,
         };
 
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
-
-        let results = engine.reference_search(&ctx, query).await.map_err(|e| e.to_string())?;
+        let results = engine.reference_search(context.ghost_name(), query).await.map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&results).map_err(|e| e.to_string())
     }
 }
