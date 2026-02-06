@@ -5,9 +5,9 @@ body = "Approval required to leave the workspace. Reply with APPROVE or DENY. Ap
 vars = ["path"]
 body = "Approval required to leave the workspace (requested: {{path}}). Reply with APPROVE or DENY. Approval applies to the next action only."
 
-[approval-reference-topic-create]
+[approval-reference-import]
 vars = ["title", "summary"]
-body = "Approval required to create reference topic \"{{title}}\".\n{{summary}}\nReply with APPROVE or DENY."
+body = "Approval required to import reference topic \"{{title}}\".\n{{summary}}\nReply with APPROVE or DENY."
 
 [tool-loop-limit-reached]
 vars = ["limit", "extra"]

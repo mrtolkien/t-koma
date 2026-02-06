@@ -55,9 +55,9 @@ fn approval_required_message(reason: &crate::tools::context::ApprovalReason) -> 
         ApprovalReason::WorkspaceEscape(path) => {
             render_message(ids::APPROVAL_REQUIRED_WITH_PATH, &[("path", path)])
         }
-        ApprovalReason::ReferenceTopicCreate { title, summary } => {
+        ApprovalReason::ReferenceImport { title, summary } => {
             render_message(
-                ids::APPROVAL_REFERENCE_TOPIC_CREATE,
+                ids::APPROVAL_REFERENCE_IMPORT,
                 &[("title", title), ("summary", summary)],
             )
         }
