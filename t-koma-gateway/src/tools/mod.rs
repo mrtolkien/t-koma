@@ -21,6 +21,7 @@ pub mod reference_topic_list;
 pub mod reference_topic_search;
 pub mod reference_topic_update;
 pub mod search;
+pub mod search_diary;
 pub mod web_fetch;
 pub mod web_search;
 pub use context::{ApprovalReason, ToolContext};
