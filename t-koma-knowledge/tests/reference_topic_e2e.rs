@@ -30,7 +30,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use tempfile::TempDir;
 
-use t_koma_knowledge::models::{KnowledgeContext, ReferenceQuery};
+use t_koma_knowledge::models::{KnowledgeContext, ReferenceQuery, SourceRole};
 use t_koma_knowledge::{
     KnowledgeEngine, KnowledgeSettings, MemoryResult, TopicCreateRequest, TopicSourceInput,
 };
@@ -87,7 +87,7 @@ impl DioxusFixture {
             workspace_root: workspace,
         };
 
-        // Create topic from Dioxus — use filtered paths to keep test fast
+        // Create topic from Dioxus — code repo (examples) + docsite (guide docs)
         let request = TopicCreateRequest {
             title: "Dioxus - Rust UI Framework".to_string(),
             body: "Dioxus is a portable, performant, and ergonomic framework for building \
@@ -105,14 +105,23 @@ impl DioxusFixture {
                         "README.md".to_string(),
                         "examples/".to_string(),
                     ]),
-                    role: None,
+                    role: None, // inferred as "code" for git sources
+                },
+                TopicSourceInput {
+                    source_type: "git".to_string(),
+                    url: "https://github.com/DioxusLabs/docsite".to_string(),
+                    ref_name: Some("main".to_string()),
+                    paths: Some(vec![
+                        "docs-src/0.6/src/guide/".to_string(),
+                    ]),
+                    role: Some(SourceRole::Docs),
                 },
                 TopicSourceInput {
                     source_type: "web".to_string(),
                     url: "https://dioxuslabs.com/learn/0.6/".to_string(),
                     ref_name: None,
                     paths: None,
-                    role: None,
+                    role: None, // inferred as "docs" for web sources
                 },
             ],
             tags: Some(vec![
