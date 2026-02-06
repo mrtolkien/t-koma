@@ -21,6 +21,10 @@ impl Tool for MemoryNoteValidateTool {
         "Record validation metadata and optionally adjust trust score."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("note-writer")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

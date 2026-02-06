@@ -2,6 +2,11 @@
 name: reference-researcher
 description: Guide for gathering and curating reference material from external sources. Use when you need to research a library, framework, or API and build a searchable reference topic.
 license: MIT
+unlocks_tools:
+  - reference_topic_create
+  - reference_topic_update
+  - reference_get
+  - reference_file_update
 metadata:
   author: t-koma
   version: "1.0"

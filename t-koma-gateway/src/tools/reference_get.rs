@@ -23,6 +23,10 @@ impl Tool for ReferenceGetTool {
         "Fetch the full content of a reference file by note_id or by topic + file_path."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("reference-researcher")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

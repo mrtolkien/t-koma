@@ -37,6 +37,10 @@ impl Tool for MemoryNoteCreateTool {
         "Create a structured note with validated front matter."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("note-writer")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

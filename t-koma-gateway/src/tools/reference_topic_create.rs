@@ -37,6 +37,10 @@ impl Tool for ReferenceTopicCreateTool {
         "Create a new reference topic by fetching external sources (git repos, web pages), indexing with embeddings."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("reference-researcher")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

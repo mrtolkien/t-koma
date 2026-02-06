@@ -24,6 +24,10 @@ impl Tool for ReferenceTopicUpdateTool {
         "Update reference topic metadata (status, body, tags, max_age_days) without re-fetching sources."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("reference-researcher")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

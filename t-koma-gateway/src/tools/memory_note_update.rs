@@ -25,6 +25,10 @@ impl Tool for MemoryNoteUpdateTool {
         "Update an existing note (title, body, tags, trust, parent)."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("note-writer")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

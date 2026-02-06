@@ -50,6 +50,10 @@ impl Tool for MemoryGetTool {
         "Fetch a full memory note by id or title."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("note-writer")
+    }
+
     fn input_schema(&self) -> Value {
         Self::schema()
     }

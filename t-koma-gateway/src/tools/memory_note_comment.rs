@@ -21,6 +21,10 @@ impl Tool for MemoryNoteCommentTool {
         "Add a comment entry to a note's front matter."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("note-writer")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

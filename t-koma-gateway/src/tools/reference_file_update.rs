@@ -22,6 +22,10 @@ impl Tool for ReferenceFileUpdateTool {
         "Mark a reference file as active, problematic, or obsolete."
     }
 
+    fn requires_skill(&self) -> Option<&str> {
+        Some("reference-researcher")
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
