@@ -7,7 +7,7 @@
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    KnowledgeContext, MemoryScope, NoteCreateRequest, NoteUpdateRequest,
+    KnowledgeContext, MemoryScope, NoteCreateRequest, NoteUpdateRequest, WriteScope,
 };
 use t_koma_knowledge::storage::{upsert_note, KnowledgeStore, NoteRecord};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
@@ -60,7 +60,7 @@ async fn create_private_note() {
     let request = NoteCreateRequest {
         title: "Test Note".to_string(),
         note_type: "Concept".to_string(),
-        scope: MemoryScope::GhostPrivate,
+        scope: WriteScope::Private,
         body: "This is the body.".to_string(),
         parent: None,
         tags: Some(vec!["test".to_string()]),
@@ -101,7 +101,7 @@ async fn create_shared_note() {
     let request = NoteCreateRequest {
         title: "Shared Knowledge".to_string(),
         note_type: "HowTo".to_string(),
-        scope: MemoryScope::SharedOnly,
+        scope: WriteScope::Shared,
         body: "Shared body content.".to_string(),
         parent: None,
         tags: None,
@@ -546,7 +546,7 @@ async fn capture_to_ghost_inbox() {
     tokio::fs::create_dir_all(&inbox_dir).await.unwrap();
 
     let result = engine
-        .memory_capture(&context, "Quick note to self", MemoryScope::GhostOnly)
+        .memory_capture(&context, "Quick note to self", WriteScope::Private)
         .await;
     assert!(result.is_ok());
     let path = result.unwrap();
@@ -560,7 +560,7 @@ async fn capture_to_shared_inbox() {
     tokio::fs::create_dir_all(&shared_inbox).await.unwrap();
 
     let result = engine
-        .memory_capture(&context, "Shared info", MemoryScope::SharedOnly)
+        .memory_capture(&context, "Shared info", WriteScope::Shared)
         .await;
     assert!(result.is_ok());
     let path = result.unwrap();
@@ -605,7 +605,7 @@ mod slow {
         let request = NoteCreateRequest {
             title: "Rust Error Handling".to_string(),
             note_type: "Concept".to_string(),
-            scope: MemoryScope::GhostPrivate,
+            scope: WriteScope::Private,
             body: "Rust uses Result and Option types for error handling. \
                    The ? operator propagates errors up the call stack."
                 .to_string(),

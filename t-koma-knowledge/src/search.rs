@@ -11,7 +11,7 @@ use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
     KnowledgeContext, KnowledgeScope, MemoryQuery, MemoryResult, MemoryScope, NoteCreateRequest,
     NoteDocument, NoteSummary, NoteUpdateRequest, NoteWriteResult, ReferenceQuery, SearchOptions,
-    generate_note_id,
+    WriteScope, generate_note_id,
 };
 use crate::parser::CommentEntry;
 use crate::paths::{
@@ -93,10 +93,10 @@ impl KnowledgeEngine {
         &self,
         context: &KnowledgeContext,
         payload: &str,
-        scope: MemoryScope,
+        scope: WriteScope,
     ) -> KnowledgeResult<String> {
         let target_path = match scope {
-            MemoryScope::SharedOnly => shared_inbox_path(&self.settings)?,
+            WriteScope::Shared => shared_inbox_path(&self.settings)?,
             _ => ghost_inbox_path(&context.workspace_root),
         };
         tokio::fs::create_dir_all(&target_path).await?;
@@ -1038,29 +1038,24 @@ struct ResolvedSearchOptions {
 fn resolve_write_target(
     context: &KnowledgeContext,
     settings: &KnowledgeSettings,
-    scope: &MemoryScope,
+    scope: &WriteScope,
 ) -> KnowledgeResult<(std::path::PathBuf, KnowledgeScope, Option<String>)> {
     match scope {
-        MemoryScope::SharedOnly => {
+        WriteScope::Shared => {
             let dir = shared_knowledge_root(settings)?;
             Ok((dir, KnowledgeScope::Shared, None))
         }
-        MemoryScope::GhostPrivate | MemoryScope::GhostOnly => {
+        WriteScope::Private => {
             let dir = ghost_private_root(&context.workspace_root);
             Ok((dir, KnowledgeScope::GhostPrivate, Some(context.ghost_name.clone())))
         }
-        MemoryScope::GhostProjects => {
+        WriteScope::Projects => {
             let dir = ghost_projects_root(&context.workspace_root);
             Ok((dir, KnowledgeScope::GhostProjects, Some(context.ghost_name.clone())))
         }
-        MemoryScope::GhostDiary => {
+        WriteScope::Diary => {
             let dir = ghost_diary_root(&context.workspace_root);
             Ok((dir, KnowledgeScope::GhostDiary, Some(context.ghost_name.clone())))
-        }
-        // Default: private knowledge
-        MemoryScope::All => {
-            let dir = ghost_private_root(&context.workspace_root);
-            Ok((dir, KnowledgeScope::GhostPrivate, Some(context.ghost_name.clone())))
         }
     }
 }

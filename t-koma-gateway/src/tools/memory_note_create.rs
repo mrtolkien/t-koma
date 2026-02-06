@@ -19,14 +19,12 @@ struct NoteCreateInput {
 pub struct MemoryNoteCreateTool;
 
 impl MemoryNoteCreateTool {
-    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::MemoryScope {
+    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::WriteScope {
         match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::MemoryScope::SharedOnly,
-            Some("ghost") => t_koma_knowledge::models::MemoryScope::GhostOnly,
-            Some("private") => t_koma_knowledge::models::MemoryScope::GhostPrivate,
-            Some("projects") => t_koma_knowledge::models::MemoryScope::GhostProjects,
-            Some("diary") => t_koma_knowledge::models::MemoryScope::GhostDiary,
-            _ => t_koma_knowledge::models::MemoryScope::GhostPrivate,
+            Some("shared") => t_koma_knowledge::models::WriteScope::Shared,
+            Some("projects") => t_koma_knowledge::models::WriteScope::Projects,
+            Some("diary") => t_koma_knowledge::models::WriteScope::Diary,
+            _ => t_koma_knowledge::models::WriteScope::Private,
         }
     }
 }
@@ -55,7 +53,7 @@ impl Tool for MemoryNoteCreateTool {
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["shared", "ghost", "private", "projects", "diary"],
+                    "enum": ["private", "projects", "diary", "shared"],
                     "description": "Where to create the note. Default 'private'."
                 },
                 "body": {

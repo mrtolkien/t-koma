@@ -136,12 +136,25 @@ pub struct NoteDocument {
     pub body: String,
 }
 
+/// Scope for write operations (create, capture).
+///
+/// Unlike `MemoryScope` (which is for reads/queries and includes `All` / `GhostOnly`),
+/// `WriteScope` forces callers to pick a concrete destination.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum WriteScope {
+    #[default]
+    Private,
+    Projects,
+    Diary,
+    Shared,
+}
+
 /// Input for creating a new note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteCreateRequest {
     pub title: String,
     pub note_type: String,
-    pub scope: MemoryScope,
+    pub scope: WriteScope,
     pub body: String,
     pub parent: Option<String>,
     pub tags: Option<Vec<String>>,

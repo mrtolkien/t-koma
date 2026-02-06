@@ -22,8 +22,8 @@ impl MemoryCaptureTool {
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["ghost", "shared"],
-                    "description": "Where to capture. 'ghost' (default) = your private inbox. 'shared' = shared knowledge inbox."
+                    "enum": ["private", "shared"],
+                    "description": "Where to capture. 'private' (default) = your private inbox. 'shared' = shared knowledge inbox."
                 }
             },
             "required": ["payload"],
@@ -31,10 +31,10 @@ impl MemoryCaptureTool {
         })
     }
 
-    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::MemoryScope {
+    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::WriteScope {
         match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::MemoryScope::SharedOnly,
-            _ => t_koma_knowledge::models::MemoryScope::GhostOnly,
+            Some("shared") => t_koma_knowledge::models::WriteScope::Shared,
+            _ => t_koma_knowledge::models::WriteScope::Private,
         }
     }
 }
