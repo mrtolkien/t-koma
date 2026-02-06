@@ -106,8 +106,9 @@ impl KnowledgeEngine {
         context: &KnowledgeContext,
         payload: &str,
         scope: WriteScope,
+        source: Option<&str>,
     ) -> KnowledgeResult<String> {
-        get::memory_capture(self, context, payload, scope).await
+        get::memory_capture(self, context, payload, scope, source).await
     }
 
     /// Create a structured note with validated front matter.

@@ -252,7 +252,8 @@ Memory tools:
 
 - `memory_search`: Hybrid BM25 + dense search across scopes.
 - `memory_get`: Retrieve a note by ID or title.
-- `memory_capture`: Write raw text to ghost or shared inbox.
+- `memory_capture`: Write raw text to ghost or shared inbox. Accepts optional
+  `source` field for provenance tracking (URL, "user stated", etc.).
 - `memory_note_create`: Create a structured note with front matter.
 - `memory_note_update`: Patch an existing note (title, body, tags, etc.).
 - `memory_note_validate`: Mark a note as validated, optionally adjust trust.
@@ -277,7 +278,8 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 ### Topic Discovery
 
 - The 10 most recent reference topics are injected into the ghost's system
-  prompt during `add_ghost_prompt_context()` in `session.rs`.
+  prompt via `build_ghost_context_vars()` in `session.rs`, rendered through
+  the `ghost-context.md` Jinja template.
 - For older topics, use `reference_topic_search` with a semantic query.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
@@ -310,7 +312,12 @@ On approval, Phase 2 re-executes with `has_approval()` returning true. See
   `body` and optional `vars`/`title`. Use `{{var}}`.
 - Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
   and a `# loaded:` comment to know where they are used.
+- `ghost-context.md` uses Jinja template variables (`{{ reference_topics }}`,
+  `{{ ghost_identity }}`, etc.) rendered per-session with ghost-specific data.
+  Template vars must be declared in front matter `vars = [...]`.
 - Update `t-koma-gateway/src/content/ids.rs` after changes.
+- Debug logging: set `dump_queries = true` in `[logging]` config to write raw
+  LLM request/response JSON to `./logs/queries/`.
 
 ## Common Tasks (Pointer Only)
 

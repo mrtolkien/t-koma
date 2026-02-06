@@ -44,6 +44,7 @@ enabled = true
 level = "info"
 file_enabled = false
 # file_path = "/var/log/t-koma.log"
+# dump_queries = true
 
 [tools.web]
 enabled = true
@@ -172,6 +173,10 @@ pub struct LoggingSettings {
 
     /// Log file path (if file_enabled is true)
     pub file_path: Option<String>,
+
+    /// Dump raw LLM request/response JSON to ./logs/queries/
+    #[serde(default)]
+    pub dump_queries: bool,
 }
 
 /// Tooling settings
@@ -376,6 +381,7 @@ impl Default for LoggingSettings {
             level: default_log_level(),
             file_enabled: false,
             file_path: None,
+            dump_queries: false,
         }
     }
 }
@@ -556,6 +562,7 @@ mod tests {
 
         assert_eq!(settings.logging.level, "info");
         assert!(!settings.logging.file_enabled);
+        assert!(!settings.logging.dump_queries);
 
         assert!(settings.openrouter.http_referer.is_none());
         assert!(settings.openrouter.app_name.is_none());
