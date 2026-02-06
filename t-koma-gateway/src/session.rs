@@ -577,6 +577,23 @@ impl SessionChat {
         system_prompt: &mut SystemPrompt,
         workspace_root: &std::path::Path,
     ) -> Result<(), ChatError> {
+        // Inject recent reference topics so the ghost knows what's available
+        if let Some(engine) = &self.knowledge_engine
+            && let Ok(topics) = engine.recent_topics().await
+            && !topics.is_empty()
+        {
+            let mut section = String::from("# Available Reference Topics\n\n");
+            for (id, title, tags) in &topics {
+                let tag_str = if tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {}", tags.join(", "))
+                };
+                section.push_str(&format!("- {} (`{}`){}\n", title, id, tag_str));
+            }
+            system_prompt.add_context(section, false);
+        }
+
         let boot = workspace_root.join("BOOT.md");
         let soul = workspace_root.join("SOUL.md");
         let user = workspace_root.join("USER.md");
