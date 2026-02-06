@@ -73,7 +73,12 @@ async fn test_multi_turn_story_conversation() {
     println!("Created session: {}", session.id);
 
     // Set up system prompt and tools
-    let system_prompt = SystemPrompt::new();
+    let system_prompt = SystemPrompt::new(&[
+        ("reference_topics", ""),
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+    ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
@@ -291,7 +296,12 @@ async fn test_multi_turn_with_tool_use() {
             .expect("Failed to create session");
 
     // Set up system prompt and tools
-    let system_prompt = SystemPrompt::new();
+    let system_prompt = SystemPrompt::new(&[
+        ("reference_topics", ""),
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+    ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];

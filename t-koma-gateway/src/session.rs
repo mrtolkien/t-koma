@@ -67,6 +67,26 @@ pub enum ToolApprovalDecision {
     Deny,
 }
 
+/// Template variable values for ghost-context.md rendering
+struct GhostContextVars {
+    reference_topics: String,
+    ghost_identity: String,
+    ghost_diary: String,
+    ghost_projects: String,
+}
+
+impl GhostContextVars {
+    /// Convert to the slice format expected by the template engine
+    fn as_pairs(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("reference_topics", self.reference_topics.as_str()),
+            ("ghost_identity", self.ghost_identity.as_str()),
+            ("ghost_diary", self.ghost_diary.as_str()),
+            ("ghost_projects", self.ghost_projects.as_str()),
+        ]
+    }
+}
+
 /// High-level chat interface that hides tools and conversation complexity
 ///
 /// This is the SINGLE interface that Discord, WebSocket, and other transports
@@ -146,11 +166,12 @@ impl SessionChat {
         // Fetch conversation history
         let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
 
-        // Build system prompt with tools
-        let tools = self.tool_manager.get_tools();
-        let mut system_prompt = SystemPrompt::with_tools(&tools);
-        self.add_ghost_prompt_context(&mut system_prompt, ghost_db.workspace_path())
+        // Build system prompt with tools and ghost context
+        let ghost_vars = self
+            .build_ghost_context_vars(ghost_db.workspace_path())
             .await?;
+        let tools = self.tool_manager.get_tools();
+        let system_prompt = SystemPrompt::with_tools(&tools, &ghost_vars.as_pairs());
         let system_blocks = build_system_prompt(&system_prompt);
 
         // Build API messages from history
@@ -493,10 +514,11 @@ impl SessionChat {
     ) -> Result<String, ChatError> {
         let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
 
-        let tools = self.tool_manager.get_tools();
-        let mut system_prompt = SystemPrompt::with_tools(&tools);
-        self.add_ghost_prompt_context(&mut system_prompt, ghost_db.workspace_path())
+        let ghost_vars = self
+            .build_ghost_context_vars(ghost_db.workspace_path())
             .await?;
+        let tools = self.tool_manager.get_tools();
+        let system_prompt = SystemPrompt::with_tools(&tools, &ghost_vars.as_pairs());
         let system_blocks = build_system_prompt(&system_prompt);
         let api_messages = build_history_messages(&history, Some(50));
 
@@ -571,13 +593,17 @@ impl SessionChat {
         Ok(())
     }
 
-    async fn add_ghost_prompt_context(
+    /// Build template variables for ghost-context.md rendering
+    ///
+    /// Collects reference topics, identity files, diary entries, and project
+    /// summaries from the ghost workspace into string values for template
+    /// substitution.
+    async fn build_ghost_context_vars(
         &self,
-        system_prompt: &mut SystemPrompt,
         workspace_root: &std::path::Path,
-    ) -> Result<(), ChatError> {
-        // Inject recent reference topics so the ghost knows what's available
-        if let Some(engine) = &self.knowledge_engine
+    ) -> Result<GhostContextVars, ChatError> {
+        // Reference topics
+        let reference_topics = if let Some(engine) = &self.knowledge_engine
             && let Ok(topics) = engine.recent_topics().await
             && !topics.is_empty()
         {
@@ -590,44 +616,44 @@ impl SessionChat {
                 };
                 section.push_str(&format!("- {} (`{}`){}\n", title, id, tag_str));
             }
-            system_prompt.add_context(section, false);
-        }
+            section
+        } else {
+            String::new()
+        };
 
-        let boot = workspace_root.join("BOOT.md");
-        let soul = workspace_root.join("SOUL.md");
-        let user = workspace_root.join("USER.md");
+        // Ghost identity (BOOT.md + SOUL.md + USER.md)
+        let mut identity_parts = Vec::new();
+        for (label, filename) in [("BOOT.md", "BOOT.md"), ("SOUL.md", "SOUL.md"), ("USER.md", "USER.md")] {
+            let path = workspace_root.join(filename);
+            if let Ok(content) = tokio::fs::read_to_string(&path).await
+                && !content.trim().is_empty()
+            {
+                identity_parts.push(format!("# {}\n\n{}", label, content.trim()));
+            }
+        }
+        let ghost_identity = identity_parts.join("\n\n");
+
+        // Diary entries (today + yesterday)
         let diary_root = workspace_root.join("diary");
-        let projects_root = workspace_root.join("projects");
-
-        if let Ok(content) = tokio::fs::read_to_string(&boot).await
-            && !content.trim().is_empty()
-        {
-            system_prompt.add_context(format!("# BOOT.md\n\n{}", content.trim()), false);
-        }
-        if let Ok(content) = tokio::fs::read_to_string(&soul).await
-            && !content.trim().is_empty()
-        {
-            system_prompt.add_context(format!("# SOUL.md\n\n{}", content.trim()), false);
-        }
-        if let Ok(content) = tokio::fs::read_to_string(&user).await
-            && !content.trim().is_empty()
-        {
-            system_prompt.add_context(format!("# USER.md\n\n{}", content.trim()), false);
-        }
-
         let today = Utc::now().date_naive();
+        let mut diary_parts = Vec::new();
         for day in [today, today - ChronoDuration::days(1)] {
             let path = diary_root.join(format!("{}.md", day));
             if let Ok(content) = tokio::fs::read_to_string(&path).await
                 && !content.trim().is_empty()
             {
-                system_prompt.add_context(
-                    format!("# Diary {}\n\n{}", day.format("%Y-%m-%d"), content.trim()),
-                    false,
-                );
+                diary_parts.push(format!(
+                    "# Diary {}\n\n{}",
+                    day.format("%Y-%m-%d"),
+                    content.trim()
+                ));
             }
         }
+        let ghost_diary = diary_parts.join("\n\n");
 
+        // Active project summaries
+        let projects_root = workspace_root.join("projects");
+        let mut project_parts = Vec::new();
         if let Ok(mut entries) = tokio::fs::read_dir(&projects_root).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let path = entry.path();
@@ -649,16 +675,22 @@ impl SessionChat {
                             .file_name()
                             .and_then(|v| v.to_str())
                             .unwrap_or("project");
-                        system_prompt.add_context(
-                            format!("# Ongoing Projects {}\n\n{}", name, paragraph),
-                            false,
-                        );
+                        project_parts.push(format!(
+                            "# Ongoing Projects {}\n\n{}",
+                            name, paragraph
+                        ));
                     }
                 }
             }
         }
+        let ghost_projects = project_parts.join("\n\n");
 
-        Ok(())
+        Ok(GhostContextVars {
+            reference_topics,
+            ghost_identity,
+            ghost_diary,
+            ghost_projects,
+        })
     }
 
     /// Save tool results to the database
