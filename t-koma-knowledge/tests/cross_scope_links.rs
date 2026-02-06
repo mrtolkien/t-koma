@@ -6,17 +6,18 @@ use t_koma_knowledge::storage::{replace_links, upsert_note, KnowledgeStore, Note
 #[tokio::test]
 async fn test_cross_scope_link_resolution() {
     let temp = TempDir::new().expect("tempdir");
-    let shared_root = temp.path().join("knowledge");
-    let reference_root = temp.path().join("reference");
-    let ghost_root = temp.path().join("ghost");
-    let ghost_private = ghost_root.join("private_knowledge");
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
+    let ghost_root = data_root.join("ghosts").join("ghost").join("notes");
 
     tokio::fs::create_dir_all(&shared_root).await.unwrap();
-    tokio::fs::create_dir_all(&reference_root).await.unwrap();
-    tokio::fs::create_dir_all(&ghost_private).await.unwrap();
+    tokio::fs::create_dir_all(&ghost_root).await.unwrap();
+
+    // Set T_KOMA_DATA_DIR so paths resolve to our temp dir
+    unsafe { std::env::set_var("T_KOMA_DATA_DIR", data_root.to_str().unwrap()) };
 
     let shared_note = shared_root.join("shared-note.md");
-    let ghost_note = ghost_private.join("ghost-note.md");
+    let ghost_note = ghost_root.join("ghost-note.md");
 
     tokio::fs::write(
         &shared_note,
@@ -54,20 +55,10 @@ async fn test_cross_scope_link_resolution() {
     .await
     .unwrap();
 
-    let settings = t_koma_knowledge::KnowledgeSettings {
-        shared_root_override: Some(shared_root.clone()),
-        reference_root_override: Some(reference_root.clone()),
-        knowledge_db_path_override: Some(shared_root.join("index.sqlite3")),
-        embedding_dim: Some(8),
-        ..Default::default()
-    };
-
-    let store = KnowledgeStore::open(
-        &settings.knowledge_db_path_override.clone().unwrap(),
-        settings.embedding_dim,
-    )
-    .await
-    .unwrap();
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
+        .await
+        .unwrap();
 
     let shared_note_record = NoteRecord {
         id: "shared-1".to_string(),
@@ -75,7 +66,7 @@ async fn test_cross_scope_link_resolution() {
         note_type: "Concept".to_string(),
         type_valid: true,
         path: shared_note.clone(),
-        scope: "shared".to_string(),
+        scope: "shared_note".to_string(),
         owner_ghost: None,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "system".to_string(),
@@ -99,7 +90,7 @@ async fn test_cross_scope_link_resolution() {
         note_type: "Idea".to_string(),
         type_valid: true,
         path: ghost_note.clone(),
-        scope: "ghost_private".to_string(),
+        scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost".to_string()),
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost".to_string(),
@@ -130,7 +121,7 @@ async fn test_cross_scope_link_resolution() {
         store.pool(),
         "ghost-1",
         10,
-        t_koma_knowledge::models::KnowledgeScope::GhostPrivate,
+        t_koma_knowledge::models::KnowledgeScope::GhostNote,
         "ghost",
     )
         .await
@@ -138,5 +129,5 @@ async fn test_cross_scope_link_resolution() {
     assert!(links.iter().any(|link| link.title == "Shared Note"));
     assert!(links
         .iter()
-        .any(|link| matches!(link.scope, t_koma_knowledge::models::KnowledgeScope::Shared)));
+        .any(|link| matches!(link.scope, t_koma_knowledge::models::KnowledgeScope::SharedNote)));
 }

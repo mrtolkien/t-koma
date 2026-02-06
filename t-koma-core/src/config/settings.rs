@@ -225,12 +225,6 @@ pub struct KnowledgeToolsSettings {
     /// Reconciliation interval in seconds
     pub reconcile_seconds: Option<u64>,
 
-    /// Optional override for shared knowledge root
-    pub shared_root_override: Option<String>,
-
-    /// Optional override for reference root
-    pub reference_root_override: Option<String>,
-
     /// Optional override for knowledge index DB path
     pub knowledge_db_path_override: Option<String>,
 

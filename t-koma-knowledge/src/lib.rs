@@ -17,10 +17,11 @@ pub mod watcher;
 pub use t_koma_core::config::{KnowledgeSettings, SearchDefaults};
 pub use errors::KnowledgeError;
 pub use models::{
-    KnowledgeScope, MemoryQuery, MemoryResult, NoteCreateRequest, NoteDocument, NoteSummary,
-    NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus, ReferenceQuery,
-    ReferenceSearchResult, SourceRole, TopicCreateRequest, TopicCreateResult, TopicListEntry,
-    TopicSearchResult, TopicSourceInput, TopicStatus, TopicUpdateRequest, WriteScope,
+    DiaryQuery, DiarySearchResult, KnowledgeScope, NoteCreateRequest, NoteDocument, NoteQuery,
+    NoteResult, NoteSearchScope, NoteSummary, NoteUpdateRequest, NoteWriteResult,
+    ReferenceFileStatus, ReferenceQuery, ReferenceSearchResult, SourceRole, TopicCreateRequest,
+    TopicCreateResult, TopicListEntry, TopicSearchResult, TopicSourceInput, TopicStatus,
+    TopicUpdateRequest, WriteScope,
 };
 pub use engine::KnowledgeEngine;
 pub use embeddings::EmbeddingClient;

@@ -8,7 +8,7 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
 use crate::ingest::{ingest_markdown, ingest_reference_file, ingest_reference_topic};
 use crate::models::{KnowledgeScope, SourceRole};
-use crate::paths::{ghost_diary_root, ghost_private_root, ghost_projects_root, reference_root, shared_knowledge_root};
+use crate::paths::{ghost_diary_root, ghost_notes_root, shared_notes_root, shared_references_root};
 use crate::storage::{
     ensure_vec_table_dim, replace_chunks, replace_links, replace_tags, upsert_note, upsert_vec,
 };
@@ -18,8 +18,8 @@ pub async fn reconcile_shared(
     store: &SqlitePool,
     embedder: &EmbeddingClient,
 ) -> KnowledgeResult<()> {
-    let root = shared_knowledge_root(settings)?;
-    index_markdown_tree(settings, store, embedder, &root, KnowledgeScope::Shared, None).await?;
+    let root = shared_notes_root(settings)?;
+    index_markdown_tree(settings, store, embedder, &root, KnowledgeScope::SharedNote, None).await?;
     index_reference_topics(settings, store, embedder).await?;
     Ok(())
 }
@@ -28,16 +28,13 @@ pub async fn reconcile_ghost(
     settings: &KnowledgeSettings,
     store: &SqlitePool,
     embedder: &EmbeddingClient,
-    workspace_root: &Path,
     ghost_name: &str,
 ) -> KnowledgeResult<()> {
-    let private_root = ghost_private_root(workspace_root);
-    let projects_root = ghost_projects_root(workspace_root);
-    let diary_root = ghost_diary_root(workspace_root);
+    let notes_root = ghost_notes_root(settings, ghost_name)?;
+    let diary_root = ghost_diary_root(settings, ghost_name)?;
     let owner = Some(ghost_name.to_string());
 
-    index_markdown_tree(settings, store, embedder, &private_root, KnowledgeScope::GhostPrivate, owner.clone()).await?;
-    index_markdown_tree(settings, store, embedder, &projects_root, KnowledgeScope::GhostProjects, owner.clone()).await?;
+    index_markdown_tree(settings, store, embedder, &notes_root, KnowledgeScope::GhostNote, owner.clone()).await?;
     index_markdown_tree(settings, store, embedder, &diary_root, KnowledgeScope::GhostDiary, owner).await?;
 
     Ok(())
@@ -48,7 +45,7 @@ async fn index_reference_topics(
     store: &SqlitePool,
     embedder: &EmbeddingClient,
 ) -> KnowledgeResult<()> {
-    let root = reference_root(settings)?;
+    let root = shared_references_root(settings)?;
     if !root.exists() {
         return Ok(());
     }

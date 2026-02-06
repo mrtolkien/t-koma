@@ -6,8 +6,8 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
-    KnowledgeContext, KnowledgeScope, MemoryQuery, MemoryResult, MemoryScope, NoteCreateRequest,
-    NoteDocument, NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus, ReferenceQuery,
+    KnowledgeScope, NoteCreateRequest, NoteDocument, NoteQuery, NoteResult, NoteSearchScope,
+    NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus, ReferenceQuery,
     ReferenceSearchResult, TopicCreateRequest, TopicCreateResult, TopicListEntry,
     TopicSearchResult, TopicUpdateRequest, WriteScope,
 };
@@ -57,21 +57,21 @@ impl KnowledgeEngine {
 
     pub async fn memory_search(
         &self,
-        context: &KnowledgeContext,
-        query: MemoryQuery,
-    ) -> KnowledgeResult<Vec<MemoryResult>> {
+        ghost_name: &str,
+        query: NoteQuery,
+    ) -> KnowledgeResult<Vec<NoteResult>> {
         let mut results = Vec::new();
 
         let scopes = search::resolve_scopes(&query.scope);
         for scope in scopes {
-            self.maybe_reconcile(context, scope).await?;
+            self.maybe_reconcile(ghost_name, scope).await?;
             let partial = search::search_store(
                 &self.settings,
                 &self.embedder,
                 self.store.pool(),
                 &query,
                 scope,
-                &context.ghost_name,
+                ghost_name,
             )
             .await?;
             results.extend(partial);
@@ -94,67 +94,67 @@ impl KnowledgeEngine {
 
     pub async fn memory_get(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         note_id_or_title: &str,
-        scope: MemoryScope,
+        scope: NoteSearchScope,
     ) -> KnowledgeResult<NoteDocument> {
-        get::memory_get(self, context, note_id_or_title, scope).await
+        get::memory_get(self, ghost_name, note_id_or_title, scope).await
     }
 
     pub async fn memory_capture(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         payload: &str,
         scope: WriteScope,
         source: Option<&str>,
     ) -> KnowledgeResult<String> {
-        get::memory_capture(self, context, payload, scope, source).await
+        get::memory_capture(self, ghost_name, payload, scope, source).await
     }
 
     /// Create a structured note with validated front matter.
     pub async fn note_create(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         request: NoteCreateRequest,
     ) -> KnowledgeResult<NoteWriteResult> {
-        notes::note_create(self, context, request).await
+        notes::note_create(self, ghost_name, request).await
     }
 
     /// Update an existing note (title, body, tags, trust, parent).
     pub async fn note_update(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         request: NoteUpdateRequest,
     ) -> KnowledgeResult<NoteWriteResult> {
-        notes::note_update(self, context, request).await
+        notes::note_update(self, ghost_name, request).await
     }
 
     /// Record validation metadata and optionally adjust trust score.
     pub async fn note_validate(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         note_id: &str,
         trust_score: Option<i64>,
     ) -> KnowledgeResult<NoteWriteResult> {
-        notes::note_validate(self, context, note_id, trust_score).await
+        notes::note_validate(self, ghost_name, note_id, trust_score).await
     }
 
     /// Append a comment entry to a note's front matter.
     pub async fn note_comment(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         note_id: &str,
         text: &str,
     ) -> KnowledgeResult<NoteWriteResult> {
-        notes::note_comment(self, context, note_id, text).await
+        notes::note_comment(self, ghost_name, note_id, text).await
     }
 
     pub async fn reference_search(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         query: ReferenceQuery,
     ) -> KnowledgeResult<ReferenceSearchResult> {
-        self.maybe_reconcile(context, KnowledgeScope::Reference)
+        self.maybe_reconcile(ghost_name, KnowledgeScope::SharedReference)
             .await?;
         reference::reference_search(self, &query).await
     }
@@ -191,10 +191,10 @@ impl KnowledgeEngine {
     /// Execute topic creation after operator approval (Phase 2).
     pub async fn topic_create(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         request: TopicCreateRequest,
     ) -> KnowledgeResult<TopicCreateResult> {
-        topics::topic_create_execute(self, context, request).await
+        topics::topic_create_execute(self, ghost_name, request).await
     }
 
     /// Semantic search over reference topics.
@@ -216,10 +216,10 @@ impl KnowledgeEngine {
     /// Update topic metadata.
     pub async fn topic_update(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         request: TopicUpdateRequest,
     ) -> KnowledgeResult<()> {
-        topics::topic_update(self, context, request).await
+        topics::topic_update(self, ghost_name, request).await
     }
 
     /// Get recent reference topics for system prompt injection.
@@ -229,15 +229,15 @@ impl KnowledgeEngine {
 
     async fn maybe_reconcile(
         &self,
-        context: &KnowledgeContext,
+        ghost_name: &str,
         scope: KnowledgeScope,
     ) -> KnowledgeResult<()> {
         let pool = self.store.pool();
         let key = match scope {
-            KnowledgeScope::Shared | KnowledgeScope::Reference => {
+            KnowledgeScope::SharedNote | KnowledgeScope::SharedReference => {
                 "last_reconcile_shared".to_string()
             }
-            _ => format!("last_reconcile_ghost:{}", context.ghost_name),
+            _ => format!("last_reconcile_ghost:{}", ghost_name),
         };
         let last: Option<(String,)> =
             sqlx::query_as("SELECT value FROM meta WHERE key = ? LIMIT 1")
@@ -257,7 +257,7 @@ impl KnowledgeEngine {
 
         if should_run {
             match scope {
-                KnowledgeScope::Shared | KnowledgeScope::Reference => {
+                KnowledgeScope::SharedNote | KnowledgeScope::SharedReference => {
                     reconcile_shared(&self.settings, pool, &self.embedder).await?;
                 }
                 _ => {
@@ -265,8 +265,7 @@ impl KnowledgeEngine {
                         &self.settings,
                         pool,
                         &self.embedder,
-                        &context.workspace_root,
-                        &context.ghost_name,
+                        ghost_name,
                     )
                     .await?;
                 }

@@ -2,15 +2,15 @@
 //!
 //! This test exercises the full ghost reference workflow using a **single shared
 //! clone** of the Dioxus repo + a web page fetch.  The expensive setup
-//! (clone → chunk → embed → index) runs once; all assertions share the result.
+//! (clone -> chunk -> embed -> index) runs once; all assertions share the result.
 //!
 //! Pipeline steps validated:
-//! 1. `topic_approval_summary` — gathers repo metadata via `gh api`
-//! 2. `topic_create` — clones a real repo, fetches a web page, indexes everything
-//! 3. Per-file indexing — every indexed file must have ≥ 1 chunk + embedding
-//! 4. `reference_search` — hybrid BM25 + dense search over indexed content
-//! 5. `topic_search` — semantic search over topic descriptions
-//! 6. `topic_list` / `recent_topics` — listing and prompt injection
+//! 1. `topic_approval_summary` -- gathers repo metadata via `gh api`
+//! 2. `topic_create` -- clones a real repo, fetches a web page, indexes everything
+//! 3. Per-file indexing -- every indexed file must have >= 1 chunk + embedding
+//! 4. `reference_search` -- hybrid BM25 + dense search over indexed content
+//! 5. `topic_search` -- semantic search over topic descriptions
+//! 6. `topic_list` / `recent_topics` -- listing and prompt injection
 //!
 //! Requires:
 //! - `gh` CLI authenticated (for GitHub clone)
@@ -30,16 +30,16 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use tempfile::TempDir;
 
-use t_koma_knowledge::models::{KnowledgeContext, ReferenceQuery, SourceRole};
+use t_koma_knowledge::models::{ReferenceQuery, SourceRole};
 use t_koma_knowledge::{
-    KnowledgeEngine, KnowledgeSettings, MemoryResult, TopicCreateRequest, TopicSourceInput,
+    KnowledgeEngine, KnowledgeSettings, NoteResult, TopicCreateRequest, TopicSourceInput,
 };
 
-// ── Fixture ─────────────────────────────────────────────────────────
+// -- Fixture -----------------------------------------------------------------
 
 struct DioxusFixture {
     engine: KnowledgeEngine,
-    context: KnowledgeContext,
+    ghost_name: String,
     topic_id: String,
     source_count: usize,
     file_count: usize,
@@ -56,7 +56,7 @@ struct FileChunkInfo {
 
 impl DioxusFixture {
     /// Create a reference topic from the real Dioxus repo (filtered to docs/examples)
-    /// and a web page.  Exercises the full pipeline: clone → chunk → embed → index.
+    /// and a web page.  Exercises the full pipeline: clone -> chunk -> embed -> index.
     async fn setup() -> Self {
         // Enable tracing so source-fetch warnings are visible with --nocapture
         let _ = tracing_subscriber::fmt()
@@ -65,29 +65,23 @@ impl DioxusFixture {
             .try_init();
 
         let temp = TempDir::new().expect("tempdir");
-        let shared_root = temp.path().join("knowledge");
-        let reference_root = temp.path().join("reference");
-        let workspace = temp.path().join("ghost-test-workspace");
+        let data_root = temp.path().join("data");
+        let shared_notes = data_root.join("shared").join("notes");
+        let shared_references = data_root.join("shared").join("references");
 
-        tokio::fs::create_dir_all(&shared_root).await.unwrap();
-        tokio::fs::create_dir_all(&reference_root).await.unwrap();
-        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::create_dir_all(&shared_notes).await.unwrap();
+        tokio::fs::create_dir_all(&shared_references).await.unwrap();
 
         let settings = KnowledgeSettings {
-            shared_root_override: Some(shared_root.clone()),
-            reference_root_override: Some(reference_root),
-            knowledge_db_path_override: Some(shared_root.join("index.sqlite3")),
+            data_root_override: Some(data_root),
             reconcile_seconds: 999_999,
             ..Default::default()
         };
 
         let engine = KnowledgeEngine::open(settings).await.expect("open engine");
-        let context = KnowledgeContext {
-            ghost_name: "ghost-researcher".to_string(),
-            workspace_root: workspace,
-        };
+        let ghost_name = "ghost-researcher".to_string();
 
-        // Create topic from Dioxus — code repo (examples) + docsite (guide docs)
+        // Create topic from Dioxus -- code repo (examples) + docsite (guide docs)
         let request = TopicCreateRequest {
             title: "Dioxus - Rust UI Framework".to_string(),
             body: "Dioxus is a portable, performant, and ergonomic framework for building \
@@ -135,7 +129,7 @@ impl DioxusFixture {
         };
 
         let result = engine
-            .topic_create(&context, request)
+            .topic_create(&ghost_name, request)
             .await
             .expect("topic_create should succeed");
 
@@ -163,7 +157,7 @@ impl DioxusFixture {
         for info in &per_file_chunks {
             assert!(
                 info.chunk_count > 0,
-                "file '{}' has 0 chunks — indexing pipeline is broken for this file",
+                "file '{}' has 0 chunks -- indexing pipeline is broken for this file",
                 info.file_path,
             );
         }
@@ -180,7 +174,7 @@ impl DioxusFixture {
 
         Self {
             engine,
-            context,
+            ghost_name,
             topic_id: result.topic_id,
             source_count: result.source_count,
             file_count: result.file_count,
@@ -214,7 +208,7 @@ async fn query_per_file_chunks(pool: &SqlitePool, topic_id: &str) -> Vec<FileChu
         .collect()
 }
 
-// ── Snapshot helpers ────────────────────────────────────────────────
+// -- Snapshot helpers --------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 struct SearchResultSnapshot {
@@ -234,7 +228,7 @@ struct SearchHit {
 
 fn build_search_snapshot(
     query: &str,
-    results: &[MemoryResult],
+    results: &[NoteResult],
     n: usize,
 ) -> SearchResultSnapshot {
     let unique_files: std::collections::HashSet<&str> = results
@@ -260,10 +254,10 @@ fn build_search_snapshot(
     }
 }
 
-// ── Test cases ──────────────────────────────────────────────────────
+// -- Test cases --------------------------------------------------------------
 
 /// Phase 1: Verify topic_approval_summary gathers metadata from GitHub.
-/// (Standalone — no clone needed.)
+/// (Standalone -- no clone needed.)
 #[tokio::test]
 async fn dioxus_approval_summary() {
     let request = TopicCreateRequest {
@@ -282,12 +276,12 @@ async fn dioxus_approval_summary() {
     };
 
     let temp = TempDir::new().unwrap();
-    let shared_root = temp.path().join("knowledge");
-    tokio::fs::create_dir_all(&shared_root).await.unwrap();
+    let data_root = temp.path().join("data");
+    let shared_notes = data_root.join("shared").join("notes");
+    tokio::fs::create_dir_all(&shared_notes).await.unwrap();
 
     let settings = KnowledgeSettings {
-        shared_root_override: Some(shared_root.clone()),
-        knowledge_db_path_override: Some(shared_root.join("index.sqlite3")),
+        data_root_override: Some(data_root),
         reconcile_seconds: 999_999,
         ..Default::default()
     };
@@ -313,13 +307,13 @@ async fn dioxus_approval_summary() {
 
 /// Full pipeline test: single setup, all assertions share the same indexed data.
 ///
-/// This exercises clone → chunk → embed → index → search → list in sequence,
+/// This exercises clone -> chunk -> embed -> index -> search -> list in sequence,
 /// reusing the Dioxus fixture throughout.
 #[tokio::test]
 async fn dioxus_full_pipeline() {
     let f = DioxusFixture::setup().await;
 
-    // ── Per-file indexing validation ────────────────────────────────
+    // -- Per-file indexing validation ----------------------------------------
 
     // Verify chunk totals match the sum of per-file chunks
     let total_from_files: usize = f.per_file_chunks.iter().map(|fi| fi.chunk_count).sum();
@@ -375,13 +369,13 @@ async fn dioxus_full_pipeline() {
         "per_file_chunks": f.per_file_chunks,
     }));
 
-    // ── Reference search: component lifecycle ──────────────────────
+    // -- Reference search: component lifecycle -------------------------------
 
     let question = "component lifecycle hooks use_effect cleanup";
     let search_result = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "dioxus".to_string(),
                 question: question.to_string(),
@@ -400,13 +394,13 @@ async fn dioxus_full_pipeline() {
         build_search_snapshot(question, &search_result.results, 3)
     );
 
-    // ── Reference search: RSX syntax ───────────────────────────────
+    // -- Reference search: RSX syntax ----------------------------------------
 
     let question = "RSX syntax JSX-like markup rendering elements";
     let search_result = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "dioxus".to_string(),
                 question: question.to_string(),
@@ -423,13 +417,13 @@ async fn dioxus_full_pipeline() {
         build_search_snapshot(question, &search_result.results, 3)
     );
 
-    // ── Reference search: state management ─────────────────────────
+    // -- Reference search: state management ----------------------------------
 
     let question = "state management use_signal reactive hooks";
     let search_result = f
         .engine
         .reference_search(
-            &f.context,
+            &f.ghost_name,
             ReferenceQuery {
                 topic: "dioxus".to_string(),
                 question: question.to_string(),
@@ -446,7 +440,7 @@ async fn dioxus_full_pipeline() {
         build_search_snapshot(question, &search_result.results, 3)
     );
 
-    // ── Topic search by description ────────────────────────────────
+    // -- Topic search by description -----------------------------------------
 
     let results = f
         .engine
@@ -470,7 +464,7 @@ async fn dioxus_full_pipeline() {
         },
     }));
 
-    // ── Topic list and recent topics ───────────────────────────────
+    // -- Topic list and recent topics ----------------------------------------
 
     let list = f.engine.topic_list(false).await.expect("topic_list");
     assert_eq!(list.len(), 1, "should have exactly one topic");
