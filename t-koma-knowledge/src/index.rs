@@ -186,7 +186,7 @@ async fn index_markdown_tree(
     Ok(())
 }
 
-async fn embed_chunks(
+pub async fn embed_chunks(
     settings: &KnowledgeSettings,
     embedder: &EmbeddingClient,
     store: &SqlitePool,

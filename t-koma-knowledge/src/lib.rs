@@ -16,6 +16,9 @@ pub mod watcher;
 
 pub use config::{KnowledgeSettings, SearchDefaults};
 pub use errors::KnowledgeError;
-pub use models::{KnowledgeScope, MemoryQuery, MemoryResult, NoteSummary, ReferenceQuery};
+pub use models::{
+    KnowledgeScope, MemoryQuery, MemoryResult, NoteCreateRequest, NoteDocument, NoteSummary,
+    NoteUpdateRequest, NoteWriteResult, ReferenceQuery,
+};
 pub use search::KnowledgeEngine;
 pub use embeddings::EmbeddingClient;

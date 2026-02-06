@@ -1,0 +1,130 @@
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use crate::tools::{Tool, ToolContext};
+
+#[derive(Debug, Deserialize)]
+struct NoteCreateInput {
+    title: String,
+    #[serde(rename = "type")]
+    note_type: String,
+    scope: Option<String>,
+    body: String,
+    parent: Option<String>,
+    tags: Option<Vec<String>>,
+    source: Option<Vec<String>>,
+    trust_score: Option<i64>,
+}
+
+pub struct MemoryNoteCreateTool;
+
+impl MemoryNoteCreateTool {
+    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::MemoryScope {
+        match scope.as_deref() {
+            Some("shared") => t_koma_knowledge::models::MemoryScope::SharedOnly,
+            Some("ghost") => t_koma_knowledge::models::MemoryScope::GhostOnly,
+            Some("private") => t_koma_knowledge::models::MemoryScope::GhostPrivate,
+            Some("projects") => t_koma_knowledge::models::MemoryScope::GhostProjects,
+            Some("diary") => t_koma_knowledge::models::MemoryScope::GhostDiary,
+            _ => t_koma_knowledge::models::MemoryScope::GhostPrivate,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for MemoryNoteCreateTool {
+    fn name(&self) -> &str {
+        "memory_note_create"
+    }
+
+    fn description(&self) -> &str {
+        "Create a structured note with validated front matter."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Note title."
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Note type (e.g. 'Concept', 'HowTo', 'Log', 'Decision')."
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["shared", "ghost", "private", "projects", "diary"],
+                    "description": "Where to create the note. Default 'private'."
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Markdown body content."
+                },
+                "parent": {
+                    "type": "string",
+                    "description": "Parent note ID for hierarchy."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags for categorization."
+                },
+                "source": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Source file paths."
+                },
+                "trust_score": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10,
+                    "description": "Trust score (0-10). Default 5."
+                }
+            },
+            "required": ["title", "type", "body"],
+            "additionalProperties": false
+        })
+    }
+
+    fn prompt(&self) -> Option<&'static str> {
+        Some(
+            "Use memory_note_create to create a structured knowledge note with validated front matter.\n\
+            - Default scope is 'private' (your ghost's private knowledge).\n\
+            - Use 'shared' to create notes visible to all ghosts.\n\
+            - The note ID is generated automatically.\n\
+            - Set parent to organize notes hierarchically.\n\
+            - Use tags for categorization and wiki links [[Note]] in the body for graph connections.",
+        )
+    }
+
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
+        let input: NoteCreateInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
+        t_koma_core::load_dotenv();
+        let settings = t_koma_core::Settings::load().map_err(|e| e.to_string())?;
+        let knowledge_settings = t_koma_knowledge::KnowledgeSettings::from(&settings.tools.knowledge);
+        let engine = t_koma_knowledge::KnowledgeEngine::new(knowledge_settings);
+
+        let scope = Self::parse_scope(input.scope);
+        let request = t_koma_knowledge::NoteCreateRequest {
+            title: input.title,
+            note_type: input.note_type,
+            scope,
+            body: input.body,
+            parent: input.parent,
+            tags: input.tags,
+            source: input.source,
+            trust_score: input.trust_score,
+        };
+
+        let ctx = t_koma_knowledge::models::KnowledgeContext {
+            ghost_name: context.ghost_name().to_string(),
+            workspace_root: context.workspace_root().to_path_buf(),
+        };
+
+        let result = engine.note_create(&ctx, request).await.map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
+    }
+}
