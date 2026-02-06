@@ -7,6 +7,7 @@ use crate::tools::{Tool, ToolContext};
 struct MemoryCaptureInput {
     payload: String,
     scope: Option<String>,
+    source: Option<String>,
 }
 
 pub struct MemoryCaptureTool;
@@ -24,6 +25,10 @@ impl MemoryCaptureTool {
                     "type": "string",
                     "enum": ["private", "shared"],
                     "description": "Where to capture. 'private' (default) = your private inbox. 'shared' = shared knowledge inbox."
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Where this information came from (URL, 'web search', 'user stated', 'conversation observation'). Always include when possible."
                 }
             },
             "required": ["payload"],
@@ -58,6 +63,7 @@ impl Tool for MemoryCaptureTool {
             "Use memory_capture to store raw, unstructured info for later curation.\n\
             - Default scope is 'ghost' (your private inbox).\n\
             - Use 'shared' only for information that should be visible to all ghosts.\n\
+            - Always include a source when possible (URL, 'user stated', etc.).\n\
             - Captured text is written as a timestamped inbox file.\n\
             - Reconciliation will index it later; no immediate search results.",
         )
@@ -74,7 +80,10 @@ impl Tool for MemoryCaptureTool {
             workspace_root: context.workspace_root().to_path_buf(),
         };
 
-        let path = engine.memory_capture(&ctx, &input.payload, scope).await.map_err(|e| e.to_string())?;
+        let path = engine
+            .memory_capture(&ctx, &input.payload, scope, input.source.as_deref())
+            .await
+            .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&json!({"path": path})).map_err(|e| e.to_string())
     }
 }
