@@ -3,6 +3,7 @@ use std::sync::Arc;
 use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
+use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use tracing::{error, info};
 
@@ -90,6 +91,45 @@ fn parse_step_limit(content: &str) -> Option<usize> {
         }
     }
     None
+}
+
+const DISCORD_MESSAGE_LIMIT: usize = 2000;
+
+fn split_discord_message(content: &str) -> Vec<String> {
+    if content.chars().count() <= DISCORD_MESSAGE_LIMIT {
+        return vec![content.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+
+    for ch in content.chars() {
+        if current_len + 1 > DISCORD_MESSAGE_LIMIT {
+            chunks.push(current);
+            current = String::new();
+            current_len = 0;
+        }
+        current.push(ch);
+        current_len += 1;
+    }
+
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
+    chunks
+}
+
+async fn send_discord_message(
+    ctx: &Context,
+    channel_id: ChannelId,
+    content: &str,
+) -> serenity::Result<()> {
+    for chunk in split_discord_message(content) {
+        channel_id.say(&ctx.http, chunk).await?;
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -615,13 +655,15 @@ impl EventHandler for Bot {
                     ToolApprovalDecision::Deny
                 };
 
+                let typing = msg.channel_id.start_typing(&ctx.http);
                 match self
                     .state
                     .handle_tool_approval(&ghost_name, &session.id, &operator_id, decision, None)
                     .await
                 {
                     Ok(Some(text)) => {
-                        let _ = msg.channel_id.say(&ctx.http, &text).await;
+                        let _ = send_discord_message(&ctx, msg.channel_id, &text).await;
+                        drop(typing);
                         return;
                     }
                     Ok(None) => {}
@@ -654,6 +696,7 @@ impl EventHandler for Bot {
                             .channel_id
                             .say(&ctx.http, format_deterministic_message(&message))
                             .await;
+                        drop(typing);
                         return;
                     }
                     Err(e) => {
@@ -668,9 +711,11 @@ impl EventHandler for Bot {
                                 )),
                             )
                             .await;
+                        drop(typing);
                         return;
                     }
                 }
+                drop(typing);
             }
 
             if clean_content.eq_ignore_ascii_case("deny")
@@ -689,13 +734,15 @@ impl EventHandler for Bot {
                 return;
             }
 
+            let typing = msg.channel_id.start_typing(&ctx.http);
             match self
                 .state
                 .handle_tool_loop_continue(&ghost_name, &session.id, &operator_id, step_limit, None)
                 .await
             {
                 Ok(Some(text)) => {
-                    let _ = msg.channel_id.say(&ctx.http, &text).await;
+                    let _ = send_discord_message(&ctx, msg.channel_id, &text).await;
+                    drop(typing);
                 }
                 Ok(None) => {
                     let message = if step_limit.is_some() {
@@ -707,6 +754,7 @@ impl EventHandler for Bot {
                         .channel_id
                         .say(&ctx.http, format_deterministic_message(&message))
                         .await;
+                    drop(typing);
                 }
                 Err(ChatError::ToolApprovalRequired(pending)) => {
                     self.state
@@ -723,6 +771,7 @@ impl EventHandler for Bot {
                         .channel_id
                         .say(&ctx.http, format_deterministic_message(&message))
                         .await;
+                    drop(typing);
                 }
                 Err(ChatError::ToolLoopLimitReached(pending)) => {
                     self.state
@@ -736,6 +785,7 @@ impl EventHandler for Bot {
                         .channel_id
                         .say(&ctx.http, format_deterministic_message(&message))
                         .await;
+                    drop(typing);
                 }
                 Err(e) => {
                     error!("[session:{}] Chat error: {}", session.id, e);
@@ -749,6 +799,7 @@ impl EventHandler for Bot {
                             )),
                         )
                         .await;
+                    drop(typing);
                 }
             }
 
@@ -756,6 +807,7 @@ impl EventHandler for Bot {
         }
 
         // Send the message to the AI through the centralized chat interface
+        let typing = msg.channel_id.start_typing(&ctx.http);
         let final_text = match self
             .state
             .chat(&ghost_name, &session.id, &operator_id, clean_content)
@@ -777,6 +829,7 @@ impl EventHandler for Bot {
                     .channel_id
                     .say(&ctx.http, format_deterministic_message(&message))
                     .await;
+                drop(typing);
                 return;
             }
             Err(ChatError::ToolLoopLimitReached(pending)) => {
@@ -791,6 +844,7 @@ impl EventHandler for Bot {
                     .channel_id
                     .say(&ctx.http, format_deterministic_message(&message))
                     .await;
+                drop(typing);
                 return;
             }
             Err(e) => {
@@ -805,17 +859,19 @@ impl EventHandler for Bot {
                         )),
                     )
                     .await;
+                drop(typing);
                 return;
             }
         };
 
         // Send response back to Discord
-        if let Err(e) = msg.channel_id.say(&ctx.http, &final_text).await {
+        if let Err(e) = send_discord_message(&ctx, msg.channel_id, &final_text).await {
             error!(
                 "[session:{}] Failed to send Discord message: {}",
                 session.id, e
             );
         }
+        drop(typing);
     }
 
     /// Bot is ready

@@ -1,5 +1,6 @@
 //! Provider-neutral chat history types and builders.
 
+use chrono::{SecondsFormat, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use t_koma_db::{ContentBlock, Message, MessageRole};
@@ -77,23 +78,51 @@ pub fn build_history_messages(messages: &[Message], limit: Option<usize>) -> Vec
 }
 
 fn convert_message(msg: &Message) -> ChatMessage {
-    let content = msg.content.iter().map(convert_content_block).collect();
+    let role = match msg.role {
+        MessageRole::Operator => ChatRole::User,
+        MessageRole::Ghost => ChatRole::Assistant,
+    };
+    let timestamp = if role == ChatRole::User {
+        Utc.timestamp_opt(msg.created_at, 0)
+            .single()
+            .map(|dt| dt.to_rfc3339_opts(SecondsFormat::Secs, true))
+    } else {
+        None
+    };
 
-    ChatMessage {
-        role: match msg.role {
-            MessageRole::Operator => ChatRole::User,
-            MessageRole::Ghost => ChatRole::Assistant,
-        },
-        content,
-    }
+    let mut stamped = false;
+    let content = msg
+        .content
+        .iter()
+        .map(|block| convert_content_block(block, timestamp.as_deref(), &mut stamped))
+        .collect();
+
+    ChatMessage { role, content }
 }
 
-fn convert_content_block(block: &ContentBlock) -> ChatContentBlock {
+fn convert_content_block(
+    block: &ContentBlock,
+    timestamp: Option<&str>,
+    stamped: &mut bool,
+) -> ChatContentBlock {
     match block {
-        ContentBlock::Text { text } => ChatContentBlock::Text {
-            text: text.clone(),
-            cache_control: None,
-        },
+        ContentBlock::Text { text } => {
+            let text = if !*stamped {
+                if let Some(timestamp) = timestamp {
+                    *stamped = true;
+                    format!("[{}] {}", timestamp, text)
+                } else {
+                    text.clone()
+                }
+            } else {
+                text.clone()
+            };
+
+            ChatContentBlock::Text {
+                text,
+                cache_control: None,
+            }
+        }
         ContentBlock::ToolUse { id, name, input } => ChatContentBlock::ToolUse {
             id: id.clone(),
             name: name.clone(),
