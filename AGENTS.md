@@ -207,6 +207,39 @@ Full examples live in:
 - Rate limits for Brave are enforced at ~1 query/second.
 - Reference: `vibe/knowledge/web_tools.md`.
 
+## Knowledge & Memory Tools
+
+The knowledge system lives in `t-koma-knowledge` with gateway tools in
+`t-koma-gateway/src/tools/memory_*.rs` and `reference_search.rs`.
+
+### Scopes
+
+- **SHARED**: Visible to all ghosts. Stored in `xdg_data/knowledge/`.
+- **PRIVATE** (ghost_private, ghost_projects, ghost_diary): Owned by a single
+  ghost. Stored in ghost workspace subdirs.
+- **REFERENCE**: System-maintained read-only corpus. Indexed from topic files.
+
+Cross-scope rule: ghost notes can link to shared notes, but shared notes never
+see private data.
+
+### Tools
+
+- `memory_search`: Hybrid BM25 + dense search across scopes.
+- `memory_get`: Retrieve a note by ID or title.
+- `memory_capture`: Write raw text to ghost or shared inbox.
+- `reference_search`: Search reference corpus only.
+- `memory_note_create`: Create a structured note with front matter.
+- `memory_note_update`: Patch an existing note (title, body, tags, etc.).
+- `memory_note_validate`: Mark a note as validated, optionally adjust trust.
+- `memory_note_comment`: Append a timestamped comment to a note.
+
+### Testing
+
+- Unit tests: `cargo test -p t-koma-knowledge`
+- Integration tests (requires Ollama):
+  `cargo test -p t-koma-knowledge --features slow-tests`
+- Prompts: `t-koma-knowledge/knowledge/prompts/knowledge_system.md`
+
 ## Gateway Content (Brief)
 
 - Messages: add to `t-koma-gateway/messages/en/*.toml` as `[message-id]` with
@@ -227,6 +260,7 @@ Detailed how-tos are in `vibe/knowledge/`:
 - Anthropic/OpenRouter specifics: `vibe/knowledge/anthropic_claude_api.md`,
   `vibe/knowledge/openrouter.md`
 - sqlite-vec notes: `vibe/knowledge/sqlite-vec.md`
+- Knowledge system: `t-koma-knowledge/knowledge/prompts/knowledge_system.md`
 
 ALWAYS read relevant files in knowledge.md before implementing a feature. If you
 see outdated information, update it. If you learn something new during the task
