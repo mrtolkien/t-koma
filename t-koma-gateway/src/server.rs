@@ -11,7 +11,7 @@ use tracing::{error, info, warn};
 
 use crate::content::{self, ids};
 use crate::session::{ChatError, ToolApprovalDecision};
-use crate::state::{AppState, LogEntry};
+use crate::state::{AppState, LogEntry, RateLimitDecision};
 
 fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
     match content::message_text(id, None, vars) {
@@ -327,6 +327,7 @@ async fn handle_websocket(
                         state.koma_db.pool(),
                         "Puppet Master",
                         platform,
+                        t_koma_db::OperatorAccessLevel::PuppetMaster,
                     )
                     .await
                     {
@@ -786,6 +787,72 @@ async fn handle_websocket(
                                     }
                                 }
                             };
+
+                            let operator = match t_koma_db::OperatorRepository::get_by_id(
+                                state.koma_db.pool(),
+                                &op_id,
+                            )
+                            .await
+                            {
+                                Ok(Some(op)) => op,
+                                Ok(None) => {
+                                    let error_response = WsResponse::Error {
+                                        message: render_message(ids::FAILED_LOAD_OPERATOR, &[]),
+                                    };
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response)
+                                                .unwrap()
+                                                .into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                                Err(e) => {
+                                    error!("Failed to load operator: {}", e);
+                                    let error_response = WsResponse::Error {
+                                        message: render_message(ids::FAILED_LOAD_OPERATOR, &[]),
+                                    };
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response)
+                                                .unwrap()
+                                                .into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                            };
+
+                            match state.check_operator_rate_limit(&operator).await {
+                                RateLimitDecision::Allowed => {}
+                                RateLimitDecision::Limited { retry_after } => {
+                                    if !content.trim().eq_ignore_ascii_case("continue") {
+                                        state
+                                            .store_pending_message(
+                                                &op_id,
+                                                &ghost_name,
+                                                &target_session_id,
+                                                &content,
+                                            )
+                                            .await;
+                                    }
+                                    let retry_after = retry_after.as_secs().to_string();
+                                    let ws_response = WsResponse::Response {
+                                        id: format!("ws_{}", uuid::Uuid::new_v4()),
+                                        content: render_message(
+                                            ids::RATE_LIMITED,
+                                            &[("retry_after", retry_after.as_str())],
+                                        ),
+                                        done: true,
+                                        usage: None,
+                                    };
+                                    let response_json =
+                                        serde_json::to_string(&ws_response).unwrap();
+                                    let _ = sender.send(Message::Text(response_json.into())).await;
+                                    continue;
+                                }
+                            }
 
                             state
                                 .log(LogEntry::Routing {

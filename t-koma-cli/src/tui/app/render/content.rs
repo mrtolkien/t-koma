@@ -59,7 +59,29 @@ impl TuiApp {
                     t_koma_db::OperatorStatus::Pending => "PD",
                     t_koma_db::OperatorStatus::Denied => "NO",
                 };
-                let text = format!("{} {} [{}] {}", icon, op.name, op.platform, op.id);
+                let access = match op.access_level {
+                    t_koma_db::OperatorAccessLevel::PuppetMaster => "PM",
+                    t_koma_db::OperatorAccessLevel::Standard => "STD",
+                };
+                let rate = match (op.rate_limit_5m_max, op.rate_limit_1h_max) {
+                    (None, None) => "RL:none".to_string(),
+                    (Some(rate_5m), Some(rate_1h)) => {
+                        format!("RL:{}/5m {}/1h", rate_5m, rate_1h)
+                    }
+                    (Some(rate_5m), None) => format!("RL:{}/5m off", rate_5m),
+                    (None, Some(rate_1h)) => format!("RL:off {}/1h", rate_1h),
+                };
+                let escape = if op.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster
+                    || op.allow_workspace_escape
+                {
+                    "WE:allow"
+                } else {
+                    "WE:block"
+                };
+                let text = format!(
+                    "{} {} [{}] {} {} {} {}",
+                    icon, op.name, op.platform, access, rate, escape, op.id
+                );
                 let mut item = ListItem::new(text);
                 if idx == self.content_idx && self.focus == FocusPane::Content {
                     item = item.style(theme::selected());

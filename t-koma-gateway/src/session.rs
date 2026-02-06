@@ -15,7 +15,7 @@ use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
     ContentBlock as DbContentBlock, GhostDbPool, GhostRepository, KomaDbPool, MessageRole,
-    SessionRepository,
+    OperatorRepository, SessionRepository,
 };
 
 /// Errors that can occur during session chat
@@ -191,6 +191,7 @@ impl SessionChat {
                 provider_name,
                 model,
                 session_id,
+                operator_id,
                 system_blocks,
                 api_messages,
                 None,
@@ -211,6 +212,7 @@ impl SessionChat {
         provider_name: &str,
         model: &str,
         session_id: &str,
+        operator_id: &str,
         system_blocks: Vec<SystemBlock>,
         api_messages: Vec<ChatMessage>,
         new_message: Option<&str>,
@@ -232,7 +234,9 @@ impl SessionChat {
             .map_err(|e| ChatError::Api(e.to_string()))?;
 
         // Handle tool use loop (bounded to prevent infinite loops)
-        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
+        let mut tool_context = self
+            .load_tool_context(koma_db, ghost_db, operator_id)
+            .await?;
         for iteration in 0..max_iterations {
             let has_tool_use = has_tool_uses(&response);
 
@@ -416,10 +420,13 @@ impl SessionChat {
         provider_name: &str,
         model: &str,
         session_id: &str,
+        operator_id: &str,
         pending: PendingToolApproval,
         decision: ToolApprovalDecision,
     ) -> Result<String, ChatError> {
-        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
+        let mut tool_context = self
+            .load_tool_context(koma_db, ghost_db, operator_id)
+            .await?;
 
         let mut tool_results = pending.completed_results;
         match decision {
@@ -463,6 +470,7 @@ impl SessionChat {
             provider_name,
             model,
             session_id,
+            operator_id,
             DEFAULT_TOOL_LOOP_LIMIT,
         )
         .await
@@ -477,10 +485,13 @@ impl SessionChat {
         provider_name: &str,
         model: &str,
         session_id: &str,
+        operator_id: &str,
         pending: PendingToolContinuation,
         extra_iterations: usize,
     ) -> Result<String, ChatError> {
-        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
+        let mut tool_context = self
+            .load_tool_context(koma_db, ghost_db, operator_id)
+            .await?;
         let mut tool_results = Vec::new();
         self.execute_tool_uses(
             session_id,
@@ -501,6 +512,7 @@ impl SessionChat {
             provider_name,
             model,
             session_id,
+            operator_id,
             extra_iterations,
         )
         .await
@@ -515,6 +527,7 @@ impl SessionChat {
         provider_name: &str,
         model: &str,
         session_id: &str,
+        operator_id: &str,
         max_iterations: usize,
     ) -> Result<String, ChatError> {
         let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
@@ -534,6 +547,7 @@ impl SessionChat {
             provider_name,
             model,
             session_id,
+            operator_id,
             system_blocks,
             api_messages,
             None,
@@ -546,6 +560,7 @@ impl SessionChat {
         &self,
         koma_db: &KomaDbPool,
         ghost_db: &GhostDbPool,
+        operator_id: &str,
     ) -> Result<ToolContext, ChatError> {
         let ghost_name = ghost_db.ghost_name().to_string();
         let tool_state =
@@ -562,6 +577,13 @@ impl SessionChat {
         }
 
         let mut context = ToolContext::new(ghost_name, workspace_root.clone(), cwd, false);
+        let operator = OperatorRepository::get_by_id(koma_db.pool(), operator_id)
+            .await?
+            .ok_or_else(|| t_koma_db::DbError::OperatorNotFound(operator_id.to_string()))?;
+        context.set_operator_access_level(operator.access_level);
+        let allow_escape = operator.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster
+            || operator.allow_workspace_escape;
+        context.set_allow_workspace_escape(allow_escape);
         if let Some(engine) = &self.knowledge_engine {
             context = context.with_knowledge_engine(Arc::clone(engine));
         }

@@ -102,7 +102,13 @@ pub async fn setup_test_environment(
 ) -> Result<TestEnvironment, Box<dyn std::error::Error>> {
     let koma_db = t_koma_db::test_helpers::create_test_koma_pool().await?;
     let operator =
-        OperatorRepository::create_new(koma_db.pool(), operator_name, Platform::Api).await?;
+    OperatorRepository::create_new(
+        koma_db.pool(),
+        operator_name,
+        Platform::Api,
+        t_koma_db::OperatorAccessLevel::Standard,
+    )
+    .await?;
     let operator = OperatorRepository::approve(koma_db.pool(), &operator.id).await?;
     let ghost = GhostRepository::create(koma_db.pool(), &operator.id, ghost_name).await?;
     let ghost_db = GhostDbPool::new(&ghost.name).await?;

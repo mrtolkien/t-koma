@@ -82,6 +82,8 @@ pub struct ToolContext {
     workspace_root: PathBuf,
     cwd: PathBuf,
     allow_outside_workspace: bool,
+    operator_access_level: t_koma_db::OperatorAccessLevel,
+    allow_workspace_escape: bool,
     approved_actions: Vec<String>,
     dirty: bool,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
@@ -101,6 +103,8 @@ impl ToolContext {
             workspace_root,
             cwd,
             allow_outside_workspace,
+            operator_access_level: t_koma_db::OperatorAccessLevel::Standard,
+            allow_workspace_escape: false,
             approved_actions: Vec::new(),
             dirty: false,
             knowledge_engine: None,
@@ -130,6 +134,25 @@ impl ToolContext {
 
     pub fn allow_outside_workspace(&self) -> bool {
         self.allow_outside_workspace
+    }
+
+    pub fn operator_access_level(&self) -> t_koma_db::OperatorAccessLevel {
+        self.operator_access_level
+    }
+
+    pub fn set_operator_access_level(
+        &mut self,
+        level: t_koma_db::OperatorAccessLevel,
+    ) {
+        self.operator_access_level = level;
+    }
+
+    pub fn allow_workspace_escape(&self) -> bool {
+        self.allow_workspace_escape
+    }
+
+    pub fn set_allow_workspace_escape(&mut self, allow: bool) {
+        self.allow_workspace_escape = allow;
     }
 
     pub fn set_cwd(&mut self, cwd: PathBuf) {
@@ -184,11 +207,24 @@ impl ToolContext {
             workspace_root: root.to_path_buf(),
             cwd: root.to_path_buf(),
             allow_outside_workspace: false,
+            operator_access_level: t_koma_db::OperatorAccessLevel::Standard,
+            allow_workspace_escape: false,
             approved_actions: Vec::new(),
             dirty: false,
             knowledge_engine: None,
         }
     }
+}
+
+pub fn resolve_local_path_unchecked(context: &ToolContext, raw_path: &str) -> PathBuf {
+    let input_path = Path::new(raw_path);
+    let absolute = if input_path.is_absolute() {
+        input_path.to_path_buf()
+    } else {
+        context.cwd().join(input_path)
+    };
+
+    normalize_absolute_path(&absolute)
 }
 
 pub fn resolve_local_path(context: &mut ToolContext, raw_path: &str) -> Result<PathBuf, String> {
