@@ -211,12 +211,13 @@ impl AnthropicClient {
             tools: tool_definitions,
         };
 
-        if self.dump_queries
+        let dump = if self.dump_queries
             && let Ok(val) = serde_json::to_value(&request_body)
         {
-            crate::providers::query_dump::dump_query("anthropic", &self.model, "request", &val)
-                .await;
-        }
+            crate::providers::query_dump::QueryDump::request("anthropic", &self.model, &val).await
+        } else {
+            None
+        };
 
         let response = self
             .http_client
@@ -236,11 +237,10 @@ impl AnthropicClient {
 
         let messages_response: MessagesResponse = response.json().await?;
 
-        if self.dump_queries
+        if let Some(dump) = dump
             && let Ok(val) = serde_json::to_value(&messages_response)
         {
-            crate::providers::query_dump::dump_query("anthropic", &self.model, "response", &val)
-                .await;
+            dump.response(&val).await;
         }
 
         Ok(messages_response)
