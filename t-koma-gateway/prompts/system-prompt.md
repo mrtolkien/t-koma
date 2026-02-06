@@ -8,3 +8,5 @@ id = "system-prompt"
 {{ include "coding-guidelines.md" }}
 
 {{ include "../../t-koma-knowledge/knowledge/prompts/knowledge_system.md" }}
+
+{{ include "ghost-context.md" }}

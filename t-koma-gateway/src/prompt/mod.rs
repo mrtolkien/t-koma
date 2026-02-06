@@ -32,9 +32,13 @@ pub struct SystemPrompt {
 
 impl SystemPrompt {
     /// Create a new system prompt with the base t-koma instructions
-    pub fn new() -> Self {
+    ///
+    /// # Arguments
+    /// * `ghost_vars` - Template variables for ghost-context rendering
+    ///   (reference_topics, ghost_identity, ghost_diary, ghost_projects)
+    pub fn new(ghost_vars: &[(&str, &str)]) -> Self {
         let mut prompt = Self::default();
-        prompt.add_instruction(full_system_prompt(), true);
+        prompt.add_instruction(full_system_prompt(ghost_vars), true);
         prompt
     }
 
@@ -45,8 +49,9 @@ impl SystemPrompt {
     ///
     /// # Arguments
     /// * `tools` - Slice of tool references to collect prompts from
-    pub fn with_tools(tools: &[&dyn crate::tools::Tool]) -> Self {
-        let mut prompt = Self::new();
+    /// * `ghost_vars` - Template variables for ghost-context rendering
+    pub fn with_tools(tools: &[&dyn crate::tools::Tool], ghost_vars: &[(&str, &str)]) -> Self {
+        let mut prompt = Self::new(ghost_vars);
         prompt.add_tools_prompts(tools);
         prompt
     }
@@ -137,9 +142,16 @@ impl SystemPrompt {
 mod tests {
     use super::*;
 
+    const EMPTY_GHOST_VARS: &[(&str, &str)] = &[
+        ("reference_topics", ""),
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+    ];
+
     #[test]
     fn test_system_prompt_new() {
-        let prompt = SystemPrompt::new();
+        let prompt = SystemPrompt::new(EMPTY_GHOST_VARS);
         assert!(!prompt.instructions.is_empty());
         // Last instruction should have cache control
         let last = prompt.instructions.last().unwrap();
@@ -148,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_system_prompt_to_simple_string() {
-        let prompt = SystemPrompt::new();
+        let prompt = SystemPrompt::new(EMPTY_GHOST_VARS);
         let s = prompt.to_simple_string();
         assert!(s.contains("T-KOMA"));
         assert!(s.contains("GHOST"));
