@@ -132,7 +132,7 @@ pub(crate) async fn topic_create_execute(
 
         // Link file to topic
         sqlx::query(
-            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, file_path) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path) VALUES (?, ?, ?)",
         )
         .bind(&topic_id)
         .bind(&file_note_id)
@@ -248,14 +248,14 @@ pub(crate) async fn topic_list(
 
     let rows = if include_obsolete {
         sqlx::query_as::<_, (String, String, String, i64, String)>(
-            "SELECT id, title, created_by_ghost, trust_score, file_path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' ORDER BY created_at DESC",
+            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' ORDER BY created_at DESC",
         )
         .fetch_all(pool)
         .await?
     } else {
         // Exclude obsolete — we check in Rust since status is in the file, not a column
         sqlx::query_as::<_, (String, String, String, i64, String)>(
-            "SELECT id, title, created_by_ghost, trust_score, file_path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' ORDER BY created_at DESC",
+            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' ORDER BY created_at DESC",
         )
         .fetch_all(pool)
         .await?
@@ -304,25 +304,34 @@ pub(crate) async fn topic_list(
 /// Update topic metadata without re-fetching sources.
 pub(crate) async fn topic_update(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    _context: &KnowledgeContext,
     request: TopicUpdateRequest,
 ) -> KnowledgeResult<()> {
     let pool = engine.pool();
 
-    // Fetch the topic note
-    let doc = engine
-        .memory_get(context, &request.topic_id, crate::models::MemoryScope::All)
-        .await?;
+    // Fetch the topic note directly from the reference scope
+    let row = sqlx::query_as::<_, (String, String)>(
+        "SELECT path, note_type FROM notes WHERE id = ? AND scope = 'reference' LIMIT 1",
+    )
+    .bind(&request.topic_id)
+    .fetch_optional(pool)
+    .await?;
 
-    if doc.note_type != "ReferenceTopic" {
+    let (path_str, note_type) = row.ok_or_else(|| {
+        KnowledgeError::UnknownNote(request.topic_id.clone())
+    })?;
+
+    if note_type != "ReferenceTopic" {
         return Err(KnowledgeError::AccessDenied(format!(
             "note '{}' is not a ReferenceTopic",
             request.topic_id
         )));
     }
 
+    let doc_path = std::path::PathBuf::from(&path_str);
+
     // Read and parse existing file
-    let raw = tokio::fs::read_to_string(&doc.path).await?;
+    let raw = tokio::fs::read_to_string(&doc_path).await?;
     let parsed = crate::parser::parse_note(&raw)?;
     let mut front = parsed.front;
 
@@ -342,16 +351,16 @@ pub(crate) async fn topic_update(
     let content = format!("+++\n{}\n+++\n\n{}\n", front_toml, body);
 
     // Atomic write
-    let tmp_path = doc.path.with_extension("md.tmp");
+    let tmp_path = doc_path.with_extension("md.tmp");
     tokio::fs::write(&tmp_path, &content).await?;
-    tokio::fs::rename(&tmp_path, &doc.path).await?;
+    tokio::fs::rename(&tmp_path, &doc_path).await?;
 
     // Re-index the topic note
     let ingested = crate::ingest::ingest_markdown(
         engine.settings(),
         KnowledgeScope::Reference,
         None,
-        &doc.path,
+        &doc_path,
         &content,
     )
     .await?;
@@ -410,7 +419,7 @@ struct TopicMeta {
 /// fetched_at, max_age_days, and source count.
 async fn load_topic_meta(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<TopicMeta> {
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT file_path FROM notes WHERE id = ? LIMIT 1",
+        "SELECT path FROM notes WHERE id = ? LIMIT 1",
     )
     .bind(topic_id)
     .fetch_optional(pool)
@@ -458,7 +467,7 @@ async fn load_topic_meta(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<T
 
 async fn load_topic_tags(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<Vec<String>> {
     let rows = sqlx::query_as::<_, (String,)>(
-        "SELECT tag FROM tags WHERE note_id = ?",
+        "SELECT tag FROM note_tags WHERE note_id = ?",
     )
     .bind(topic_id)
     .fetch_all(pool)
