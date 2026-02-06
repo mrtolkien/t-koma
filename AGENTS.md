@@ -260,8 +260,14 @@ Memory tools:
 
 Reference tools:
 
-- `reference_search`: Search within a reference topic's files.
+- `reference_search`: Search within a reference topic's files. Returns full
+  topic body as LLM context plus ranked file chunks. Docs are boosted over code.
+- `reference_get`: Fetch the full content of a reference file by note_id or
+  topic+path.
+- `reference_file_update`: Mark a reference file as active, problematic, or
+  obsolete.
 - `reference_topic_create`: Create a new reference topic from git/web sources.
+  Sources can have a `role` (docs/code) to control search boost.
 - `reference_topic_search`: Semantic search over existing reference topics.
 - `reference_topic_list`: List all topics with staleness info.
 - `reference_topic_update`: Update topic metadata (status, body, tags).
