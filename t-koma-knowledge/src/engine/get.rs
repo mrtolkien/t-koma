@@ -32,6 +32,7 @@ pub(crate) async fn memory_capture(
     context: &KnowledgeContext,
     payload: &str,
     scope: WriteScope,
+    source: Option<&str>,
 ) -> KnowledgeResult<String> {
     let target_path = match scope {
         WriteScope::Shared => shared_inbox_path(engine.settings())?,
@@ -40,11 +41,50 @@ pub(crate) async fn memory_capture(
     tokio::fs::create_dir_all(&target_path).await?;
 
     let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
-    let file_name = format!("inbox-{}.md", timestamp);
+    let slug = source.map(slugify).unwrap_or_else(|| "inbox".to_string());
+    let file_name = format!("{}-{}.md", timestamp, slug);
     let path = target_path.join(file_name);
-    tokio::fs::write(&path, payload).await?;
+
+    let content = if let Some(src) = source {
+        format!("+++\nsource = \"{}\"\n+++\n\n{}", src, payload)
+    } else {
+        payload.to_string()
+    };
+    tokio::fs::write(&path, content).await?;
 
     Ok(path.to_string_lossy().to_string())
+}
+
+/// Convert a source string into a filename-safe slug.
+///
+/// Lowercase, replace non-alphanumeric chars with hyphens, collapse runs,
+/// trim edges, truncate to 40 chars.
+fn slugify(s: &str) -> String {
+    let mut slug = String::with_capacity(s.len());
+    let mut prev_hyphen = true; // suppress leading hyphens
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+            prev_hyphen = false;
+        } else if !prev_hyphen {
+            slug.push('-');
+            prev_hyphen = true;
+        }
+    }
+    // Trim trailing hyphen
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    slug.truncate(40);
+    // Trim at last full word boundary if we landed mid-word
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "inbox".to_string()
+    } else {
+        slug
+    }
 }
 
 pub(crate) async fn fetch_note(
