@@ -1,20 +1,20 @@
 ---
 source: t-koma-knowledge/tests/reference_topic_e2e.rs
-expression: "build_search_snapshot(question, &results, 3)"
+expression: "build_search_snapshot(question, &search_result.results, 3)"
 ---
 query: state management use_signal reactive hooks
 total_hits: 8
 unique_files: 7
 top_results:
   - rank: 1
-    title: examples/06-routing/hash_fragment_state.rs
-    note_type: ReferenceFile
-    snippet_preview: "fn Home(url_hash: ReadSignal<State>) -> Element {\n    // The initial state of the state comes from the url hash\n    let mut state = use_signal(&*url_h"
+    title: docs-src/0.6/src/guide/state.md
+    note_type: ReferenceDocs
+    snippet_preview: "While `use_hook` makes it possible to store any value that implements `Clone`, you'll frequently want a more capable form of state management. Built-i"
   - rank: 2
-    title: examples/04-managing-state/memo_chain.rs
-    note_type: ReferenceFile
-    snippet_preview: "fn app() -> Element {\n    let mut value = use_signal(|| 0);\n    let mut depth = use_signal(|| 0_usize);\n    let items = use_memo(move || (0..depth())."
+    title: docs-src/0.6/src/guide/state.md
+    note_type: ReferenceDocs
+    snippet_preview: "While hooks are good for state *local* to components, occasionally you'll want to manage state for your *entire* app.\n\nDioxus provides two mechanisms:"
   - rank: 3
-    title: examples/04-managing-state/signals.rs
-    note_type: ReferenceFile
-    snippet_preview: "fn app() -> Element {\n    let mut running = use_signal(|| true);\n    let mut count = use_signal(|| 0);\n    let mut saved_values = use_signal(|| vec![0"
+    title: examples/06-routing/hash_fragment_state.rs
+    note_type: ReferenceCode
+    snippet_preview: "fn Home(url_hash: ReadSignal<State>) -> Element {\n    // The initial state of the state comes from the url hash\n    let mut state = use_signal(&*url_h"

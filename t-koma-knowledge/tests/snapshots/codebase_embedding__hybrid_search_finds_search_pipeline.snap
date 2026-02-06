@@ -6,10 +6,10 @@ query: hybrid search with BM25 and embeddings
 total_hits: 8
 top_results:
   - rank: 1
-    file: search.rs
-    note_type: ReferenceCode
-    snippet: "pub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingClient,\n    pool: &SqlitePoo"
+    file: knowledge_system.md
+    note_type: ReferenceDocs
+    snippet: "- Hybrid: BM25 + embeddings, fused with RRF.\n- Graph expansion includes parent, tags, and 1-hop links.\n\n- `memory_search"
   - rank: 2
     file: search.rs
     note_type: ReferenceCode
-    snippet: "pub(crate) async fn dense_search(\n    embedder: &EmbeddingClient,\n    pool: &SqlitePool,\n    query: &str,\n    limit: usi"
+    snippet: "pub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingClient,\n    pool: &SqlitePoo"

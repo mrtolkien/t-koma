@@ -7,14 +7,14 @@ recent_topics:
   tag_count: 4
   title: Dioxus - Rust UI Framework
 topic_create_stats:
-  chunk_count: 658
-  file_count: 201
-  source_count: 2
+  chunk_count: 748
+  file_count: 215
+  source_count: 3
 topic_list:
   count: 1
-  file_count: 201
+  file_count: 215
   is_stale: false
-  source_count: 2
+  source_count: 3
   status: active
   tags:
     - dioxus

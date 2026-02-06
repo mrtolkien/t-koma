@@ -6,16 +6,16 @@ query: knowledge graph link resolution parent
 total_hits: 8
 top_results:
   - rank: 1
-    file: graph.rs
+    file: knowledge_system.md
     has_parents: true
     tag_count: 0
     links_out: 0
     links_in: 0
-    snippet: "pub async fn load_parent(\n    pool: &SqlitePool,\n    note_id: &str,\n    scope: KnowledgeScope,\n    ghost_name: &str,\n) -"
+    snippet: "- Hybrid: BM25 + embeddings, fused with RRF.\n- Graph expansion includes parent, tags, and 1-hop links.\n\n- `memory_search"
   - rank: 2
     file: graph.rs
     has_parents: true
     tag_count: 0
     links_out: 0
     links_in: 0
-    snippet: "pub async fn expand_links_in(\n    pool: &SqlitePool,\n    root_id: &str,\n    depth: u8,\n    limit: usize,\n    scope: Know"
+    snippet: "pub async fn load_parent(\n    pool: &SqlitePool,\n    note_id: &str,\n    scope: KnowledgeScope,\n    ghost_name: &str,\n) -"
