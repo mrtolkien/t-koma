@@ -191,7 +191,7 @@ async fn hybrid_search_finds_search_pipeline() {
     let f = CodebaseFixture::setup().await;
 
     let question = "hybrid search with BM25 and embeddings";
-    let results = f
+    let search_result = f
         .engine
         .reference_search(
             &f.context,
@@ -204,6 +204,7 @@ async fn hybrid_search_finds_search_pipeline() {
         .await
         .expect("reference search should succeed");
 
+    let results = &search_result.results;
     assert!(!results.is_empty(), "should find at least one result");
 
     let has_search_file = results
@@ -216,7 +217,7 @@ async fn hybrid_search_finds_search_pipeline() {
 
     assert_yaml_snapshot!(
         "hybrid_search_finds_search_pipeline",
-        build_snapshot(question, &results, 2)
+        build_snapshot(question, results, 2)
     );
 }
 
@@ -247,7 +248,7 @@ async fn scope_isolation_ghost_vs_reference() {
     let question = "BM25 search pipeline";
 
     // Reference search should only return reference-scoped results
-    let ref_results = f
+    let ref_search = f
         .engine
         .reference_search(
             &f.context,
@@ -259,6 +260,7 @@ async fn scope_isolation_ghost_vs_reference() {
         )
         .await
         .expect("reference search");
+    let ref_results = &ref_search.results;
 
     let private_leaked = ref_results
         .iter()
@@ -315,7 +317,7 @@ async fn toml_front_matter_parsing() {
     let f = CodebaseFixture::setup().await;
 
     let question = "core source files models search graph";
-    let results = f
+    let search_result = f
         .engine
         .reference_search(
             &f.context,
@@ -328,11 +330,12 @@ async fn toml_front_matter_parsing() {
         .await
         .expect("reference search");
 
+    let results = &search_result.results;
     assert!(!results.is_empty(), "should find reference topic results");
 
     assert_yaml_snapshot!(
         "toml_front_matter_parsing",
-        build_snapshot(question, &results, 2)
+        build_snapshot(question, results, 2)
     );
 }
 
@@ -343,7 +346,7 @@ async fn tree_sitter_code_chunking() {
     let f = CodebaseFixture::setup().await;
 
     let question = "sanitize FTS5 query quoting tokens";
-    let results = f
+    let search_result = f
         .engine
         .reference_search(
             &f.context,
@@ -356,6 +359,7 @@ async fn tree_sitter_code_chunking() {
         .await
         .expect("reference search");
 
+    let results = &search_result.results;
     assert!(!results.is_empty(), "should find FTS5 sanitization code");
 
     let has_code = results
@@ -368,7 +372,7 @@ async fn tree_sitter_code_chunking() {
 
     assert_yaml_snapshot!(
         "tree_sitter_code_chunking",
-        build_snapshot(question, &results, 2)
+        build_snapshot(question, results, 2)
     );
 }
 
@@ -379,7 +383,7 @@ async fn knowledge_graph_link_resolution() {
     let f = CodebaseFixture::setup().await;
 
     let question = "knowledge graph link resolution parent";
-    let results = f
+    let search_result = f
         .engine
         .reference_search(
             &f.context,
@@ -392,6 +396,7 @@ async fn knowledge_graph_link_resolution() {
         .await
         .expect("reference search");
 
+    let results = &search_result.results;
     assert!(!results.is_empty(), "should find graph-related results");
 
     #[derive(Debug, Serialize)]

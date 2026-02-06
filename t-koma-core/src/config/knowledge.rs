@@ -67,6 +67,9 @@ pub struct SearchDefaults {
     pub bm25_limit: usize,
     #[serde(default = "default_dense_limit")]
     pub dense_limit: usize,
+    /// Boost multiplier for documentation files in reference search.
+    #[serde(default = "default_doc_boost")]
+    pub doc_boost: f32,
 }
 
 impl Default for SearchDefaults {
@@ -78,6 +81,7 @@ impl Default for SearchDefaults {
             graph_max: default_graph_max(),
             bm25_limit: default_bm25_limit(),
             dense_limit: default_dense_limit(),
+            doc_boost: default_doc_boost(),
         }
     }
 }
@@ -120,6 +124,10 @@ fn default_bm25_limit() -> usize {
 
 fn default_dense_limit() -> usize {
     20
+}
+
+fn default_doc_boost() -> f32 {
+    1.5
 }
 
 impl From<&KnowledgeToolsSettings> for KnowledgeSettings {
@@ -175,5 +183,8 @@ fn apply_search_overrides(search: &mut SearchDefaults, overrides: &KnowledgeSear
     }
     if let Some(dense_limit) = overrides.dense_limit {
         search.dense_limit = dense_limit;
+    }
+    if let Some(doc_boost) = overrides.doc_boost {
+        search.doc_boost = doc_boost;
     }
 }

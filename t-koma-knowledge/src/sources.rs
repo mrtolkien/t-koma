@@ -172,6 +172,7 @@ pub async fn fetch_git_source(
             ref_name: source.ref_name.clone(),
             commit: Some(commit),
             paths: source.paths.clone(),
+            role: source.role,
         },
         files,
     })
@@ -224,6 +225,7 @@ pub async fn fetch_web_source(
             ref_name: None,
             commit: None,
             paths: None,
+            role: source.role,
         },
         files: vec![filename],
     })

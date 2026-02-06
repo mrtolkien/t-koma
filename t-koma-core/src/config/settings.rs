@@ -179,6 +179,8 @@ pub struct KnowledgeSearchSettings {
     pub graph_max: Option<usize>,
     pub bm25_limit: Option<usize>,
     pub dense_limit: Option<usize>,
+    /// Boost multiplier for documentation files in reference search.
+    pub doc_boost: Option<f32>,
 }
 
 /// Web search settings

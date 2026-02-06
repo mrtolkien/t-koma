@@ -66,6 +66,8 @@ pub struct TopicSource {
     pub commit: Option<String>,
     /// Path filters within the repo. Only for git sources.
     pub paths: Option<Vec<String>>,
+    /// Role of the content from this source (docs vs code).
+    pub role: Option<crate::models::SourceRole>,
 }
 
 #[derive(Debug, Clone)]

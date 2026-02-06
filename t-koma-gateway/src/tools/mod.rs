@@ -13,6 +13,8 @@ pub mod memory_note_update;
 pub mod memory_note_validate;
 pub mod memory_search;
 pub mod read_file;
+pub mod reference_file_update;
+pub mod reference_get;
 pub mod reference_search;
 pub mod reference_topic_create;
 pub mod reference_topic_list;

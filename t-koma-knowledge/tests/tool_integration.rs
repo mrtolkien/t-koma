@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use t_koma_knowledge::models::{
     KnowledgeContext, MemoryScope, NoteCreateRequest, NoteUpdateRequest, WriteScope,
 };
-use t_koma_knowledge::storage::{replace_tags, upsert_note, KnowledgeStore, NoteRecord};
+use t_koma_knowledge::storage::{KnowledgeStore, NoteRecord, replace_tags, upsert_note};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
 /// Build a test engine + context pair with temp dirs.
@@ -85,7 +85,9 @@ async fn create_private_note() {
             // Embedding failure is expected with bogus URL
             let err_str = e.to_string();
             assert!(
-                err_str.contains("embedding") || err_str.contains("http") || err_str.contains("error sending request"),
+                err_str.contains("embedding")
+                    || err_str.contains("http")
+                    || err_str.contains("error sending request"),
                 "unexpected error: {err_str}"
             );
         }
@@ -117,7 +119,9 @@ async fn create_shared_note() {
         Err(e) => {
             let err_str = e.to_string();
             assert!(
-                err_str.contains("embedding") || err_str.contains("http") || err_str.contains("error sending request"),
+                err_str.contains("embedding")
+                    || err_str.contains("http")
+                    || err_str.contains("error sending request"),
                 "unexpected error: {err_str}"
             );
         }
@@ -131,12 +135,9 @@ async fn get_own_private_note_succeeds() {
     let (engine, context, temp) = setup().await;
     let shared_root = temp.path().join("knowledge");
 
-    let store = KnowledgeStore::open(
-        &shared_root.join("index.sqlite3"),
-        Some(8),
-    )
-    .await
-    .unwrap();
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
 
     // Insert a note for ghost-a
     let note = NoteRecord {
@@ -172,12 +173,9 @@ async fn get_other_ghost_private_note_fails() {
     let (engine, context, temp) = setup().await;
     let shared_root = temp.path().join("knowledge");
 
-    let store = KnowledgeStore::open(
-        &shared_root.join("index.sqlite3"),
-        Some(8),
-    )
-    .await
-    .unwrap();
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
 
     // Insert a note for ghost-b
     let note = NoteRecord {
@@ -206,7 +204,10 @@ async fn get_other_ghost_private_note_fails() {
     let result = engine
         .memory_get(&context, "ghost-b-secret", MemoryScope::GhostPrivate)
         .await;
-    assert!(result.is_err(), "ghost-a should not see ghost-b's private note");
+    assert!(
+        result.is_err(),
+        "ghost-a should not see ghost-b's private note"
+    );
 }
 
 #[tokio::test]
@@ -214,12 +215,9 @@ async fn get_shared_note_from_any_ghost() {
     let (engine, _context, temp) = setup().await;
     let shared_root = temp.path().join("knowledge");
 
-    let store = KnowledgeStore::open(
-        &shared_root.join("index.sqlite3"),
-        Some(8),
-    )
-    .await
-    .unwrap();
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
 
     let note = NoteRecord {
         id: "shared-note".to_string(),
@@ -258,12 +256,9 @@ async fn update_own_note_succeeds() {
     let (engine, context, temp) = setup().await;
     let shared_root = temp.path().join("knowledge");
 
-    let store = KnowledgeStore::open(
-        &shared_root.join("index.sqlite3"),
-        Some(8),
-    )
-    .await
-    .unwrap();
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
 
     // Create a note file that can be parsed
     let note_path = shared_root.join("updatable.md");
@@ -323,7 +318,9 @@ Original body.
         Err(e) => {
             let err_str = e.to_string();
             assert!(
-                err_str.contains("embedding") || err_str.contains("http") || err_str.contains("error sending request"),
+                err_str.contains("embedding")
+                    || err_str.contains("http")
+                    || err_str.contains("error sending request"),
                 "unexpected error: {err_str}"
             );
         }
@@ -335,12 +332,9 @@ async fn update_other_ghost_note_denied() {
     let (engine, context, temp) = setup().await;
     let shared_root = temp.path().join("knowledge");
 
-    let store = KnowledgeStore::open(
-        &shared_root.join("index.sqlite3"),
-        Some(8),
-    )
-    .await
-    .unwrap();
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
 
     let note_path = shared_root.join("ghost-b-note.md");
     let content = r#"+++
@@ -399,12 +393,9 @@ async fn validate_note_updates_metadata() {
     let (engine, context, temp) = setup().await;
     let shared_root = temp.path().join("knowledge");
 
-    let store = KnowledgeStore::open(
-        &shared_root.join("index.sqlite3"),
-        Some(8),
-    )
-    .await
-    .unwrap();
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
 
     let note_path = shared_root.join("validatable.md");
     let content = r#"+++
@@ -457,7 +448,9 @@ Content.
             // Re-index embedding failure is acceptable
             let err_str = e.to_string();
             assert!(
-                err_str.contains("embedding") || err_str.contains("http") || err_str.contains("error sending request"),
+                err_str.contains("embedding")
+                    || err_str.contains("http")
+                    || err_str.contains("error sending request"),
                 "unexpected error: {err_str}"
             );
         }
@@ -471,12 +464,9 @@ async fn comment_appends_to_front_matter() {
     let (engine, context, temp) = setup().await;
     let shared_root = temp.path().join("knowledge");
 
-    let store = KnowledgeStore::open(
-        &shared_root.join("index.sqlite3"),
-        Some(8),
-    )
-    .await
-    .unwrap();
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
 
     let note_path = shared_root.join("commentable.md");
     let content = r#"+++
@@ -530,7 +520,9 @@ Body text.
         Err(e) => {
             let err_str = e.to_string();
             assert!(
-                err_str.contains("embedding") || err_str.contains("http") || err_str.contains("error sending request"),
+                err_str.contains("embedding")
+                    || err_str.contains("http")
+                    || err_str.contains("error sending request"),
                 "unexpected error: {err_str}"
             );
         }
@@ -542,7 +534,10 @@ Body text.
 #[tokio::test]
 async fn capture_to_ghost_inbox() {
     let (engine, context, _temp) = setup().await;
-    let inbox_dir = context.workspace_root.join("private_knowledge").join("inbox");
+    let inbox_dir = context
+        .workspace_root
+        .join("private_knowledge")
+        .join("inbox");
     tokio::fs::create_dir_all(&inbox_dir).await.unwrap();
 
     let result = engine
@@ -658,13 +653,29 @@ async fn topic_list_returns_inserted_topics() {
         .unwrap();
 
     insert_topic_note(
-        &store, &shared_root, "topic-a", "Alpha Library", "ghost-a",
-        "active", 30, "2025-06-01T00:00:00Z", &["rust", "alpha"],
-    ).await;
+        &store,
+        &shared_root,
+        "topic-a",
+        "Alpha Library",
+        "ghost-a",
+        "active",
+        30,
+        "2025-06-01T00:00:00Z",
+        &["rust", "alpha"],
+    )
+    .await;
     insert_topic_note(
-        &store, &shared_root, "topic-b", "Beta Framework", "ghost-a",
-        "obsolete", 0, "2025-05-01T00:00:00Z", &["rust", "beta"],
-    ).await;
+        &store,
+        &shared_root,
+        "topic-b",
+        "Beta Framework",
+        "ghost-a",
+        "obsolete",
+        0,
+        "2025-05-01T00:00:00Z",
+        &["rust", "beta"],
+    )
+    .await;
 
     // Without obsolete
     let list = engine.topic_list(false).await.unwrap();
@@ -687,9 +698,17 @@ async fn topic_update_changes_status_and_tags() {
         .unwrap();
 
     insert_topic_note(
-        &store, &shared_root, "topic-upd", "Updatable Topic", "ghost-a",
-        "active", 30, "2025-06-01T00:00:00Z", &["original"],
-    ).await;
+        &store,
+        &shared_root,
+        "topic-upd",
+        "Updatable Topic",
+        "ghost-a",
+        "active",
+        30,
+        "2025-06-01T00:00:00Z",
+        &["original"],
+    )
+    .await;
 
     let request = t_koma_knowledge::TopicUpdateRequest {
         topic_id: "topic-upd".to_string(),
@@ -707,15 +726,26 @@ async fn topic_update_changes_status_and_tags() {
             let content = tokio::fs::read_to_string(topic_dir.join("topic.md"))
                 .await
                 .unwrap();
-            assert!(content.contains("status = \"obsolete\""), "status should be updated");
-            assert!(content.contains("max_age_days = 0"), "max_age_days should be updated");
-            assert!(content.contains("Updated description."), "body should be updated");
+            assert!(
+                content.contains("status = \"obsolete\""),
+                "status should be updated"
+            );
+            assert!(
+                content.contains("max_age_days = 0"),
+                "max_age_days should be updated"
+            );
+            assert!(
+                content.contains("Updated description."),
+                "body should be updated"
+            );
         }
         Err(e) => {
             // Embedding errors are acceptable in non-slow-tests
             let err_str = e.to_string();
             assert!(
-                err_str.contains("embedding") || err_str.contains("http") || err_str.contains("error sending request"),
+                err_str.contains("embedding")
+                    || err_str.contains("http")
+                    || err_str.contains("error sending request"),
                 "unexpected error: {err_str}"
             );
         }
@@ -733,13 +763,29 @@ async fn recent_topics_returns_most_recent() {
 
     // Insert topics with different dates
     insert_topic_note(
-        &store, &shared_root, "topic-old", "Old Topic", "ghost-a",
-        "active", 30, "2025-01-01T00:00:00Z", &["old"],
-    ).await;
+        &store,
+        &shared_root,
+        "topic-old",
+        "Old Topic",
+        "ghost-a",
+        "active",
+        30,
+        "2025-01-01T00:00:00Z",
+        &["old"],
+    )
+    .await;
     insert_topic_note(
-        &store, &shared_root, "topic-new", "New Topic", "ghost-a",
-        "active", 30, "2025-06-15T00:00:00Z", &["new"],
-    ).await;
+        &store,
+        &shared_root,
+        "topic-new",
+        "New Topic",
+        "ghost-a",
+        "active",
+        30,
+        "2025-06-15T00:00:00Z",
+        &["new"],
+    )
+    .await;
 
     let recent = engine.recent_topics().await.unwrap();
     assert_eq!(recent.len(), 2);

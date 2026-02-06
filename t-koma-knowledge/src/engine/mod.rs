@@ -7,8 +7,9 @@ use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
     KnowledgeContext, KnowledgeScope, MemoryQuery, MemoryResult, MemoryScope, NoteCreateRequest,
-    NoteDocument, NoteUpdateRequest, NoteWriteResult, ReferenceQuery, TopicCreateRequest,
-    TopicCreateResult, TopicListEntry, TopicSearchResult, TopicUpdateRequest, WriteScope,
+    NoteDocument, NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus, ReferenceQuery,
+    ReferenceSearchResult, TopicCreateRequest, TopicCreateResult, TopicListEntry,
+    TopicSearchResult, TopicUpdateRequest, WriteScope,
 };
 use crate::paths::knowledge_db_path;
 use crate::storage::KnowledgeStore;
@@ -151,10 +152,31 @@ impl KnowledgeEngine {
         &self,
         context: &KnowledgeContext,
         query: ReferenceQuery,
-    ) -> KnowledgeResult<Vec<MemoryResult>> {
+    ) -> KnowledgeResult<ReferenceSearchResult> {
         self.maybe_reconcile(context, KnowledgeScope::Reference)
             .await?;
         reference::reference_search(self, &query).await
+    }
+
+    /// Set the status of a reference file (active, problematic, obsolete).
+    pub async fn reference_file_set_status(
+        &self,
+        note_id: &str,
+        status: ReferenceFileStatus,
+        reason: Option<&str>,
+    ) -> KnowledgeResult<()> {
+        reference::reference_file_set_status(self, note_id, status, reason).await
+    }
+
+    /// Get a reference file by note_id or by topic + file_path.
+    pub async fn reference_get(
+        &self,
+        note_id: Option<&str>,
+        topic: Option<&str>,
+        file_path: Option<&str>,
+        max_chars: Option<usize>,
+    ) -> KnowledgeResult<NoteDocument> {
+        reference::reference_get(self, note_id, topic, file_path, max_chars).await
     }
 
     /// Build an approval summary for a topic creation request (Phase 1).

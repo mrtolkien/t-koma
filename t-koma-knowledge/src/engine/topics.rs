@@ -8,8 +8,8 @@ use sqlx::SqlitePool;
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeContext, KnowledgeScope, TopicCreateRequest, TopicCreateResult, TopicListEntry,
-    TopicSearchResult, TopicUpdateRequest, generate_note_id,
+    KnowledgeContext, KnowledgeScope, SourceRole, TopicCreateRequest, TopicCreateResult,
+    TopicListEntry, TopicSearchResult, TopicUpdateRequest, generate_note_id,
 };
 use crate::parser::TopicSource;
 use crate::sources;
@@ -49,13 +49,20 @@ pub(crate) async fn topic_create_execute(
     // Fetch all sources
     let fetched = sources::fetch_all_sources(&request.sources, &topic_dir).await?;
 
-    // Collect files and topic sources
-    let mut all_files: Vec<String> = Vec::new();
+    // Collect files with their roles and topic sources
+    let mut file_roles: Vec<(String, SourceRole)> = Vec::new();
     let mut topic_sources: Vec<TopicSource> = Vec::new();
     for result in &fetched {
-        all_files.extend(result.files.iter().cloned());
+        let role = result
+            .source
+            .role
+            .unwrap_or_else(|| SourceRole::infer(&result.source.source_type));
+        for f in &result.files {
+            file_roles.push((f.clone(), role));
+        }
         topic_sources.push(result.source.clone());
     }
+    let all_files: Vec<String> = file_roles.iter().map(|(f, _)| f.clone()).collect();
 
     // Write topic.md
     let topic_id = generate_note_id();
@@ -99,14 +106,15 @@ pub(crate) async fn topic_create_execute(
             .await?;
     crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
-    // Store reference_files mapping
-    for file_name in &all_files {
+    // Store reference_files mapping with role
+    for (file_name, role) in &file_roles {
         let file_path = topic_dir.join(file_name);
         let file_content = match tokio::fs::read_to_string(&file_path).await {
             Ok(c) => c,
             Err(_) => continue, // skip unreadable files (binary that slipped through)
         };
 
+        let note_type = role.to_note_type();
         let file_note_id = generate_note_id();
         let file_ingested = crate::ingest::ingest_reference_file(
             settings,
@@ -114,6 +122,7 @@ pub(crate) async fn topic_create_execute(
             &file_content,
             &file_note_id,
             file_name,
+            note_type,
         )
         .await?;
         crate::storage::upsert_note(pool, &file_ingested.note).await?;
@@ -123,20 +132,21 @@ pub(crate) async fn topic_create_execute(
             pool,
             &file_note_id,
             file_name,
-            "ReferenceFile",
+            note_type,
             &file_ingested.chunks,
         )
         .await?;
         crate::index::embed_chunks(settings, embedder, pool, &file_ingested.chunks, &file_chunk_ids)
             .await?;
 
-        // Link file to topic
+        // Link file to topic with role
         sqlx::query(
-            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path, role) VALUES (?, ?, ?, ?)",
         )
         .bind(&topic_id)
         .bind(&file_note_id)
         .bind(file_name)
+        .bind(role.as_str())
         .execute(pool)
         .await?;
     }
@@ -545,6 +555,9 @@ fn build_topic_front_matter(
         if let Some(paths) = &src.paths {
             let formatted: Vec<String> = paths.iter().map(|p| format!("\"{}\"", p)).collect();
             lines.push(format!("paths = [{}]", formatted.join(", ")));
+        }
+        if let Some(role) = &src.role {
+            lines.push(format!("role = \"{}\"", role));
         }
     }
 

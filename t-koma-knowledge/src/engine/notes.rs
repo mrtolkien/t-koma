@@ -469,6 +469,9 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
                 let formatted: Vec<String> = paths.iter().map(|p| format!("\"{}\"", p)).collect();
                 lines.push(format!("paths = [{}]", formatted.join(", ")));
             }
+            if let Some(role) = &src.role {
+                lines.push(format!("role = \"{}\"", role));
+            }
         }
     }
     lines.join("\n")

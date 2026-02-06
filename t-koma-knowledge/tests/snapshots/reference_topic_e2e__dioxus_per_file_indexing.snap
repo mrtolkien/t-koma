@@ -1,0 +1,410 @@
+---
+source: t-koma-knowledge/tests/reference_topic_e2e.rs
+expression: "serde_json::json!({\n    \"source_count\": f.source_count, \"file_count\": f.file_count, \"chunk_count\":\n    f.chunk_count, \"per_file_chunks\": f.per_file_chunks,\n})"
+---
+chunk_count: 658
+file_count: 201
+per_file_chunks:
+  - chunk_count: 15
+    file_path: README.md
+  - chunk_count: 16
+    file_path: dioxuslabs-com-learn-0-6.md
+  - chunk_count: 1
+    file_path: examples/01-app-demos/bluetooth-scanner/.gitignore
+  - chunk_count: 1
+    file_path: examples/01-app-demos/bluetooth-scanner/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/01-app-demos/bluetooth-scanner/README.md
+  - chunk_count: 1
+    file_path: examples/01-app-demos/bluetooth-scanner/assets/tailwind.css
+  - chunk_count: 2
+    file_path: examples/01-app-demos/bluetooth-scanner/src/main.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/bluetooth-scanner/tailwind.css
+  - chunk_count: 3
+    file_path: examples/01-app-demos/calculator.rs
+  - chunk_count: 6
+    file_path: examples/01-app-demos/calculator_mutable.rs
+  - chunk_count: 2
+    file_path: examples/01-app-demos/counters.rs
+  - chunk_count: 6
+    file_path: examples/01-app-demos/crm.rs
+  - chunk_count: 2
+    file_path: examples/01-app-demos/dog_app.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/.gitignore
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/Cargo.toml
+  - chunk_count: 2
+    file_path: examples/01-app-demos/ecommerce-site/README.md
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/public/loading.css
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/public/tailwind.css
+  - chunk_count: 7
+    file_path: examples/01-app-demos/ecommerce-site/src/api.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/src/components/error.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/src/components/home.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/src/components/loading.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/src/components/nav.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/src/components/product_item.rs
+  - chunk_count: 4
+    file_path: examples/01-app-demos/ecommerce-site/src/components/product_page.rs
+  - chunk_count: 3
+    file_path: examples/01-app-demos/ecommerce-site/src/main.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/ecommerce-site/tailwind.css
+  - chunk_count: 1
+    file_path: examples/01-app-demos/file-explorer/.gitignore
+  - chunk_count: 1
+    file_path: examples/01-app-demos/file-explorer/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/01-app-demos/file-explorer/Dioxus.toml
+  - chunk_count: 1
+    file_path: examples/01-app-demos/file-explorer/README.md
+  - chunk_count: 1
+    file_path: examples/01-app-demos/file-explorer/assets/fileexplorer.css
+  - chunk_count: 4
+    file_path: examples/01-app-demos/file-explorer/src/main.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hackernews/.gitignore
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hackernews/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hackernews/assets/hackernews.css
+  - chunk_count: 12
+    file_path: examples/01-app-demos/hackernews/src/main.rs
+  - chunk_count: 2
+    file_path: examples/01-app-demos/hello_world.rs
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hotdog/.gitignore
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hotdog/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hotdog/Dioxus.toml
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hotdog/Dockerfile
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hotdog/README.md
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hotdog/assets/main.css
+  - chunk_count: 1
+    file_path: examples/01-app-demos/hotdog/fly.toml
+  - chunk_count: 3
+    file_path: examples/01-app-demos/hotdog/src/backend.rs
+  - chunk_count: 3
+    file_path: examples/01-app-demos/hotdog/src/frontend.rs
+  - chunk_count: 3
+    file_path: examples/01-app-demos/hotdog/src/main.rs
+  - chunk_count: 2
+    file_path: examples/01-app-demos/image_generator_openai.rs
+  - chunk_count: 2
+    file_path: examples/01-app-demos/repo_readme.rs
+  - chunk_count: 7
+    file_path: examples/01-app-demos/todomvc.rs
+  - chunk_count: 11
+    file_path: examples/01-app-demos/todomvc_store.rs
+  - chunk_count: 13
+    file_path: examples/01-app-demos/weather_app.rs
+  - chunk_count: 6
+    file_path: examples/01-app-demos/websocket_chat.rs
+  - chunk_count: 2
+    file_path: examples/02-building-ui/disabled.rs
+  - chunk_count: 2
+    file_path: examples/02-building-ui/nested_listeners.rs
+  - chunk_count: 2
+    file_path: examples/02-building-ui/svg.rs
+  - chunk_count: 2
+    file_path: examples/03-assets-styling/css_modules.rs
+  - chunk_count: 2
+    file_path: examples/03-assets-styling/custom_assets.rs
+  - chunk_count: 2
+    file_path: examples/03-assets-styling/dynamic_assets.rs
+  - chunk_count: 2
+    file_path: examples/03-assets-styling/meta.rs
+  - chunk_count: 2
+    file_path: examples/03-assets-styling/meta_elements.rs
+  - chunk_count: 7
+    file_path: examples/04-managing-state/context_api.rs
+  - chunk_count: 9
+    file_path: examples/04-managing-state/error_handling.rs
+  - chunk_count: 6
+    file_path: examples/04-managing-state/global.rs
+  - chunk_count: 3
+    file_path: examples/04-managing-state/memo_chain.rs
+  - chunk_count: 5
+    file_path: examples/04-managing-state/reducer.rs
+  - chunk_count: 3
+    file_path: examples/04-managing-state/signals.rs
+  - chunk_count: 3
+    file_path: examples/05-using-async/backgrounded_futures.rs
+  - chunk_count: 2
+    file_path: examples/05-using-async/clock.rs
+  - chunk_count: 2
+    file_path: examples/05-using-async/future.rs
+  - chunk_count: 3
+    file_path: examples/05-using-async/streams.rs
+  - chunk_count: 3
+    file_path: examples/05-using-async/suspense.rs
+  - chunk_count: 7
+    file_path: examples/06-routing/flat_router.rs
+  - chunk_count: 8
+    file_path: examples/06-routing/hash_fragment_state.rs
+  - chunk_count: 7
+    file_path: examples/06-routing/link.rs
+  - chunk_count: 4
+    file_path: examples/06-routing/query_segment_search.rs
+  - chunk_count: 8
+    file_path: examples/06-routing/router.rs
+  - chunk_count: 5
+    file_path: examples/06-routing/router_resource.rs
+  - chunk_count: 5
+    file_path: examples/06-routing/router_restore_scroll.rs
+  - chunk_count: 5
+    file_path: examples/06-routing/simple_router.rs
+  - chunk_count: 1
+    file_path: examples/07-fullstack/auth/Cargo.toml
+  - chunk_count: 4
+    file_path: examples/07-fullstack/auth/src/auth.rs
+  - chunk_count: 6
+    file_path: examples/07-fullstack/auth/src/main.rs
+  - chunk_count: 2
+    file_path: examples/07-fullstack/custom_axum_serve.rs
+  - chunk_count: 5
+    file_path: examples/07-fullstack/custom_error_page.rs
+  - chunk_count: 1
+    file_path: examples/07-fullstack/desktop/Cargo.toml
+  - chunk_count: 4
+    file_path: examples/07-fullstack/desktop/src/main.rs
+  - chunk_count: 4
+    file_path: examples/07-fullstack/dog_app_self_hosted.rs
+  - chunk_count: 3
+    file_path: examples/07-fullstack/full_request_access.rs
+  - chunk_count: 2
+    file_path: examples/07-fullstack/fullstack_hello_world.rs
+  - chunk_count: 14
+    file_path: examples/07-fullstack/handling_errors.rs
+  - chunk_count: 3
+    file_path: examples/07-fullstack/header_map.rs
+  - chunk_count: 1
+    file_path: examples/07-fullstack/hello-world/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/07-fullstack/hello-world/assets/hello.css
+  - chunk_count: 3
+    file_path: examples/07-fullstack/hello-world/src/main.rs
+  - chunk_count: 5
+    file_path: examples/07-fullstack/login_form.rs
+  - chunk_count: 3
+    file_path: examples/07-fullstack/middleware.rs
+  - chunk_count: 3
+    file_path: examples/07-fullstack/multipart_form.rs
+  - chunk_count: 5
+    file_path: examples/07-fullstack/query_params.rs
+  - chunk_count: 5
+    file_path: examples/07-fullstack/redirect.rs
+  - chunk_count: 1
+    file_path: examples/07-fullstack/router/Cargo.toml
+  - chunk_count: 7
+    file_path: examples/07-fullstack/router/src/main.rs
+  - chunk_count: 13
+    file_path: examples/07-fullstack/server_functions.rs
+  - chunk_count: 4
+    file_path: examples/07-fullstack/server_sent_events.rs
+  - chunk_count: 11
+    file_path: examples/07-fullstack/server_state.rs
+  - chunk_count: 1
+    file_path: examples/07-fullstack/ssr-only/Cargo.toml
+  - chunk_count: 5
+    file_path: examples/07-fullstack/ssr-only/src/main.rs
+  - chunk_count: 6
+    file_path: examples/07-fullstack/streaming.rs
+  - chunk_count: 5
+    file_path: examples/07-fullstack/streaming_file_upload.rs
+  - chunk_count: 4
+    file_path: examples/07-fullstack/through_reqwest.rs
+  - chunk_count: 5
+    file_path: examples/07-fullstack/websocket.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/control_focus.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/custom_html.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/custom_menu.rs
+  - chunk_count: 4
+    file_path: examples/08-apis/drag_and_drop.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/eval.rs
+  - chunk_count: 3
+    file_path: examples/08-apis/file_upload.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/form.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/logging.rs
+  - chunk_count: 3
+    file_path: examples/08-apis/multiwindow.rs
+  - chunk_count: 3
+    file_path: examples/08-apis/multiwindow_with_tray_icon.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/on_resize.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/on_visible.rs
+  - chunk_count: 4
+    file_path: examples/08-apis/overlay.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/read_size.rs
+  - chunk_count: 3
+    file_path: examples/08-apis/scroll_to_offset.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/scroll_to_top.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/shortcut.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/ssr.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/title.rs
+  - chunk_count: 4
+    file_path: examples/08-apis/video_stream.rs
+  - chunk_count: 5
+    file_path: examples/08-apis/wgpu_child_window.rs
+  - chunk_count: 6
+    file_path: examples/08-apis/window_event.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/window_focus.rs
+  - chunk_count: 3
+    file_path: examples/08-apis/window_popup.rs
+  - chunk_count: 2
+    file_path: examples/08-apis/window_zoom.rs
+  - chunk_count: 2
+    file_path: examples/09-reference/all_events.rs
+  - chunk_count: 4
+    file_path: examples/09-reference/generic_component.rs
+  - chunk_count: 4
+    file_path: examples/09-reference/optional_props.rs
+  - chunk_count: 10
+    file_path: examples/09-reference/rsx_usage.rs
+  - chunk_count: 3
+    file_path: examples/09-reference/shorthand.rs
+  - chunk_count: 2
+    file_path: examples/09-reference/simple_list.rs
+  - chunk_count: 4
+    file_path: examples/09-reference/spread.rs
+  - chunk_count: 3
+    file_path: examples/09-reference/web_component.rs
+  - chunk_count: 2
+    file_path: examples/09-reference/xss_safety.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/bevy/Cargo.toml
+  - chunk_count: 3
+    file_path: examples/10-integrations/bevy/src/bevy_renderer.rs
+  - chunk_count: 6
+    file_path: examples/10-integrations/bevy/src/bevy_scene_plugin.rs
+  - chunk_count: 5
+    file_path: examples/10-integrations/bevy/src/demo_renderer.rs
+  - chunk_count: 5
+    file_path: examples/10-integrations/bevy/src/main.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/bevy/src/styles.css
+  - chunk_count: 1
+    file_path: examples/10-integrations/native-headless-in-bevy/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/10-integrations/native-headless-in-bevy/README.md
+  - chunk_count: 15
+    file_path: examples/10-integrations/native-headless-in-bevy/src/bevy_scene_plugin.rs
+  - chunk_count: 34
+    file_path: examples/10-integrations/native-headless-in-bevy/src/dioxus_in_bevy_plugin.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/native-headless-in-bevy/src/main.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/native-headless-in-bevy/src/ui.css
+  - chunk_count: 2
+    file_path: examples/10-integrations/native-headless-in-bevy/src/ui.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/native-headless/Cargo.toml
+  - chunk_count: 3
+    file_path: examples/10-integrations/native-headless/src/main.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/pwa/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/10-integrations/pwa/Dioxus.toml
+  - chunk_count: 1
+    file_path: examples/10-integrations/pwa/LICENSE
+  - chunk_count: 4
+    file_path: examples/10-integrations/pwa/README.md
+  - chunk_count: 1
+    file_path: examples/10-integrations/pwa/index.html
+  - chunk_count: 1
+    file_path: examples/10-integrations/pwa/public/manifest.json
+  - chunk_count: 1
+    file_path: examples/10-integrations/pwa/public/sw.js
+  - chunk_count: 2
+    file_path: examples/10-integrations/pwa/src/main.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/tailwind/.gitignore
+  - chunk_count: 1
+    file_path: examples/10-integrations/tailwind/Cargo.toml
+  - chunk_count: 1
+    file_path: examples/10-integrations/tailwind/README.md
+  - chunk_count: 1
+    file_path: examples/10-integrations/tailwind/assets/tailwind.css
+  - chunk_count: 4
+    file_path: examples/10-integrations/tailwind/src/main.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/tailwind/tailwind.css
+  - chunk_count: 1
+    file_path: examples/10-integrations/wgpu-texture/Cargo.toml
+  - chunk_count: 10
+    file_path: examples/10-integrations/wgpu-texture/src/demo_renderer.rs
+  - chunk_count: 6
+    file_path: examples/10-integrations/wgpu-texture/src/main.rs
+  - chunk_count: 1
+    file_path: examples/10-integrations/wgpu-texture/src/shader.wgsl
+  - chunk_count: 1
+    file_path: examples/10-integrations/wgpu-texture/src/styles.css
+  - chunk_count: 1
+    file_path: examples/assets/calculator.css
+  - chunk_count: 1
+    file_path: examples/assets/clock.css
+  - chunk_count: 1
+    file_path: examples/assets/context_api.css
+  - chunk_count: 1
+    file_path: examples/assets/counter.css
+  - chunk_count: 1
+    file_path: examples/assets/crm.css
+  - chunk_count: 1
+    file_path: examples/assets/css_module1.css
+  - chunk_count: 1
+    file_path: examples/assets/css_module2.css
+  - chunk_count: 1
+    file_path: examples/assets/custom_assets.css
+  - chunk_count: 1
+    file_path: examples/assets/events.css
+  - chunk_count: 1
+    file_path: examples/assets/file_upload.css
+  - chunk_count: 1
+    file_path: examples/assets/flat_router.css
+  - chunk_count: 1
+    file_path: examples/assets/links.css
+  - chunk_count: 1
+    file_path: examples/assets/overlay.css
+  - chunk_count: 1
+    file_path: examples/assets/radio.css
+  - chunk_count: 1
+    file_path: examples/assets/read_size.css
+  - chunk_count: 1
+    file_path: examples/assets/roulette.css
+  - chunk_count: 1
+    file_path: examples/assets/router.css
+  - chunk_count: 1
+    file_path: examples/assets/todomvc.css
+  - chunk_count: 1
+    file_path: examples/assets/visible.css
+  - chunk_count: 1
+    file_path: examples/assets/weatherapp.css
+  - chunk_count: 2
+    file_path: examples/scripts/scrape_examples.rs
+source_count: 2

@@ -148,12 +148,13 @@ pub async fn ingest_reference_file(
     raw: &str,
     note_id: &str,
     title: &str,
+    note_type: &str,
 ) -> KnowledgeResult<IngestedNote> {
     let hash = compute_hash(raw);
     let note = NoteRecord {
         id: note_id.to_string(),
         title: title.to_string(),
-        note_type: "ReferenceFile".to_string(),
+        note_type: note_type.to_string(),
         type_valid: true,
         path: path.to_path_buf(),
         scope: KnowledgeScope::Reference.as_str().to_string(),

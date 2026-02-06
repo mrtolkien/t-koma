@@ -110,7 +110,17 @@ async fn index_reference_files(
         let raw = tokio::fs::read_to_string(&path).await?;
         let note_id = format!("ref:{}:{}", topic_id, file);
         let title = path.file_name().and_then(|v| v.to_str()).unwrap_or(file);
-        let ingested = ingest_reference_file(settings, &path, &raw, &note_id, title).await?;
+        // During reconciliation we don't know the source role, so look up existing note_type
+        // from the DB, falling back to ReferenceCode for new files.
+        let existing_type: Option<(String,)> =
+            sqlx::query_as("SELECT note_type FROM notes WHERE id = ? LIMIT 1")
+                .bind(&note_id)
+                .fetch_optional(store)
+                .await?;
+        let note_type = existing_type
+            .map(|(t,)| t)
+            .unwrap_or_else(|| "ReferenceCode".to_string());
+        let ingested = ingest_reference_file(settings, &path, &raw, &note_id, title, &note_type).await?;
 
         if is_unchanged(store, &path, &ingested.note.content_hash).await? {
             continue;

@@ -32,7 +32,7 @@ use tempfile::TempDir;
 
 use t_koma_knowledge::models::{KnowledgeContext, ReferenceQuery};
 use t_koma_knowledge::{
-    KnowledgeEngine, KnowledgeSettings, TopicCreateRequest, TopicSourceInput,
+    KnowledgeEngine, KnowledgeSettings, MemoryResult, TopicCreateRequest, TopicSourceInput,
 };
 
 // ── Fixture ─────────────────────────────────────────────────────────
@@ -105,12 +105,14 @@ impl DioxusFixture {
                         "README.md".to_string(),
                         "examples/".to_string(),
                     ]),
+                    role: None,
                 },
                 TopicSourceInput {
                     source_type: "web".to_string(),
                     url: "https://dioxuslabs.com/learn/0.6/".to_string(),
                     ref_name: None,
                     paths: None,
+                    role: None,
                 },
             ],
             tags: Some(vec![
@@ -223,7 +225,7 @@ struct SearchHit {
 
 fn build_search_snapshot(
     query: &str,
-    results: &[t_koma_knowledge::MemoryResult],
+    results: &[MemoryResult],
     n: usize,
 ) -> SearchResultSnapshot {
     let unique_files: std::collections::HashSet<&str> = results
@@ -263,6 +265,7 @@ async fn dioxus_approval_summary() {
             url: "https://github.com/DioxusLabs/dioxus".to_string(),
             ref_name: None,
             paths: None,
+            role: None,
         }],
         tags: None,
         max_age_days: None,
@@ -366,7 +369,7 @@ async fn dioxus_full_pipeline() {
     // ── Reference search: component lifecycle ──────────────────────
 
     let question = "component lifecycle hooks use_effect cleanup";
-    let results = f
+    let search_result = f
         .engine
         .reference_search(
             &f.context,
@@ -379,17 +382,19 @@ async fn dioxus_full_pipeline() {
         .await
         .expect("reference_search should succeed");
 
-    assert!(!results.is_empty(), "should find results for component lifecycle query");
+    assert!(!search_result.results.is_empty(), "should find results for component lifecycle query");
+    assert!(!search_result.topic_body.is_empty(), "should return topic body");
+    assert!(!search_result.topic_id.is_empty(), "should return topic_id");
 
     assert_yaml_snapshot!(
         "dioxus_reference_search_component_lifecycle",
-        build_search_snapshot(question, &results, 3)
+        build_search_snapshot(question, &search_result.results, 3)
     );
 
     // ── Reference search: RSX syntax ───────────────────────────────
 
     let question = "RSX syntax JSX-like markup rendering elements";
-    let results = f
+    let search_result = f
         .engine
         .reference_search(
             &f.context,
@@ -402,17 +407,17 @@ async fn dioxus_full_pipeline() {
         .await
         .expect("reference_search should succeed");
 
-    assert!(!results.is_empty(), "should find results for RSX syntax query");
+    assert!(!search_result.results.is_empty(), "should find results for RSX syntax query");
 
     assert_yaml_snapshot!(
         "dioxus_reference_search_rsx_syntax",
-        build_search_snapshot(question, &results, 3)
+        build_search_snapshot(question, &search_result.results, 3)
     );
 
     // ── Reference search: state management ─────────────────────────
 
     let question = "state management use_signal reactive hooks";
-    let results = f
+    let search_result = f
         .engine
         .reference_search(
             &f.context,
@@ -425,11 +430,11 @@ async fn dioxus_full_pipeline() {
         .await
         .expect("reference_search should succeed");
 
-    assert!(!results.is_empty(), "should find results for state management query");
+    assert!(!search_result.results.is_empty(), "should find results for state management query");
 
     assert_yaml_snapshot!(
         "dioxus_reference_search_state_management",
-        build_search_snapshot(question, &results, 3)
+        build_search_snapshot(question, &search_result.results, 3)
     );
 
     // ── Topic search by description ────────────────────────────────
