@@ -46,6 +46,12 @@ pub const ERROR_INIT_SESSION_DISCORD: &str = "error-init-session-discord";
 /// content: messages/en/generic.toml#access-pending-discord
 pub const ACCESS_PENDING_DISCORD: &str = "access-pending-discord";
 
+/// content: messages/en/generic.toml#chat-busy
+pub const CHAT_BUSY: &str = "chat-busy";
+
+/// content: messages/en/generic.toml#chat-continue-missing
+pub const CHAT_CONTINUE_MISSING: &str = "chat-continue-missing";
+
 /// content: messages/en/generic.toml#error-generic
 pub const ERROR_GENERIC: &str = "error-generic";
 

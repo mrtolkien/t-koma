@@ -6,3 +6,9 @@ body = "Sorry, I encountered an error processing your request."
 
 [access-pending-discord]
 body = "Your access request is pending approval. The Puppet Master will review it."
+
+[chat-busy]
+body = "I'm still replying to your previous message, so this one was ignored. Send `CONTINUE` to resend the last ignored message."
+
+[chat-continue-missing]
+body = "There is no ignored message to continue. Send a new message instead."

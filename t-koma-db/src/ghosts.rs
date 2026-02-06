@@ -14,7 +14,7 @@ const GHOST_NAME_MAX_LEN: usize = 64;
 /// Validate and normalize a ghost name.
 ///
 /// - Trim whitespace
-/// - Enforce ASCII letters, digits, spaces, '-' and '_' plus kanji and katakana
+/// - Enforce Unicode letters, numbers, spaces, '-' and '_'
 /// - No empty names
 pub fn validate_ghost_name(name: &str) -> DbResult<String> {
     let trimmed = name.trim();
@@ -31,14 +31,13 @@ pub fn validate_ghost_name(name: &str) -> DbResult<String> {
         )));
     }
 
-    let valid = Regex::new(r"^[A-Za-z0-9 _\-\p{Han}\p{Katakana}]+$")
+    let valid = Regex::new(r"^[\p{L}\p{M}\p{N} _\-]+$")
         .expect("ghost name regex should compile")
         .is_match(trimmed);
 
     if !valid {
         return Err(DbError::InvalidGhostName(
-            "Ghost name may contain only letters, numbers, spaces, '-', '_', kanji, and katakana"
-                .to_string(),
+            "Ghost name may contain only letters, numbers, spaces, '-', and '_'".to_string(),
         ));
     }
 
@@ -258,7 +257,8 @@ mod tests {
         assert!(validate_ghost_name("Ghost_02").is_ok());
         assert!(validate_ghost_name("カタカナ").is_ok());
         assert!(validate_ghost_name("漢字テスト").is_ok());
-        assert!(validate_ghost_name("ひらがな").is_err());
+        assert!(validate_ghost_name("ひらがな").is_ok());
+        assert!(validate_ghost_name("クランカー").is_ok());
         assert!(validate_ghost_name(" ").is_err());
         assert!(validate_ghost_name("../oops").is_err());
     }
