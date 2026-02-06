@@ -17,7 +17,7 @@ pub mod reference_search;
 pub mod search;
 pub mod web_fetch;
 pub mod web_search;
-pub use context::ToolContext;
+pub use context::{ApprovalReason, ToolContext};
 
 pub use manager::ToolManager;
 pub mod load_skill;

@@ -48,10 +48,18 @@ fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
     }
 }
 
-fn approval_required_message(requested_path: Option<&str>) -> String {
-    match requested_path {
-        Some(path) => render_message(ids::APPROVAL_REQUIRED_WITH_PATH, &[("path", path)]),
-        None => render_message(ids::APPROVAL_REQUIRED, &[]),
+fn approval_required_message(reason: &crate::tools::context::ApprovalReason) -> String {
+    use crate::tools::context::ApprovalReason;
+    match reason {
+        ApprovalReason::WorkspaceEscape(path) => {
+            render_message(ids::APPROVAL_REQUIRED_WITH_PATH, &[("path", path)])
+        }
+        ApprovalReason::ReferenceTopicCreate { title, summary } => {
+            render_message(
+                ids::APPROVAL_REFERENCE_TOPIC_CREATE,
+                &[("title", title), ("summary", summary)],
+            )
+        }
     }
 }
 
@@ -627,7 +635,7 @@ impl EventHandler for Bot {
                             )
                             .await;
                         let message =
-                            approval_required_message(pending.requested_path.as_deref());
+                            approval_required_message(&pending.reason);
                         let _ = msg
                             .channel_id
                             .say(&ctx.http, format_deterministic_message(&message))
@@ -710,7 +718,7 @@ impl EventHandler for Bot {
                         )
                         .await;
                     let message =
-                        approval_required_message(pending.requested_path.as_deref());
+                        approval_required_message(&pending.reason);
                     let _ = msg
                         .channel_id
                         .say(&ctx.http, format_deterministic_message(&message))
@@ -764,7 +772,7 @@ impl EventHandler for Bot {
                     )
                     .await;
                 let message =
-                    approval_required_message(pending.requested_path.as_deref());
+                    approval_required_message(&pending.reason);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, format_deterministic_message(&message))
