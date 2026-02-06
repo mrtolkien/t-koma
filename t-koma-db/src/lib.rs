@@ -21,7 +21,15 @@ pub use ghost_db::GhostDbPool;
 pub use ghosts::{Ghost, GhostRepository};
 pub use interfaces::{Interface, InterfaceRepository};
 pub use koma_db::KomaDbPool;
-pub use operators::{Operator, OperatorRepository, OperatorStatus, Platform};
+pub use operators::{
+    Operator,
+    OperatorAccessLevel,
+    OperatorRepository,
+    OperatorStatus,
+    Platform,
+    DEFAULT_RATE_LIMIT_1H_MAX,
+    DEFAULT_RATE_LIMIT_5M_MAX,
+};
 pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, SessionRepository};
 
 // Re-export test helpers when running tests or when test-helpers feature is enabled

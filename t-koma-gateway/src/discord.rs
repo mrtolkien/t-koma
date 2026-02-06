@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use crate::content::{self, ids};
 use crate::session::{ChatError, ToolApprovalDecision};
-use crate::state::AppState;
+use crate::state::{AppState, RateLimitDecision};
 
 /// Discord bot handler
 ///
@@ -237,6 +237,7 @@ impl EventHandler for Bot {
                 self.state.koma_db.pool(),
                 &operator_name,
                 platform,
+                t_koma_db::OperatorAccessLevel::Standard,
             )
             .await
             {
@@ -633,6 +634,68 @@ impl EventHandler for Bot {
                     return;
                 }
             };
+
+        let operator = match t_koma_db::OperatorRepository::get_by_id(
+            self.state.koma_db.pool(),
+            &operator_id,
+        )
+        .await
+        {
+            Ok(Some(op)) => op,
+            Ok(None) => {
+                let _ = msg
+                    .channel_id
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(&render_message(
+                            "error-failed-load-operator-discord",
+                            &[],
+                        )),
+                    )
+                    .await;
+                return;
+            }
+            Err(e) => {
+                error!("Failed to load operator: {}", e);
+                let _ = msg
+                    .channel_id
+                    .say(
+                        &ctx.http,
+                        format_deterministic_message(&render_message(
+                            "error-failed-load-operator-discord",
+                            &[],
+                        )),
+                    )
+                    .await;
+                return;
+            }
+        };
+
+        match self.state.check_operator_rate_limit(&operator).await {
+            RateLimitDecision::Allowed => {}
+            RateLimitDecision::Limited { retry_after } => {
+                if !clean_content.eq_ignore_ascii_case("continue") {
+                    self.state
+                        .store_pending_message(
+                            &operator_id,
+                            &ghost_name,
+                            &session.id,
+                            clean_content,
+                        )
+                        .await;
+                }
+                let retry_after = retry_after.as_secs().to_string();
+                let message = render_message(
+                    ids::RATE_LIMITED,
+                    &[("retry_after", retry_after.as_str())],
+                );
+                let _ = msg
+                    .channel_id
+                    .say(&ctx.http, format_deterministic_message(&message))
+                    .await;
+                return;
+            }
+        }
 
         self.state
             .log(crate::LogEntry::Routing {

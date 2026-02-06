@@ -13,6 +13,8 @@ pub(super) enum PromptKind {
     DeleteGhostConfirmOne,
     DeleteGhostConfirmTwo,
     GateSearch,
+    SetOperatorAccessLevel,
+    SetOperatorRateLimits,
 }
 
 #[derive(Debug, Default)]
@@ -20,6 +22,7 @@ pub(super) struct PromptState {
     pub(super) kind: Option<PromptKind>,
     pub(super) buffer: String,
     pub(super) target_ghost: Option<String>,
+    pub(super) target_operator_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

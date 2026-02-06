@@ -96,3 +96,7 @@ body = "Internal error checking operator status"
 
 [anonymous-operator]
 body = "Anonymous Operator"
+
+[rate-limited]
+body = "Rate limit reached. Your last message was saved. Send 'continue' after {{retry_after}} seconds to retry."
+vars = ["retry_after"]
