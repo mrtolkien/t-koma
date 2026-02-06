@@ -9,6 +9,7 @@ use crate::prompt::render::{SystemBlock, build_system_prompt};
 use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderResponse, extract_all_text, has_tool_uses,
 };
+use crate::system_info;
 use crate::tools::context::{ApprovalReason, is_within_workspace};
 use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
@@ -73,6 +74,7 @@ struct GhostContextVars {
     ghost_identity: String,
     ghost_diary: String,
     ghost_projects: String,
+    system_info: String,
 }
 
 impl GhostContextVars {
@@ -83,6 +85,7 @@ impl GhostContextVars {
             ("ghost_identity", self.ghost_identity.as_str()),
             ("ghost_diary", self.ghost_diary.as_str()),
             ("ghost_projects", self.ghost_projects.as_str()),
+            ("system_info", self.system_info.as_str()),
         ]
     }
 }
@@ -94,6 +97,7 @@ impl GhostContextVars {
 pub struct SessionChat {
     pub(crate) tool_manager: ToolManager,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
+    system_info: String,
 }
 
 impl SessionChat {
@@ -102,6 +106,7 @@ impl SessionChat {
         Self {
             tool_manager: ToolManager::new(),
             knowledge_engine,
+            system_info: system_info::build_system_info(),
         }
     }
 
@@ -690,6 +695,7 @@ impl SessionChat {
             ghost_identity,
             ghost_diary,
             ghost_projects,
+            system_info: self.system_info.clone(),
         })
     }
 

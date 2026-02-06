@@ -7,8 +7,9 @@ use crate::content::{self, ids};
 /// The full system prompt for t-koma
 ///
 /// Renders the composite system prompt with template variable substitution.
-/// Variables like `reference_topics`, `ghost_identity`, `ghost_diary`, and
-/// `ghost_projects` are injected per-session from ghost workspace content.
+/// Variables like `reference_topics`, `ghost_identity`, `ghost_diary`,
+/// `ghost_projects`, and `system_info` are injected per-session from ghost
+/// workspace content.
 ///
 /// content: prompts/system-prompt.md
 pub fn full_system_prompt(vars: &[(&str, &str)]) -> String {
@@ -27,6 +28,7 @@ mod tests {
             ("ghost_identity", ""),
             ("ghost_diary", ""),
             ("ghost_projects", ""),
+            ("system_info", ""),
         ]);
         assert!(full.contains("T-KOMA"));
         assert!(full.contains("GHOST"));

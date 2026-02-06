@@ -7,6 +7,7 @@ pub mod prompt;
 pub mod server;
 pub mod session;
 pub mod state;
+pub mod system_info;
 pub mod tools;
 pub mod web;
 

@@ -57,6 +57,7 @@ async fn test_file_create_edit_delete_workflow() {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("system_info", ""),
     ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();
@@ -272,6 +273,7 @@ async fn test_replace_tool_exact_match_requirement() {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("system_info", ""),
     ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();

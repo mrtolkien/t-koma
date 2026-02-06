@@ -78,6 +78,7 @@ async fn test_multi_turn_story_conversation() {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("system_info", ""),
     ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
@@ -301,6 +302,7 @@ async fn test_multi_turn_with_tool_use() {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("system_info", ""),
     ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;

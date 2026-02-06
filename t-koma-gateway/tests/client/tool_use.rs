@@ -53,11 +53,12 @@ async fn test_pwd_tool_execution() {
     let client = default_model.client;
 
     // Build system prompt with tool instructions
-    let system_prompt = t_koma_gateway::prompt::SystemPrompt::new(&[
+        let system_prompt = t_koma_gateway::prompt::SystemPrompt::new(&[
             ("reference_topics", ""),
             ("ghost_identity", ""),
             ("ghost_diary", ""),
             ("ghost_projects", ""),
+            ("system_info", ""),
         ]);
     let system_blocks = t_koma_gateway::prompt::render::build_system_prompt(&system_prompt);
 
