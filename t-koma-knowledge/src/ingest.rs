@@ -20,11 +20,18 @@ pub struct IngestedNote {
     pub tags: Vec<String>,
 }
 
+/// Result of ingesting a reference topic, including its file list and source metadata.
+pub struct IngestedTopic {
+    pub note: IngestedNote,
+    pub files: Vec<String>,
+    pub sources: Vec<crate::parser::TopicSource>,
+}
+
 pub async fn ingest_reference_topic(
     settings: &KnowledgeSettings,
     path: &Path,
     raw: &str,
-) -> KnowledgeResult<(IngestedNote, Vec<String>)> {
+) -> KnowledgeResult<IngestedTopic> {
     let parsed = parse_note(raw)?;
     let hash = compute_hash(raw);
 
@@ -67,16 +74,18 @@ pub async fn ingest_reference_topic(
         .collect();
     let tags = parsed.front.tags.clone().unwrap_or_default();
     let files = parsed.front.files.clone().unwrap_or_default();
+    let sources = parsed.front.sources.clone().unwrap_or_default();
 
-    Ok((
-        IngestedNote {
+    Ok(IngestedTopic {
+        note: IngestedNote {
             note,
             chunks,
             links,
             tags,
         },
         files,
-    ))
+        sources,
+    })
 }
 
 pub async fn ingest_markdown(

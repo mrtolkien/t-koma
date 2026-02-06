@@ -23,8 +23,8 @@ use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
 // ── Fixture ─────────────────────────────────────────────────────────
 
-/// Source files from our own crate to index as reference content.
-const SOURCE_FILES: &[&str] = &[
+/// Source code files from our own crate to index as reference content.
+const CODE_FILES: &[&str] = &[
     "models.rs",
     "graph.rs",
     "parser.rs",
@@ -33,8 +33,15 @@ const SOURCE_FILES: &[&str] = &[
     "search.rs",
 ];
 
+/// Documentation files to index as docs (boosted in search).
+const DOC_FILES: &[&str] = &[
+    "knowledge_system.md",
+    "testing.md",
+];
+
 /// Build a fully functional engine + context with real embeddings,
-/// a reference topic pointing to actual source files, and a ghost workspace.
+/// a reference topic pointing to actual source files and documentation,
+/// and a ghost workspace.
 struct CodebaseFixture {
     engine: KnowledgeEngine,
     context: KnowledgeContext,
@@ -55,13 +62,14 @@ impl CodebaseFixture {
             .await
             .unwrap();
 
+        let crate_root = crate_root_dir();
+
         // Copy real source files into the topic directory
-        let crate_src = crate_src_dir();
-        for file_name in SOURCE_FILES {
+        for file_name in CODE_FILES {
             let src = if *file_name == "search.rs" {
-                crate_src.join("engine/search.rs")
+                crate_root.join("src/engine/search.rs")
             } else {
-                crate_src.join(file_name)
+                crate_root.join("src").join(file_name)
             };
             let dst = topic_dir.join(file_name);
             tokio::fs::copy(&src, &dst)
@@ -76,9 +84,35 @@ impl CodebaseFixture {
                 });
         }
 
-        // Write topic.md with TOML front matter
-        let files_toml: Vec<String> =
-            SOURCE_FILES.iter().map(|f| format!("\"{}\"", f)).collect();
+        // Copy real doc files into the topic directory
+        for file_name in DOC_FILES {
+            let src = if *file_name == "knowledge_system.md" {
+                crate_root.join("knowledge/prompts/knowledge_system.md")
+            } else {
+                // testing.md lives in vibe/knowledge/
+                crate_root.join("../vibe/knowledge").join(file_name)
+            };
+            let dst = topic_dir.join(file_name);
+            tokio::fs::copy(&src, &dst)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "failed to copy {} -> {}: {}",
+                        src.display(),
+                        dst.display(),
+                        e
+                    )
+                });
+        }
+
+        // Build the combined files list
+        let all_files: Vec<String> = CODE_FILES
+            .iter()
+            .chain(DOC_FILES.iter())
+            .map(|f| format!("\"{}\"", f))
+            .collect();
+
+        // Write topic.md with TOML front matter including [[sources]] with roles
         let topic_md = format!(
             r#"+++
 id = "topic-knowledge-src"
@@ -92,14 +126,27 @@ files = [{files}]
 [created_by]
 ghost = "system"
 model = "indexer"
+
+[[sources]]
+type = "git"
+url = "https://github.com/example/t-koma"
+role = "code"
+paths = ["models.rs", "graph.rs", "parser.rs", "chunker.rs", "storage.rs", "search.rs"]
+
+[[sources]]
+type = "web"
+url = "https://example.com/docs"
+role = "docs"
+paths = ["knowledge_system.md", "testing.md"]
 +++
 
-# t-koma-knowledge Source Code
+# t-koma-knowledge Source Code & Documentation
 
-This reference topic contains the core source files of the t-koma-knowledge crate,
-including models, search pipeline, graph traversal, parsing, chunking, and storage.
+This reference topic contains the core source files and documentation of the
+t-koma-knowledge crate, including models, search pipeline, graph traversal,
+parsing, chunking, storage, and usage guides.
 "#,
-            files = files_toml.join(", ")
+            files = all_files.join(", ")
         );
         tokio::fs::write(topic_dir.join("topic.md"), &topic_md)
             .await
@@ -140,9 +187,9 @@ including models, search pipeline, graph traversal, parsing, chunking, and stora
     }
 }
 
-/// Locate the `src/` directory of this crate.
-fn crate_src_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
+/// Locate the crate root directory (CARGO_MANIFEST_DIR).
+fn crate_root_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
 
 // ── Snapshot helpers ────────────────────────────────────────────────
