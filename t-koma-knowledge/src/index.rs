@@ -7,7 +7,7 @@ use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
 use crate::ingest::{ingest_markdown, ingest_reference_file, ingest_reference_topic};
-use crate::models::KnowledgeScope;
+use crate::models::{KnowledgeScope, SourceRole};
 use crate::paths::{ghost_diary_root, ghost_private_root, ghost_projects_root, reference_root, shared_knowledge_root};
 use crate::storage::{
     ensure_vec_table_dim, replace_chunks, replace_links, replace_tags, upsert_note, upsert_vec,
@@ -65,8 +65,12 @@ async fn index_reference_topics(
         }
 
         let raw = tokio::fs::read_to_string(path).await?;
-        let (note, files) = ingest_reference_topic(settings, path, &raw).await?;
+        let topic = ingest_reference_topic(settings, path, &raw).await?;
 
+        // Build file → role map from parsed [[sources]] blocks
+        let file_roles = build_file_role_map(&topic.sources, &topic.files);
+
+        let note = &topic.note;
         upsert_note(store, &note.note).await?;
         replace_tags(store, &note.note.id, &note.tags).await?;
         replace_links(store, &note.note.id, None, &note.links).await?;
@@ -80,14 +84,14 @@ async fn index_reference_topics(
         .await?;
         embed_chunks(settings, embedder, store, &note.chunks, &chunk_ids).await?;
 
-        if !files.is_empty() {
-            let files_json = serde_json::to_string(&files).unwrap_or_default();
+        if !topic.files.is_empty() {
+            let files_json = serde_json::to_string(&topic.files).unwrap_or_default();
             sqlx::query("INSERT OR REPLACE INTO reference_topics (topic_id, files_json) VALUES (?, ?)")
                 .bind(&note.note.id)
                 .bind(files_json)
                 .execute(store)
                 .await?;
-            index_reference_files(settings, store, embedder, &note.note.id, path.parent().unwrap_or(&root), &files).await?;
+            index_reference_files(settings, store, embedder, &note.note.id, path.parent().unwrap_or(&root), &file_roles).await?;
         }
     }
 
@@ -100,9 +104,9 @@ async fn index_reference_files(
     embedder: &EmbeddingClient,
     topic_id: &str,
     topic_dir: &Path,
-    files: &[String],
+    file_roles: &[(String, SourceRole)],
 ) -> KnowledgeResult<()> {
-    for file in files {
+    for (file, role) in file_roles {
         let path = topic_dir.join(file);
         if !path.exists() || !path.is_file() {
             continue;
@@ -110,17 +114,8 @@ async fn index_reference_files(
         let raw = tokio::fs::read_to_string(&path).await?;
         let note_id = format!("ref:{}:{}", topic_id, file);
         let title = path.file_name().and_then(|v| v.to_str()).unwrap_or(file);
-        // During reconciliation we don't know the source role, so look up existing note_type
-        // from the DB, falling back to ReferenceCode for new files.
-        let existing_type: Option<(String,)> =
-            sqlx::query_as("SELECT note_type FROM notes WHERE id = ? LIMIT 1")
-                .bind(&note_id)
-                .fetch_optional(store)
-                .await?;
-        let note_type = existing_type
-            .map(|(t,)| t)
-            .unwrap_or_else(|| "ReferenceCode".to_string());
-        let ingested = ingest_reference_file(settings, &path, &raw, &note_id, title, &note_type).await?;
+        let note_type = role.to_note_type();
+        let ingested = ingest_reference_file(settings, &path, &raw, &note_id, title, note_type).await?;
 
         if is_unchanged(store, &path, &ingested.note.content_hash).await? {
             continue;
@@ -138,11 +133,12 @@ async fn index_reference_files(
         embed_chunks(settings, embedder, store, &ingested.chunks, &chunk_ids).await?;
 
         sqlx::query(
-            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path, role) VALUES (?, ?, ?, ?)",
         )
         .bind(topic_id)
         .bind(&ingested.note.id)
         .bind(ingested.note.path.to_string_lossy().to_string())
+        .bind(role.as_str())
         .execute(store)
         .await?;
     }
@@ -264,4 +260,47 @@ async fn is_unchanged(pool: &SqlitePool, path: &Path, content_hash: &str) -> Kno
 fn is_archived_path(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == ".archive")
+}
+
+/// Build a (file_name, role) mapping from parsed `[[sources]]` and the flat files list.
+///
+/// The `files` list in the front matter is flat (no role), but we can infer role
+/// from the `[[sources]]` blocks: each source has a list of `paths` (which correspond
+/// to fetched files) and an optional `role`. Files not matched to any source default
+/// to `SourceRole::Code`.
+fn build_file_role_map(
+    sources: &[crate::parser::TopicSource],
+    files: &[String],
+) -> Vec<(String, SourceRole)> {
+    // Build a mapping from source to its inferred role.
+    // A source's paths list contains path prefixes/patterns, so we check if a
+    // file starts with any of the source's paths. For web sources (which produce
+    // a single file), the file name typically matches the URL-derived filename.
+    let source_roles: Vec<(Option<&[String]>, SourceRole)> = sources
+        .iter()
+        .map(|src| {
+            let role = src
+                .role
+                .unwrap_or_else(|| SourceRole::infer(&src.source_type));
+            (src.paths.as_deref(), role)
+        })
+        .collect();
+
+    files
+        .iter()
+        .map(|file| {
+            // Try to match the file to a source via its paths filter
+            let role = source_roles
+                .iter()
+                .find(|(paths, _)| match paths {
+                    Some(path_list) => path_list
+                        .iter()
+                        .any(|p| file.starts_with(p.trim_end_matches('/'))),
+                    None => true, // source with no paths filter matches all files
+                })
+                .map(|(_, role)| *role)
+                .unwrap_or(SourceRole::Code);
+            (file.clone(), role)
+        })
+        .collect()
 }
