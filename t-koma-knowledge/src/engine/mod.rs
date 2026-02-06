@@ -7,7 +7,8 @@ use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
     KnowledgeContext, KnowledgeScope, MemoryQuery, MemoryResult, MemoryScope, NoteCreateRequest,
-    NoteDocument, NoteUpdateRequest, NoteWriteResult, ReferenceQuery, WriteScope,
+    NoteDocument, NoteUpdateRequest, NoteWriteResult, ReferenceQuery, TopicCreateRequest,
+    TopicCreateResult, TopicListEntry, TopicSearchResult, TopicUpdateRequest, WriteScope,
 };
 use crate::paths::knowledge_db_path;
 use crate::storage::KnowledgeStore;
@@ -16,6 +17,7 @@ pub(crate) mod get;
 pub(crate) mod notes;
 pub(crate) mod reference;
 pub(crate) mod search;
+pub(crate) mod topics;
 
 #[derive(Debug, Clone)]
 pub struct KnowledgeEngine {
@@ -153,6 +155,53 @@ impl KnowledgeEngine {
         self.maybe_reconcile(context, KnowledgeScope::Reference)
             .await?;
         reference::reference_search(self, &query).await
+    }
+
+    /// Build an approval summary for a topic creation request (Phase 1).
+    pub async fn topic_approval_summary(
+        &self,
+        request: &TopicCreateRequest,
+    ) -> KnowledgeResult<String> {
+        topics::build_topic_approval_summary(request).await
+    }
+
+    /// Execute topic creation after operator approval (Phase 2).
+    pub async fn topic_create(
+        &self,
+        context: &KnowledgeContext,
+        request: TopicCreateRequest,
+    ) -> KnowledgeResult<TopicCreateResult> {
+        topics::topic_create_execute(self, context, request).await
+    }
+
+    /// Semantic search over reference topics.
+    pub async fn topic_search(
+        &self,
+        query: &str,
+    ) -> KnowledgeResult<Vec<TopicSearchResult>> {
+        topics::topic_search(self, query).await
+    }
+
+    /// List all reference topics with staleness info.
+    pub async fn topic_list(
+        &self,
+        include_obsolete: bool,
+    ) -> KnowledgeResult<Vec<TopicListEntry>> {
+        topics::topic_list(self, include_obsolete).await
+    }
+
+    /// Update topic metadata.
+    pub async fn topic_update(
+        &self,
+        context: &KnowledgeContext,
+        request: TopicUpdateRequest,
+    ) -> KnowledgeResult<()> {
+        topics::topic_update(self, context, request).await
+    }
+
+    /// Get recent reference topics for system prompt injection.
+    pub async fn recent_topics(&self) -> KnowledgeResult<Vec<(String, String, Vec<String>)>> {
+        topics::recent_topics(self.pool()).await
     }
 
     async fn maybe_reconcile(
