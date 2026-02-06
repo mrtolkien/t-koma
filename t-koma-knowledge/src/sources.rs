@@ -383,10 +383,20 @@ async fn sparse_checkout(repo_dir: &Path, paths: &[String]) -> KnowledgeResult<(
 
     run_git(repo_dir, &["sparse-checkout", "init", "--cone"]).await?;
 
-    let mut args: Vec<&str> = vec!["sparse-checkout", "set"];
-    let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
-    args.extend_from_slice(&path_refs);
-    run_git(repo_dir, &args).await?;
+    // Cone mode only accepts directories — root-level files are always included.
+    // Filter to directory paths only (those ending with '/') to avoid
+    // "fatal: 'X' is not a directory" errors.
+    let dirs: Vec<&str> = paths
+        .iter()
+        .filter(|p| p.ends_with('/'))
+        .map(|s| s.as_str())
+        .collect();
+
+    if !dirs.is_empty() {
+        let mut args: Vec<&str> = vec!["sparse-checkout", "set"];
+        args.extend_from_slice(&dirs);
+        run_git(repo_dir, &args).await?;
+    }
 
     Ok(())
 }
