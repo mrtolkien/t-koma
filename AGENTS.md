@@ -290,11 +290,13 @@ Reference tools:
 - `reference_search`: Search within a reference topic's indexed files. Docs
   boosted over code.
 - `reference_topic_search`: Semantic search over existing reference topics.
-- `reference_topic_list`: List all topics with staleness info.
-- `reference_topic_create`: Create a new reference topic from git/web sources.
-  Sources can have a `role` (docs/code) to control search boost.
-  (skill: `reference-researcher`)
-- `reference_topic_update`: Update topic metadata (status, body, tags).
+- `reference_topic_list`: List all topics with collection summaries.
+- `reference_save`: Save content to a reference topic incrementally. Creates
+  topic and collection implicitly. No approval needed.
+- `reference_import`: Bulk import from git repos and web pages into a reference
+  topic. Sources can have a `role` (docs/code) to control search boost.
+  Requires operator approval. (skill: `reference-researcher`)
+- `reference_topic_update`: Update topic metadata (body, tags).
   (skill: `reference-researcher`)
 - `reference_get`: Fetch the full content of a reference file.
   (skill: `reference-researcher`)
@@ -318,18 +320,29 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 - The `knowledge-organizer` skill explains the physical file layout and indexing
   pipeline for agents that need lower-level understanding.
 
+### Three-Tier Reference Hierarchy
+
+References use a **Topic > Collection > File** structure:
+
+- **Topic**: Broad knowledge container (e.g., "3d-printers", "dioxus"). Stored
+  in `topic.md` with `type = "ReferenceTopic"`.
+- **Collection**: Sub-grouping within a topic (e.g., `bambulab-a1/`). Stored
+  in `_index.md` with `type = "ReferenceCollection"`. Indexed for search.
+- **Reference file**: Individual content unit. Raw content, no front matter.
+  Per-file metadata (source_url, fetched_at, status, role) in DB.
+
 ### Approval System
 
 Tools that need operator confirmation use `ApprovalReason` in
 `tools/context.rs`. Current variants:
 
 - `WorkspaceEscape(path)`: Tool wants to access files outside the workspace.
-- `ReferenceTopicCreate { title, summary }`: Ghost wants to fetch external
+- `ReferenceImport { title, summary }`: Ghost wants to import external
   sources into a reference topic.
 
 The two-phase pattern: Phase 1 returns `APPROVAL_REQUIRED:` error with metadata.
 On approval, Phase 2 re-executes with `has_approval()` returning true. See
-`reference_topic_create.rs` for the canonical example.
+`reference_import.rs` for the canonical example.
 
 ### Testing
 

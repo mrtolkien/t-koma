@@ -70,13 +70,15 @@ Follow this priority order to understand the topic before creating a reference:
    description. The body should summarize the library's purpose, key concepts,
    and common patterns.
 
-## Creating the Reference Topic
+## Two Write Paths
 
-### Source Selection
+### `reference_import` — Bulk Import from External Sources
+
+Use `reference_import` to clone git repos and fetch web pages in bulk. The
+operator will be asked to approve before anything is downloaded.
 
 **Default to fetching the entire repository.** The embedding system handles
-large codebases well (tree-sitter chunking, hybrid search). The operator will be
-asked to approve before anything is downloaded.
+large codebases well (tree-sitter chunking, hybrid search).
 
 ```json
 {
@@ -140,6 +142,32 @@ the specific pages you want indexed:
 }
 ```
 
+### `reference_save` — Incremental Content Saving
+
+Use `reference_save` to add individual files to a topic incrementally. No
+operator approval needed. The topic and collection are created automatically if
+they don't exist.
+
+```
+reference_save(
+  topic="3d-printers",
+  path="bambulab-a1/specs.md",
+  content="...",
+  source_url="https://wiki.bambulab.com/en/a1/specs",
+  collection_title="BambuLab A1",
+  collection_description="Specs and troubleshooting for the BambuLab A1 printer"
+)
+```
+
+Key points:
+- **Always search for existing topics first** with `reference_topic_search`.
+- Topic names are fuzzy-matched (e.g. "3d printers" matches "3d-printers").
+- Use subdirectory paths (`collection/file.md`) to organize into collections.
+- Provide `collection_title` and `collection_description` — they're embedded
+  alongside file chunks for better search quality.
+- Use `reference_import` for bulk git/web imports; use `reference_save` for
+  individual web pages, data, or content you compose.
+
 ## Writing a Good Topic Description
 
 The `body` is passed IN FULL to the LLM as context when `reference_search`
@@ -169,11 +197,10 @@ the searcher uses different terminology than the topic title.
 
 ## Managing Existing Topics
 
-- **Stale topics**: If `reference_topic_list` shows a stale topic, alert the
-  operator and suggest refreshing it (refresh is a CLI operation).
-- **Obsolete topics**: Use `reference_topic_update` to mark a topic as
-  `"obsolete"` when the library is deprecated or superseded.
-- **Tag updates**: Keep tags current to aid discoverability.
+- **Tag updates**: Keep tags current to aid discoverability using
+  `reference_topic_update`.
+- **Body updates**: Update the topic body when you learn new information about
+  the subject.
 
 ### Marking Individual Files
 
