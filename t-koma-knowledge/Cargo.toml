@@ -32,6 +32,9 @@ tree-sitter-javascript = "0.21"
 tree-sitter-typescript = "0.21"
 tree-sitter-go = "0.21"
 dirs = "5.0"
+html2text = "0.12"
+url = "2.5"
+tempfile = "3.0"
 t-koma-core.workspace = true
 
 [features]

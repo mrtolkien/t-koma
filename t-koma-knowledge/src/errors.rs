@@ -34,6 +34,8 @@ pub enum KnowledgeError {
     Embedding(String),
     #[error("access denied: {0}")]
     AccessDenied(String),
+    #[error("source fetch error: {0}")]
+    SourceFetch(String),
 }
 
 pub type KnowledgeResult<T> = Result<T, KnowledgeError>;
