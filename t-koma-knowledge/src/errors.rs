@@ -30,6 +30,10 @@ pub enum KnowledgeError {
     UnknownNote(String),
     #[error("path outside allowed root: {0}")]
     PathOutsideRoot(PathBuf),
+    #[error("embedding error: {0}")]
+    Embedding(String),
+    #[error("access denied: {0}")]
+    AccessDenied(String),
 }
 
 pub type KnowledgeResult<T> = Result<T, KnowledgeError>;

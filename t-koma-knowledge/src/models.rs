@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,45 @@ pub enum KnowledgeScope {
     GhostProjects,
     GhostDiary,
     Reference,
+}
+
+impl KnowledgeScope {
+    /// Database string representation of this scope.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::GhostPrivate => "ghost_private",
+            Self::GhostProjects => "ghost_projects",
+            Self::GhostDiary => "ghost_diary",
+            Self::Reference => "reference",
+        }
+    }
+
+    /// Whether this scope is shared (owner_ghost IS NULL in DB).
+    pub fn is_shared(&self) -> bool {
+        matches!(self, Self::Shared | Self::Reference)
+    }
+}
+
+impl FromStr for KnowledgeScope {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "shared" => Ok(Self::Shared),
+            "ghost_private" => Ok(Self::GhostPrivate),
+            "ghost_projects" => Ok(Self::GhostProjects),
+            "ghost_diary" => Ok(Self::GhostDiary),
+            "reference" => Ok(Self::Reference),
+            _ => Err(()),
+        }
+    }
+}
+
+impl std::fmt::Display for KnowledgeScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
