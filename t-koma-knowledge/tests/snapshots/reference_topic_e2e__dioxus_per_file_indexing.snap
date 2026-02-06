@@ -2,13 +2,41 @@
 source: t-koma-knowledge/tests/reference_topic_e2e.rs
 expression: "serde_json::json!({\n    \"source_count\": f.source_count, \"file_count\": f.file_count, \"chunk_count\":\n    f.chunk_count, \"per_file_chunks\": f.per_file_chunks,\n})"
 ---
-chunk_count: 658
-file_count: 201
+chunk_count: 748
+file_count: 215
 per_file_chunks:
   - chunk_count: 15
     file_path: README.md
   - chunk_count: 16
     file_path: dioxuslabs-com-learn-0-6.md
+  - chunk_count: 11
+    file_path: docs-src/0.6/src/guide/assets.md
+  - chunk_count: 7
+    file_path: docs-src/0.6/src/guide/backend.md
+  - chunk_count: 7
+    file_path: docs-src/0.6/src/guide/bundle.md
+  - chunk_count: 5
+    file_path: docs-src/0.6/src/guide/component.md
+  - chunk_count: 4
+    file_path: docs-src/0.6/src/guide/data_fetching.md
+  - chunk_count: 6
+    file_path: docs-src/0.6/src/guide/databases.md
+  - chunk_count: 13
+    file_path: docs-src/0.6/src/guide/deploy.md
+  - chunk_count: 3
+    file_path: docs-src/0.6/src/guide/index.md
+  - chunk_count: 8
+    file_path: docs-src/0.6/src/guide/new_app.md
+  - chunk_count: 7
+    file_path: docs-src/0.6/src/guide/next_steps.md
+  - chunk_count: 6
+    file_path: docs-src/0.6/src/guide/routing.md
+  - chunk_count: 4
+    file_path: docs-src/0.6/src/guide/rsx.md
+  - chunk_count: 6
+    file_path: docs-src/0.6/src/guide/state.md
+  - chunk_count: 3
+    file_path: docs-src/0.6/src/guide/tooling.md
   - chunk_count: 1
     file_path: examples/01-app-demos/bluetooth-scanner/.gitignore
   - chunk_count: 1
@@ -407,4 +435,4 @@ per_file_chunks:
     file_path: examples/assets/weatherapp.css
   - chunk_count: 2
     file_path: examples/scripts/scrape_examples.rs
-source_count: 2
+source_count: 3

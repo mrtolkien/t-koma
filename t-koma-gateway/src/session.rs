@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use tracing::info;
 use chrono::{Duration as ChronoDuration, Utc};
+use tracing::info;
 
 use crate::chat::history::{ChatMessage, build_history_messages};
 use crate::prompt::SystemPrompt;
@@ -127,8 +127,7 @@ impl SessionChat {
 
         info!(
             event_kind = "chat_io",
-            "[session:{}] Chat message from operator {}",
-            session_id, operator_id
+            "[session:{}] Chat message from operator {}", session_id, operator_id
         );
 
         // Save operator message to database
@@ -646,9 +645,12 @@ impl SessionChat {
                         .unwrap_or("")
                         .trim();
                     if !paragraph.is_empty() {
-                        let name = path.file_name().and_then(|v| v.to_str()).unwrap_or("project");
+                        let name = path
+                            .file_name()
+                            .and_then(|v| v.to_str())
+                            .unwrap_or("project");
                         system_prompt.add_context(
-                            format!("# Project {}\n\n{}", name, paragraph),
+                            format!("# Ongoing Projects {}\n\n{}", name, paragraph),
                             false,
                         );
                     }

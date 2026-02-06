@@ -13,7 +13,9 @@
       "Bash(python3:*)",
       "Bash('k = ?' constraint is required\" errors. Restructure dense_search\nto isolate KNN in a CTE with k=?, then JOIN+filter in outer query.\n\nAlso update AGENTS.md to require slow-tests after knowledge changes,\nand document the vec0 JOIN gotcha in sqlite-vec.md.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "mcp__rust-knalyzer__*",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh api:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

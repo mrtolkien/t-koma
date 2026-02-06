@@ -6,10 +6,10 @@ query: core source files models search graph
 total_hits: 8
 top_results:
   - rank: 1
+    file: knowledge_system.md
+    note_type: ReferenceDocs
+    snippet: "- Hybrid: BM25 + embeddings, fused with RRF.\n- Graph expansion includes parent, tags, and 1-hop links.\n\n- `memory_search"
+  - rank: 2
     file: search.rs
     note_type: ReferenceCode
     snippet: "pub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingClient,\n    pool: &SqlitePoo"
-  - rank: 2
-    file: models.rs
-    note_type: ReferenceCode
-    snippet: "pub struct ReferenceSearchResult {\n    /// Full topic.md body — context for the LLM.\n    pub topic_body: String,\n    pub"
