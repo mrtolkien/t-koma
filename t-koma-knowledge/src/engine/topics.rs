@@ -112,13 +112,16 @@ pub(crate) async fn topic_create_execute(
 
         let note_type = role.to_note_type();
         let file_note_id = generate_note_id();
-        let file_ingested = crate::ingest::ingest_reference_file(
+        // Use topic title as context prefix for chunk enrichment during initial import
+        let context_prefix = format!("[{}]", request.title);
+        let file_ingested = crate::ingest::ingest_reference_file_with_context(
             settings,
             &file_path,
             &file_content,
             &file_note_id,
             file_name,
             note_type,
+            Some(&context_prefix),
         )
         .await?;
         crate::storage::upsert_note(pool, &file_ingested.note).await?;

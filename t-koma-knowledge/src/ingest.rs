@@ -159,6 +159,24 @@ pub async fn ingest_reference_file(
     title: &str,
     note_type: &str,
 ) -> KnowledgeResult<IngestedNote> {
+    ingest_reference_file_with_context(settings, path, raw, note_id, title, note_type, None).await
+}
+
+/// Ingest a reference file with optional context prefix for chunk enrichment.
+///
+/// When `context_prefix` is provided, it is prepended to each chunk's content
+/// before hashing and embedding. This ensures search queries about the parent
+/// collection/topic find file chunks even when the raw file content doesn't
+/// mention the collection name. The raw file on disk stays unchanged.
+pub async fn ingest_reference_file_with_context(
+    settings: &KnowledgeSettings,
+    path: &Path,
+    raw: &str,
+    note_id: &str,
+    title: &str,
+    note_type: &str,
+    context_prefix: Option<&str>,
+) -> KnowledgeResult<IngestedNote> {
     let hash = compute_hash(raw);
     let note = NoteRecord {
         id: note_id.to_string(),
@@ -196,14 +214,20 @@ pub async fn ingest_reference_file(
 
     let chunk_records = chunks
         .into_iter()
-        .map(|chunk| ChunkRecord {
-            note_id: note.id.clone(),
-            chunk_index: chunk.index as i64,
-            title: chunk.title,
-            content: chunk.content.clone(),
-            content_hash: compute_hash(&chunk.content),
-            embedding_model: Some(settings.embedding_model.clone()),
-            embedding_dim: settings.embedding_dim.map(|d| d as i64),
+        .map(|chunk| {
+            let enriched_content = match context_prefix {
+                Some(prefix) => format!("{}\n\n{}", prefix, chunk.content),
+                None => chunk.content.clone(),
+            };
+            ChunkRecord {
+                note_id: note.id.clone(),
+                chunk_index: chunk.index as i64,
+                title: chunk.title,
+                content: enriched_content.clone(),
+                content_hash: compute_hash(&enriched_content),
+                embedding_model: Some(settings.embedding_model.clone()),
+                embedding_dim: settings.embedding_dim.map(|d| d as i64),
+            }
         })
         .collect();
 
@@ -212,6 +236,66 @@ pub async fn ingest_reference_file(
         chunks: chunk_records,
         links: Vec::new(),
         tags: Vec::new(),
+    })
+}
+
+/// Ingest a `_index.md` file as a `ReferenceCollection` note.
+///
+/// Collections are sub-groupings within a reference topic. Their `_index.md`
+/// files have front matter with `type = "ReferenceCollection"` and are indexed
+/// for search just like topic notes.
+pub async fn ingest_reference_collection(
+    settings: &KnowledgeSettings,
+    path: &Path,
+    raw: &str,
+) -> KnowledgeResult<IngestedNote> {
+    let parsed = parse_note(raw)?;
+    let hash = compute_hash(raw);
+
+    let note = NoteRecord {
+        id: parsed.front.id.clone(),
+        title: parsed.front.title.clone(),
+        note_type: "ReferenceCollection".to_string(),
+        type_valid: true,
+        path: path.to_path_buf(),
+        scope: KnowledgeScope::SharedReference.as_str().to_string(),
+        owner_ghost: None,
+        created_at: parsed.front.created_at.to_rfc3339(),
+        created_by_ghost: parsed.front.created_by.ghost.clone(),
+        created_by_model: parsed.front.created_by.model.clone(),
+        trust_score: parsed.front.trust_score,
+        last_validated_at: parsed.front.last_validated_at.map(|dt| dt.to_rfc3339()),
+        last_validated_by_ghost: parsed
+            .front
+            .last_validated_by
+            .as_ref()
+            .map(|entry| entry.ghost.clone()),
+        last_validated_by_model: parsed
+            .front
+            .last_validated_by
+            .as_ref()
+            .map(|entry| entry.model.clone()),
+        version: parsed.front.version,
+        parent_id: parsed.front.parent.clone(),
+        comments_json: parsed.front.comments.as_ref().map(|value| {
+            serde_json::to_string(value).unwrap_or_default()
+        }),
+        content_hash: hash,
+    };
+
+    let chunks = build_markdown_chunks(settings, &parsed, &note);
+    let links = parsed
+        .links
+        .iter()
+        .map(|link| (link.target.clone(), link.alias.clone()))
+        .collect();
+    let tags = parsed.front.tags.clone().unwrap_or_default();
+
+    Ok(IngestedNote {
+        note,
+        chunks,
+        links,
+        tags,
     })
 }
 
