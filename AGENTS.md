@@ -3,6 +3,8 @@
 This document provides essential information for AI coding agents working on the
 T-KOMA (ティーコマ) project.
 
+The `CLAUDE.md` file is symlinked to this file too, to help Claude Code use it.
+
 ## CRUCIAL
 
 You should ALWAYS EDIT THIS FILE if:
@@ -236,8 +238,10 @@ see private data.
 ### Testing
 
 - Unit tests: `cargo test -p t-koma-knowledge`
-- Integration tests (requires Ollama):
+- Integration tests (requires Ollama with `qwen3-embedding:8b`):
   `cargo test -p t-koma-knowledge --features slow-tests`
+- **Run slow-tests after any change to the knowledge system.** Snapshot
+  mismatches are expected — the user will validate.
 - Prompts: `t-koma-knowledge/knowledge/prompts/knowledge_system.md`
 
 ## Gateway Content (Brief)

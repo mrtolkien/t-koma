@@ -584,21 +584,35 @@ async fn dense_search(
         KnowledgeError::Embedding(format!("embedding serialize failed: {e}"))
     })?;
 
+    // KNN must run in a CTE with `k = ?` because vec0 cannot see LIMIT
+    // through JOINs. We overfetch in the CTE, then filter+limit in the outer query.
+    let knn_k = limit * 4; // overfetch to allow for scope/owner filtering
+
     let rows = if let Some(note_ids) = note_filter {
         let placeholders = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
         let sql = if scope.is_shared() {
             format!(
-                "SELECT c.id, v.distance FROM chunk_vec v JOIN chunks c ON c.id = v.rowid JOIN notes n ON n.id = c.note_id WHERE v.embedding MATCH ? AND n.id IN ({}) AND n.scope = ? AND n.owner_ghost IS NULL ORDER BY v.distance ASC LIMIT ?",
+                "WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?) \
+                 SELECT c.id, knn.distance FROM knn \
+                 JOIN chunks c ON c.id = knn.rowid \
+                 JOIN notes n ON n.id = c.note_id \
+                 WHERE n.id IN ({}) AND n.scope = ? AND n.owner_ghost IS NULL \
+                 ORDER BY knn.distance ASC LIMIT ?",
                 placeholders
             )
         } else {
             format!(
-                "SELECT c.id, v.distance FROM chunk_vec v JOIN chunks c ON c.id = v.rowid JOIN notes n ON n.id = c.note_id WHERE v.embedding MATCH ? AND n.id IN ({}) AND n.scope = ? AND n.owner_ghost = ? ORDER BY v.distance ASC LIMIT ?",
+                "WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?) \
+                 SELECT c.id, knn.distance FROM knn \
+                 JOIN chunks c ON c.id = knn.rowid \
+                 JOIN notes n ON n.id = c.note_id \
+                 WHERE n.id IN ({}) AND n.scope = ? AND n.owner_ghost = ? \
+                 ORDER BY knn.distance ASC LIMIT ?",
                 placeholders
             )
         };
         let mut query_builder = sqlx::query_as::<_, (i64, f32)>(&sql);
-        query_builder = query_builder.bind(payload);
+        query_builder = query_builder.bind(&payload).bind(knn_k as i64);
         for id in note_ids {
             query_builder = query_builder.bind(id);
         }
@@ -610,30 +624,34 @@ async fn dense_search(
         query_builder.fetch_all(pool).await?
     } else if scope.is_shared() {
         sqlx::query_as::<_, (i64, f32)>(
-            r#"SELECT c.id, v.distance
-               FROM chunk_vec v
-               JOIN chunks c ON c.id = v.rowid
+            r#"WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?)
+               SELECT c.id, knn.distance
+               FROM knn
+               JOIN chunks c ON c.id = knn.rowid
                JOIN notes n ON n.id = c.note_id
-               WHERE v.embedding MATCH ? AND n.scope = ? AND n.owner_ghost IS NULL
-               ORDER BY v.distance ASC
+               WHERE n.scope = ? AND n.owner_ghost IS NULL
+               ORDER BY knn.distance ASC
                LIMIT ?"#,
         )
-        .bind(payload)
+        .bind(&payload)
+        .bind(knn_k as i64)
         .bind(scope.as_str())
         .bind(limit as i64)
         .fetch_all(pool)
         .await?
     } else {
         sqlx::query_as::<_, (i64, f32)>(
-            r#"SELECT c.id, v.distance
-               FROM chunk_vec v
-               JOIN chunks c ON c.id = v.rowid
+            r#"WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?)
+               SELECT c.id, knn.distance
+               FROM knn
+               JOIN chunks c ON c.id = knn.rowid
                JOIN notes n ON n.id = c.note_id
-               WHERE v.embedding MATCH ? AND n.scope = ? AND n.owner_ghost = ?
-               ORDER BY v.distance ASC
+               WHERE n.scope = ? AND n.owner_ghost = ?
+               ORDER BY knn.distance ASC
                LIMIT ?"#,
         )
-        .bind(payload)
+        .bind(&payload)
+        .bind(knn_k as i64)
         .bind(scope.as_str())
         .bind(ghost_name)
         .bind(limit as i64)

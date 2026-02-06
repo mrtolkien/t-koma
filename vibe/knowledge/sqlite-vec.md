@@ -868,31 +868,53 @@ PRAGMA temp_store = MEMORY;       -- Temp tables in memory
 
 ### Common Vector Operations
 
-```rust
-// Distance metrics in sqlite-vec
-// - Default: L2 (Euclidean) distance
-// - Also supports: cosine similarity, L1 distance
+```sql
+-- Distance metrics in sqlite-vec
+-- Default: L2 (Euclidean) distance
+-- Also supports: cosine similarity, L1 distance
 
-// Get k-nearest neighbors
-SELECT content_id, distance
+-- Get k-nearest neighbors (simple, no JOINs)
+SELECT rowid, distance
 FROM vec_content
 WHERE vector MATCH ?
-ORDER BY distance
-LIMIT ?
+  AND k = 10;
 
-// Filter by distance threshold
-SELECT content_id, distance
-FROM vec_content
-WHERE vector MATCH ? AND distance < 0.5
-ORDER BY distance
-
-// Combine with metadata filters
-SELECT c.*, v.distance
-FROM content c
-JOIN vec_content v ON c.id = v.content_id
-WHERE c.doc_type = 'article'
-  AND c.created_at > ?
-  AND v.vector MATCH ?
-ORDER BY v.distance
-LIMIT 10
+-- LIMIT works ONLY on SQLite 3.41+ and ONLY when querying vec0 directly
+-- (no JOINs). Prefer `k = ?` for portability.
 ```
+
+### IMPORTANT: vec0 KNN with JOINs
+
+**`LIMIT` does NOT work when JOINing vec0 with other tables.** sqlite-vec
+cannot see the LIMIT through the JOIN and will error with:
+`"A LIMIT or 'k = ?' constraint is required on vec0 knn queries."`
+
+Always use a CTE to isolate the KNN search, then JOIN in the outer query:
+
+```sql
+-- CORRECT: CTE isolates the KNN query
+WITH knn AS (
+  SELECT rowid, distance
+  FROM chunk_vec
+  WHERE embedding MATCH ?
+    AND k = ?
+)
+SELECT c.id, knn.distance
+FROM knn
+JOIN chunks c ON c.id = knn.rowid
+JOIN notes n ON n.id = c.note_id
+WHERE n.scope = ? AND n.owner_ghost IS NULL
+ORDER BY knn.distance ASC
+LIMIT ?;
+
+-- WRONG: will fail with "LIMIT or k = ? required"
+SELECT c.id, v.distance
+FROM chunk_vec v
+JOIN chunks c ON c.id = v.rowid
+WHERE v.embedding MATCH ?
+ORDER BY v.distance ASC
+LIMIT 10;
+```
+
+When filtering by scope/owner in the outer query, overfetch in the CTE
+(e.g. `k = limit * 4`) to compensate for rows filtered out after the KNN.
