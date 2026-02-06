@@ -262,48 +262,45 @@ SharedReference | GhostReference. `is_note()` → SharedNote | GhostNote.
 Cross-scope rule: ghost notes can link to shared notes, but shared notes never
 see private data.
 
-### Tools (Always Visible)
+### Tools
 
-These tools are available to ghosts without loading any skill:
+All knowledge tools are always visible to the ghost. Tools associated with a
+skill mention in their description that the skill should be loaded first.
+
+Memory tools:
 
 - `memory_search`: Hybrid BM25 + dense search across note scopes.
 - `memory_capture`: Write raw text to ghost inbox. NOT embedded, NOT indexed.
   Accepts optional `source` field for provenance tracking.
+- `memory_get`: Retrieve a note by ID or title. (skill: `note-writer`)
+- `memory_note_create`: Create a structured note with front matter.
+  (skill: `note-writer`)
+- `memory_note_update`: Patch an existing note (title, body, tags, etc.).
+  (skill: `note-writer`)
+- `memory_note_validate`: Mark a note as validated, optionally adjust trust.
+  (skill: `note-writer`)
+- `memory_note_comment`: Append a timestamped comment to a note.
+  (skill: `note-writer`)
+
+Reference tools:
+
 - `reference_search`: Search within a reference topic's indexed files. Docs
   boosted over code.
 - `reference_topic_search`: Semantic search over existing reference topics.
 - `reference_topic_list`: List all topics with staleness info.
-- `load_skill`: Load a skill to unlock additional tools.
-
-### Tools (Skill-Gated)
-
-These tools are hidden until their skill is loaded via `load_skill`:
-
-**`note-writer` skill** unlocks:
-- `memory_note_create`: Create a structured note with front matter.
-- `memory_note_update`: Patch an existing note (title, body, tags, etc.).
-- `memory_note_validate`: Mark a note as validated, optionally adjust trust.
-- `memory_note_comment`: Append a timestamped comment to a note.
-- `memory_get`: Retrieve a note by ID or title.
-
-**`reference-researcher` skill** unlocks:
 - `reference_topic_create`: Create a new reference topic from git/web sources.
   Sources can have a `role` (docs/code) to control search boost.
+  (skill: `reference-researcher`)
 - `reference_topic_update`: Update topic metadata (status, body, tags).
+  (skill: `reference-researcher`)
 - `reference_get`: Fetch the full content of a reference file.
+  (skill: `reference-researcher`)
 - `reference_file_update`: Mark a reference file as active/problematic/obsolete.
+  (skill: `reference-researcher`)
 
-### Skill-Unlocked Tool Filtering
+Other:
 
-Skills declare `unlocks_tools` in their YAML frontmatter. When `load_skill`
-executes, it parses the skill's `unlocks_tools` and registers them in
-`ToolContext.unlocked_tools`. Each tool declares its skill requirement via
-`requires_skill()` on the `Tool` trait. `ToolManager.get_visible_tools()`
-filters the tool list per-request, appending skill-gated tools after always-
-visible ones to maximize prompt cache hits.
-
-The tool list is rebuilt each iteration of the tool loop, so newly unlocked
-tools become visible immediately after `load_skill` returns.
+- `load_skill`: Load a skill for detailed guidance on a workflow.
 
 Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools.
 
