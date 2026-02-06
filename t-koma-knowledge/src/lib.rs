@@ -9,6 +9,7 @@ pub mod models;
 pub mod parser;
 pub mod paths;
 pub mod engine;
+pub mod sources;
 pub mod storage;
 pub mod chunker;
 pub mod watcher;
