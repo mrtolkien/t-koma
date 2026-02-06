@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use crate::chunker::{chunk_code, chunk_markdown, Chunk};
 use crate::errors::KnowledgeResult;
 use crate::models::KnowledgeScope;
-use crate::parser::{parse_note, ParsedNote};
+use crate::parser::{extract_links, parse_note, ParsedNote};
 use crate::paths::types_allowlist_path;
 use crate::storage::{ChunkRecord, NoteRecord};
 use crate::KnowledgeSettings;
@@ -41,7 +41,7 @@ pub async fn ingest_reference_topic(
         note_type: "ReferenceTopic".to_string(),
         type_valid: true,
         path: path.to_path_buf(),
-        scope: KnowledgeScope::Reference.as_str().to_string(),
+        scope: KnowledgeScope::SharedReference.as_str().to_string(),
         owner_ghost: None,
         created_at: parsed.front.created_at.to_rfc3339(),
         created_by_ghost: parsed.front.created_by.ghost.clone(),
@@ -166,7 +166,7 @@ pub async fn ingest_reference_file(
         note_type: note_type.to_string(),
         type_valid: true,
         path: path.to_path_buf(),
-        scope: KnowledgeScope::Reference.as_str().to_string(),
+        scope: KnowledgeScope::SharedReference.as_str().to_string(),
         owner_ghost: None,
         created_at: Utc::now().to_rfc3339(),
         created_by_ghost: "system".to_string(),
@@ -211,6 +211,81 @@ pub async fn ingest_reference_file(
         note,
         chunks: chunk_records,
         links: Vec::new(),
+        tags: Vec::new(),
+    })
+}
+
+/// Ingest a diary entry — a plain markdown file with no front matter.
+///
+/// The filename must be `YYYY-MM-DD.md`. A deterministic note ID is generated
+/// as `diary:{ghost}:{date}` so re-indexing the same file produces an upsert.
+pub async fn ingest_diary_entry(
+    settings: &KnowledgeSettings,
+    owner_ghost: &str,
+    path: &Path,
+    raw: &str,
+) -> KnowledgeResult<IngestedNote> {
+    let date = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| crate::errors::KnowledgeError::InvalidFrontMatter(
+            format!("diary file has no stem: {}", path.display()),
+        ))?;
+
+    // Validate YYYY-MM-DD format
+    if chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err() {
+        return Err(crate::errors::KnowledgeError::InvalidFrontMatter(
+            format!("diary filename is not YYYY-MM-DD: {date}"),
+        ));
+    }
+
+    let id = format!("diary:{owner_ghost}:{date}");
+    let hash = compute_hash(raw);
+
+    let note = NoteRecord {
+        id,
+        title: date.to_string(),
+        note_type: "Diary".to_string(),
+        type_valid: true,
+        path: path.to_path_buf(),
+        scope: KnowledgeScope::GhostDiary.as_str().to_string(),
+        owner_ghost: Some(owner_ghost.to_string()),
+        created_at: Utc::now().to_rfc3339(),
+        created_by_ghost: owner_ghost.to_string(),
+        created_by_model: "unknown".to_string(),
+        trust_score: 10,
+        last_validated_at: None,
+        last_validated_by_ghost: None,
+        last_validated_by_model: None,
+        version: None,
+        parent_id: None,
+        comments_json: None,
+        content_hash: hash,
+    };
+
+    let chunks = chunk_markdown(raw);
+    let chunk_records = chunks
+        .into_iter()
+        .map(|chunk| ChunkRecord {
+            note_id: note.id.clone(),
+            chunk_index: chunk.index as i64,
+            title: chunk.title,
+            content: chunk.content.clone(),
+            content_hash: compute_hash(&chunk.content),
+            embedding_model: Some(settings.embedding_model.clone()),
+            embedding_dim: settings.embedding_dim.map(|d| d as i64),
+        })
+        .collect();
+
+    let links = extract_links(raw)
+        .into_iter()
+        .map(|link| (link.target, link.alias))
+        .collect();
+
+    Ok(IngestedNote {
+        note,
+        chunks: chunk_records,
+        links,
         tags: Vec::new(),
     })
 }

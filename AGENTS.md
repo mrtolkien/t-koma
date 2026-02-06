@@ -231,47 +231,79 @@ Full examples live in:
 ## Knowledge & Memory Tools
 
 The knowledge system lives in `t-koma-knowledge` with gateway tools in
-`t-koma-gateway/src/tools/memory_*.rs` and `reference_search.rs`.
+`t-koma-gateway/src/tools/memory_*.rs`, `search_diary.rs`, and
+`reference_search.rs`.
+
+### Folder Layout
+
+```
+$DATA_DIR/shared/notes/              → SharedNote scope
+$DATA_DIR/shared/references/         → SharedReference scope
+
+$DATA_DIR/ghosts/$slug/inbox/        → NOT indexed, NOT embedded
+$DATA_DIR/ghosts/$slug/notes/        → GhostNote scope
+$DATA_DIR/ghosts/$slug/references/   → GhostReference scope
+$DATA_DIR/ghosts/$slug/diary/        → GhostDiary scope
+```
 
 ### Scopes
 
-- **SHARED**: Visible to all ghosts. Stored in `xdg_data/knowledge/`.
-- **PRIVATE** (ghost_private, ghost_projects, ghost_diary): Owned by a single
-  ghost. Stored in ghost workspace subdirs.
-- **REFERENCE**: Ghost-curated reference corpus. Ghosts create reference topics
-  by fetching external sources (git repos, web docs) and writing curated
-  descriptions. Always shared. Staleness tracked via `fetched_at` +
-  `max_age_days`. Spec: `vibe/specs/ghost-reference-management.md`.
+Five-variant `KnowledgeScope` enum:
 
-Cross-scope rule: ghost notes can link to shared notes, but shared notes never
-see private data.
+- **SharedNote**: Visible to all ghosts. `owner_ghost = NULL`.
+- **SharedReference**: Shared reference topics. `owner_ghost = NULL`.
+- **GhostNote**: Private to one ghost. `owner_ghost` required.
+- **GhostReference**: Ghost-owned reference topics. `owner_ghost` required.
+- **GhostDiary**: Ghost diary entries (date-based markdown). `owner_ghost`
+  required.
+
+Helpers: `is_shared()` → SharedNote | SharedReference. `is_reference()` →
+SharedReference | GhostReference. `is_note()` → SharedNote | GhostNote.
+
+Cross-scope rule: ghost notes can link to shared notes and reference topics via
+`[[Title]]` wiki links, but shared notes never see private data.
 
 ### Tools
 
+All knowledge tools are always visible to the ghost. Tools associated with a
+skill mention in their description that the skill should be loaded first.
+
 Memory tools:
 
-- `memory_search`: Hybrid BM25 + dense search across scopes.
-- `memory_get`: Retrieve a note by ID or title.
-- `memory_capture`: Write raw text to ghost or shared inbox. Accepts optional
-  `source` field for provenance tracking (URL, "user stated", etc.).
+- `memory_search`: Hybrid BM25 + dense search across note scopes.
+- `memory_capture`: Write raw text to ghost inbox. NOT embedded, NOT indexed.
+  Accepts optional `source` field for provenance tracking.
+- `memory_get`: Retrieve a note by ID or title. (skill: `note-writer`)
 - `memory_note_create`: Create a structured note with front matter.
+  (skill: `note-writer`)
 - `memory_note_update`: Patch an existing note (title, body, tags, etc.).
+  (skill: `note-writer`)
 - `memory_note_validate`: Mark a note as validated, optionally adjust trust.
+  (skill: `note-writer`)
 - `memory_note_comment`: Append a timestamped comment to a note.
+  (skill: `note-writer`)
+- `search_diary`: Search diary entries by keyword or concept. Diary files are
+  plain markdown (YYYY-MM-DD.md, no front matter).
 
 Reference tools:
 
-- `reference_search`: Search within a reference topic's files. Returns full
-  topic body as LLM context plus ranked file chunks. Docs are boosted over code.
-- `reference_get`: Fetch the full content of a reference file by note_id or
-  topic+path.
-- `reference_file_update`: Mark a reference file as active, problematic, or
-  obsolete.
-- `reference_topic_create`: Create a new reference topic from git/web sources.
-  Sources can have a `role` (docs/code) to control search boost.
+- `reference_search`: Search within a reference topic's indexed files. Docs
+  boosted over code.
 - `reference_topic_search`: Semantic search over existing reference topics.
 - `reference_topic_list`: List all topics with staleness info.
+- `reference_topic_create`: Create a new reference topic from git/web sources.
+  Sources can have a `role` (docs/code) to control search boost.
+  (skill: `reference-researcher`)
 - `reference_topic_update`: Update topic metadata (status, body, tags).
+  (skill: `reference-researcher`)
+- `reference_get`: Fetch the full content of a reference file.
+  (skill: `reference-researcher`)
+- `reference_file_update`: Mark a reference file as active/problematic/obsolete.
+  (skill: `reference-researcher`)
+
+Other:
+
+- `load_skill`: Load a skill for detailed guidance on a workflow.
 
 Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools.
 
@@ -283,6 +315,8 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 - For older topics, use `reference_topic_search` with a semantic query.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
+- The `knowledge-organizer` skill explains the physical file layout and indexing
+  pipeline for agents that need lower-level understanding.
 
 ### Approval System
 

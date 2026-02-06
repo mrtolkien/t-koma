@@ -10,20 +10,20 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::KnowledgeScope;
-use crate::paths::{knowledge_db_path, reference_root, shared_knowledge_root};
+use crate::paths::{knowledge_db_path, shared_notes_root, shared_references_root};
 use crate::storage::KnowledgeStore;
 
 pub async fn run_shared_watcher(settings: KnowledgeSettings) -> KnowledgeResult<()> {
     let store = KnowledgeStore::open(&knowledge_db_path(&settings)?, settings.embedding_dim).await?;
     let embedder = EmbeddingClient::new(&settings);
-    let root = shared_knowledge_root(&settings)?;
-    let reference = reference_root(&settings)?;
+    let root = shared_notes_root(&settings)?;
+    let reference = shared_references_root(&settings)?;
     run_watcher(
         settings,
         store,
         embedder,
         vec![root, reference],
-        KnowledgeScope::Shared,
+        KnowledgeScope::SharedNote,
         None,
     )
     .await
@@ -31,17 +31,19 @@ pub async fn run_shared_watcher(settings: KnowledgeSettings) -> KnowledgeResult<
 
 pub async fn run_ghost_watcher(
     settings: KnowledgeSettings,
-    workspace_root: PathBuf,
     ghost_name: String,
 ) -> KnowledgeResult<()> {
     let store = KnowledgeStore::open(&knowledge_db_path(&settings)?, settings.embedding_dim).await?;
     let embedder = EmbeddingClient::new(&settings);
+    let notes = crate::paths::ghost_notes_root(&settings, &ghost_name)?;
+    let diary = crate::paths::ghost_diary_root(&settings, &ghost_name)?;
+    let references = crate::paths::ghost_references_root(&settings, &ghost_name)?;
     run_watcher(
         settings,
         store,
         embedder,
-        vec![workspace_root],
-        KnowledgeScope::GhostPrivate,
+        vec![notes, diary, references],
+        KnowledgeScope::GhostNote,
         Some(ghost_name),
     )
     .await
@@ -79,7 +81,7 @@ async fn run_watcher(
             _ = tokio::time::sleep(Duration::from_secs(2)) => {
                 if pending {
                     let result = match scope {
-                        KnowledgeScope::Shared | KnowledgeScope::Reference => {
+                        KnowledgeScope::SharedNote | KnowledgeScope::SharedReference => {
                             reconcile_shared(&settings, store.pool(), &embedder).await
                         }
                         _ => {
@@ -88,10 +90,6 @@ async fn run_watcher(
                                 &settings,
                                 store.pool(),
                                 &embedder,
-                                roots
-                                    .first()
-                                    .map(|p| p.as_path())
-                                    .unwrap_or_else(|| std::path::Path::new("/")),
                                 ghost,
                             )
                             .await

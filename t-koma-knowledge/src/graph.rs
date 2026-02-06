@@ -57,7 +57,7 @@ pub async fn load_links_out(
                 path: path
                     .map(std::path::PathBuf::from)
                     .unwrap_or_default(),
-                scope: resolved_scope.parse().unwrap_or(KnowledgeScope::Shared),
+                scope: resolved_scope.parse().unwrap_or(KnowledgeScope::SharedNote),
                 trust_score: trust_score.unwrap_or(1),
                 score: 0.0,
                 snippet: String::new(),
@@ -110,7 +110,7 @@ pub async fn load_links_in(
             title,
             note_type,
             path: path.into(),
-            scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
+            scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
             trust_score,
             score: 0.0,
             snippet: String::new(),
@@ -191,7 +191,7 @@ pub async fn load_parent(
             title,
             note_type,
             path: path.into(),
-            scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
+            scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
             trust_score,
             score: 0.0,
             snippet: String::new(),

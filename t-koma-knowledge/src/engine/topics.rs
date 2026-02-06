@@ -8,7 +8,7 @@ use sqlx::SqlitePool;
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeContext, KnowledgeScope, SourceRole, TopicCreateRequest, TopicCreateResult,
+    KnowledgeScope, SourceRole, TopicCreateRequest, TopicCreateResult,
     TopicListEntry, TopicSearchResult, TopicUpdateRequest, generate_note_id,
 };
 use crate::parser::TopicSource;
@@ -33,7 +33,7 @@ pub(crate) async fn build_topic_approval_summary(
 /// Called after operator approval. Returns topic ID, file count, and chunk count.
 pub(crate) async fn topic_create_execute(
     engine: &KnowledgeEngine,
-    context: &KnowledgeContext,
+    ghost_name: &str,
     request: TopicCreateRequest,
 ) -> KnowledgeResult<TopicCreateResult> {
     let settings = engine.settings();
@@ -41,7 +41,7 @@ pub(crate) async fn topic_create_execute(
     let embedder = engine.embedder();
 
     // Create topic directory
-    let reference_root = crate::paths::reference_root(settings)?;
+    let reference_root = crate::paths::shared_references_root(settings)?;
     let topic_dir_name = sanitize_filename(&request.title);
     let topic_dir = reference_root.join(&topic_dir_name);
     tokio::fs::create_dir_all(&topic_dir).await?;
@@ -73,7 +73,7 @@ pub(crate) async fn topic_create_execute(
     let front_matter = build_topic_front_matter(
         &topic_id,
         &request.title,
-        &context.ghost_name,
+        ghost_name,
         trust_score,
         request.tags.as_deref(),
         &topic_sources,
@@ -92,7 +92,7 @@ pub(crate) async fn topic_create_execute(
     // Index the topic.md itself
     let ingested = crate::ingest::ingest_markdown(
         settings,
-        KnowledgeScope::Reference,
+        KnowledgeScope::SharedReference,
         None,
         &topic_path,
         &content,
@@ -179,7 +179,7 @@ pub(crate) async fn topic_search(
 
     // Find all ReferenceTopic note IDs
     let topic_ids = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' AND owner_ghost IS NULL",
+        "SELECT id FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
     )
     .fetch_all(pool)
     .await?
@@ -213,7 +213,7 @@ pub(crate) async fn topic_search(
         query,
         settings.search.dense_limit,
         Some(&topic_ids),
-        KnowledgeScope::Reference,
+        KnowledgeScope::SharedReference,
         "",
     )
     .await?;
@@ -224,7 +224,7 @@ pub(crate) async fn topic_search(
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     ranked.truncate(settings.search.max_results);
 
-    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::Reference, "").await?;
+    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::SharedReference, "").await?;
 
     // Convert to TopicSearchResult with staleness info
     let now = Utc::now();
@@ -259,14 +259,14 @@ pub(crate) async fn topic_list(
 
     let rows = if include_obsolete {
         sqlx::query_as::<_, (String, String, String, i64, String)>(
-            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' ORDER BY created_at DESC",
+            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
         )
         .fetch_all(pool)
         .await?
     } else {
         // Exclude obsolete — we check in Rust since status is in the file, not a column
         sqlx::query_as::<_, (String, String, String, i64, String)>(
-            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' ORDER BY created_at DESC",
+            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
         )
         .fetch_all(pool)
         .await?
@@ -315,14 +315,14 @@ pub(crate) async fn topic_list(
 /// Update topic metadata without re-fetching sources.
 pub(crate) async fn topic_update(
     engine: &KnowledgeEngine,
-    _context: &KnowledgeContext,
+    _ghost_name: &str,
     request: TopicUpdateRequest,
 ) -> KnowledgeResult<()> {
     let pool = engine.pool();
 
     // Fetch the topic note directly from the reference scope
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT path, note_type FROM notes WHERE id = ? AND scope = 'reference' LIMIT 1",
+        "SELECT path, note_type FROM notes WHERE id = ? AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(&request.topic_id)
     .fetch_optional(pool)
@@ -369,7 +369,7 @@ pub(crate) async fn topic_update(
     // Re-index the topic note
     let ingested = crate::ingest::ingest_markdown(
         engine.settings(),
-        KnowledgeScope::Reference,
+        KnowledgeScope::SharedReference,
         None,
         &doc_path,
         &content,
@@ -401,7 +401,7 @@ pub(crate) async fn topic_update(
 /// Load the 10 most recent reference topics for system prompt injection.
 pub(crate) async fn recent_topics(pool: &SqlitePool) -> KnowledgeResult<Vec<(String, String, Vec<String>)>> {
     let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' ORDER BY created_at DESC LIMIT 10",
+        "SELECT id, title FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC LIMIT 10",
     )
     .fetch_all(pool)
     .await?;
