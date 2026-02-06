@@ -21,6 +21,11 @@ pub struct FrontMatter {
     pub source: Option<Vec<SourceEntry>>,
     pub version: Option<i64>,
     pub files: Option<Vec<String>>,
+    // Reference topic fields
+    pub sources: Option<Vec<TopicSource>>,
+    pub status: Option<String>,
+    pub fetched_at: Option<DateTime<Utc>>,
+    pub max_age_days: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -41,6 +46,26 @@ pub struct CommentEntry {
 pub struct SourceEntry {
     pub path: String,
     pub checksum: Option<String>,
+}
+
+/// Rich source descriptor for reference topics.
+///
+/// Tracks where reference content was fetched from, enabling provenance
+/// tracking and future automated refresh.
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct TopicSource {
+    /// Source type: "git" or "web".
+    #[serde(rename = "type")]
+    pub source_type: String,
+    /// URL of the source (git remote or web page).
+    pub url: String,
+    /// Git ref (branch/tag). Only for git sources.
+    #[serde(rename = "ref")]
+    pub ref_name: Option<String>,
+    /// Exact commit SHA recorded after fetch. Only for git sources.
+    pub commit: Option<String>,
+    /// Path filters within the repo. Only for git sources.
+    pub paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
