@@ -38,8 +38,8 @@ impl MemoryCaptureTool {
 
     fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::WriteScope {
         match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::WriteScope::Shared,
-            _ => t_koma_knowledge::models::WriteScope::Private,
+            Some("shared") => t_koma_knowledge::models::WriteScope::SharedNote,
+            _ => t_koma_knowledge::models::WriteScope::GhostNote,
         }
     }
 }
@@ -75,13 +75,9 @@ impl Tool for MemoryCaptureTool {
         let engine = context.knowledge_engine()
             .ok_or("knowledge engine not available")?;
         let scope = Self::parse_scope(input.scope);
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
 
         let path = engine
-            .memory_capture(&ctx, &input.payload, scope, input.source.as_deref())
+            .memory_capture(context.ghost_name(), &input.payload, scope, input.source.as_deref())
             .await
             .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&json!({"path": path})).map_err(|e| e.to_string())

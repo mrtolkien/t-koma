@@ -73,11 +73,6 @@ impl Tool for ReferenceTopicUpdateTool {
             .knowledge_engine()
             .ok_or("knowledge engine not available")?;
 
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
-
         let request = t_koma_knowledge::TopicUpdateRequest {
             topic_id: input.topic_id,
             status: input.status,
@@ -87,7 +82,7 @@ impl Tool for ReferenceTopicUpdateTool {
         };
 
         engine
-            .topic_update(&ctx, request)
+            .topic_update(context.ghost_name(), request)
             .await
             .map_err(|e| e.to_string())?;
 

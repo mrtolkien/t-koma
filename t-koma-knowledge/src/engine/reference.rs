@@ -5,7 +5,7 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::graph::{load_links_in, load_links_out, load_parent, load_tags};
 use crate::models::{
-    KnowledgeScope, MemoryResult, NoteDocument, ReferenceFileStatus, ReferenceQuery,
+    KnowledgeScope, NoteDocument, NoteResult, ReferenceFileStatus, ReferenceQuery,
     ReferenceSearchResult,
 };
 
@@ -37,7 +37,7 @@ pub(crate) async fn reference_search(
 
         // Fetch the topic note body for LLM context
         let topic_doc =
-            super::get::fetch_note(pool, &topic_id, KnowledgeScope::Reference, "").await?;
+            super::get::fetch_note(pool, &topic_id, KnowledgeScope::SharedReference, "").await?;
         let (topic_title, topic_body) = match topic_doc {
             Some(doc) => (doc.title, extract_topic_body(&doc.body)),
             None => (String::new(), String::new()),
@@ -86,7 +86,7 @@ async fn search_reference_files(
     topic_id: &str,
     query: &ReferenceQuery,
     doc_boost: f32,
-) -> KnowledgeResult<Vec<MemoryResult>> {
+) -> KnowledgeResult<Vec<NoteResult>> {
     // Fetch file note_ids, excluding obsolete files
     let rows = sqlx::query_as::<_, (String, String)>(
         "SELECT note_id, status FROM reference_files WHERE topic_id = ? AND status != 'obsolete'",
@@ -132,7 +132,7 @@ async fn search_reference_files(
         &query.question,
         settings.search.dense_limit,
         Some(&note_ids),
-        KnowledgeScope::Reference,
+        KnowledgeScope::SharedReference,
         "",
     )
     .await?;
@@ -143,7 +143,7 @@ async fn search_reference_files(
     let summaries = hydrate_summaries_boosted(
         pool,
         &ranked,
-        KnowledgeScope::Reference,
+        KnowledgeScope::SharedReference,
         "",
         doc_boost,
         &problematic_ids,
@@ -152,12 +152,12 @@ async fn search_reference_files(
 
     let mut results = Vec::new();
     for summary in summaries {
-        let parents = load_parent(pool, &summary.id, KnowledgeScope::Reference, "").await?;
+        let parents = load_parent(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
         let links_out = load_links_out(
             pool,
             &summary.id,
             settings.search.graph_max,
-            KnowledgeScope::Reference,
+            KnowledgeScope::SharedReference,
             "",
         )
         .await?;
@@ -165,12 +165,12 @@ async fn search_reference_files(
             pool,
             &summary.id,
             settings.search.graph_max,
-            KnowledgeScope::Reference,
+            KnowledgeScope::SharedReference,
             "",
         )
         .await?;
-        let tags = load_tags(pool, &summary.id, KnowledgeScope::Reference, "").await?;
-        results.push(MemoryResult {
+        let tags = load_tags(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        results.push(NoteResult {
             summary,
             parents,
             links_out,
@@ -187,9 +187,9 @@ async fn search_reference_topics(
     embedder: &EmbeddingClient,
     pool: &SqlitePool,
     query: &ReferenceQuery,
-) -> KnowledgeResult<Vec<MemoryResult>> {
+) -> KnowledgeResult<Vec<NoteResult>> {
     let topic_ids = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'reference' AND owner_ghost IS NULL",
+        "SELECT id FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
     )
     .fetch_all(pool)
     .await?
@@ -225,7 +225,7 @@ async fn search_reference_topics(
         &query.topic,
         settings.search.dense_limit,
         Some(&topic_ids),
-        KnowledgeScope::Reference,
+        KnowledgeScope::SharedReference,
         "",
     )
     .await?;
@@ -233,16 +233,16 @@ async fn search_reference_topics(
     let mut ranked: Vec<(i64, f32)> = fused.into_iter().collect();
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     ranked.truncate(settings.search.max_results);
-    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::Reference, "").await?;
+    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::SharedReference, "").await?;
 
     let mut results = Vec::new();
     for summary in summaries {
-        let parents = load_parent(pool, &summary.id, KnowledgeScope::Reference, "").await?;
+        let parents = load_parent(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
         let links_out = load_links_out(
             pool,
             &summary.id,
             settings.search.graph_max,
-            KnowledgeScope::Reference,
+            KnowledgeScope::SharedReference,
             "",
         )
         .await?;
@@ -250,12 +250,12 @@ async fn search_reference_topics(
             pool,
             &summary.id,
             settings.search.graph_max,
-            KnowledgeScope::Reference,
+            KnowledgeScope::SharedReference,
             "",
         )
         .await?;
-        let tags = load_tags(pool, &summary.id, KnowledgeScope::Reference, "").await?;
-        results.push(MemoryResult {
+        let tags = load_tags(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        results.push(NoteResult {
             summary,
             parents,
             links_out,
@@ -320,7 +320,7 @@ async fn append_topic_warning(
     let pool = engine.pool();
 
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT path FROM notes WHERE id = ? AND scope = 'reference' LIMIT 1",
+        "SELECT path FROM notes WHERE id = ? AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(topic_id)
     .fetch_optional(pool)
@@ -353,7 +353,7 @@ async fn append_topic_warning(
     // Re-index the topic note
     let ingested = crate::ingest::ingest_markdown(
         engine.settings(),
-        KnowledgeScope::Reference,
+        KnowledgeScope::SharedReference,
         None,
         &doc_path,
         &content,
@@ -403,7 +403,7 @@ pub(crate) async fn reference_get(
     };
 
     let doc =
-        super::get::fetch_note(pool, &resolved_note_id, KnowledgeScope::Reference, "").await?;
+        super::get::fetch_note(pool, &resolved_note_id, KnowledgeScope::SharedReference, "").await?;
     match doc {
         Some(mut d) => {
             if let Some(limit) = max_chars
@@ -423,7 +423,7 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
 
     // Try exact title match first
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE title = ? AND note_type = 'ReferenceTopic' AND scope = 'reference' LIMIT 1",
+        "SELECT id FROM notes WHERE title = ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(topic_name)
     .fetch_optional(pool)
@@ -435,7 +435,7 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
 
     // Fall back to case-insensitive LIKE match
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE title LIKE ? AND note_type = 'ReferenceTopic' AND scope = 'reference' LIMIT 1",
+        "SELECT id FROM notes WHERE title LIKE ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(format!("%{}%", topic_name))
     .fetch_optional(pool)

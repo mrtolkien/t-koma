@@ -21,10 +21,8 @@ pub struct MemoryNoteCreateTool;
 impl MemoryNoteCreateTool {
     fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::WriteScope {
         match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::WriteScope::Shared,
-            Some("projects") => t_koma_knowledge::models::WriteScope::Projects,
-            Some("diary") => t_koma_knowledge::models::WriteScope::Diary,
-            _ => t_koma_knowledge::models::WriteScope::Private,
+            Some("shared") => t_koma_knowledge::models::WriteScope::SharedNote,
+            _ => t_koma_knowledge::models::WriteScope::GhostNote,
         }
     }
 }
@@ -53,8 +51,8 @@ impl Tool for MemoryNoteCreateTool {
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["private", "projects", "diary", "shared"],
-                    "description": "Where to create the note. Default 'private'."
+                    "enum": ["ghost", "shared"],
+                    "description": "Where to create the note. Default 'ghost' (your private notes)."
                 },
                 "body": {
                     "type": "string",
@@ -89,7 +87,7 @@ impl Tool for MemoryNoteCreateTool {
     fn prompt(&self) -> Option<&'static str> {
         Some(
             "Use memory_note_create to create a structured knowledge note with validated front matter.\n\
-            - Default scope is 'private' (your ghost's private knowledge).\n\
+            - Default scope is 'ghost' (your own notes).\n\
             - Use 'shared' to create notes visible to all ghosts.\n\
             - The note ID is generated automatically.\n\
             - Set parent to organize notes hierarchically.\n\
@@ -115,12 +113,7 @@ impl Tool for MemoryNoteCreateTool {
             trust_score: input.trust_score,
         };
 
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
-
-        let result = engine.note_create(&ctx, request).await.map_err(|e| e.to_string())?;
+        let result = engine.note_create(context.ghost_name(), request).await.map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
     }
 }

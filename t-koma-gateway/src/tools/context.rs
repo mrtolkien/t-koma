@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -85,6 +86,8 @@ pub struct ToolContext {
     approved_actions: Vec<String>,
     dirty: bool,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
+    /// Tool names unlocked by loaded skills in this session.
+    unlocked_tools: HashSet<String>,
 }
 
 pub const APPROVAL_REQUIRED_PREFIX: &str = "APPROVAL_REQUIRED:";
@@ -104,6 +107,7 @@ impl ToolContext {
             approved_actions: Vec::new(),
             dirty: false,
             knowledge_engine: None,
+            unlocked_tools: HashSet::new(),
         }
     }
 
@@ -114,6 +118,16 @@ impl ToolContext {
 
     pub fn knowledge_engine(&self) -> Option<&Arc<t_koma_knowledge::KnowledgeEngine>> {
         self.knowledge_engine.as_ref()
+    }
+
+    /// Register tool names unlocked by a skill.
+    pub fn unlock_tools(&mut self, tool_names: impl IntoIterator<Item = String>) {
+        self.unlocked_tools.extend(tool_names);
+    }
+
+    /// Get the set of unlocked tool names (for ToolManager filtering).
+    pub fn unlocked_tools(&self) -> &HashSet<String> {
+        &self.unlocked_tools
     }
 
     pub fn ghost_name(&self) -> &str {
@@ -187,6 +201,7 @@ impl ToolContext {
             approved_actions: Vec::new(),
             dirty: false,
             knowledge_engine: None,
+            unlocked_tools: HashSet::new(),
         }
     }
 }

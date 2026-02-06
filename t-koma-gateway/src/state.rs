@@ -468,7 +468,7 @@ impl AppState {
         {
             let guard = self.ghost_dbs.read().await;
             if let Some(db) = guard.get(ghost_name) {
-                self.ensure_ghost_watcher(ghost_name, db.workspace_path().to_path_buf())
+                self.ensure_ghost_watcher(ghost_name)
                     .await;
                 return Ok(db.clone());
             }
@@ -477,7 +477,7 @@ impl AppState {
         let db = t_koma_db::GhostDbPool::new(ghost_name).await?;
         let mut guard = self.ghost_dbs.write().await;
         guard.insert(ghost_name.to_string(), db.clone());
-        self.ensure_ghost_watcher(ghost_name, db.workspace_path().to_path_buf())
+        self.ensure_ghost_watcher(ghost_name)
             .await;
         Ok(db)
     }
@@ -508,7 +508,7 @@ impl AppState {
         *guard = Some(handle);
     }
 
-    async fn ensure_ghost_watcher(&self, ghost_name: &str, workspace_root: std::path::PathBuf) {
+    async fn ensure_ghost_watcher(&self, ghost_name: &str) {
         let mut guard = self.ghost_knowledge_watchers.write().await;
         if let Some(handle) = guard.get(ghost_name)
             && !handle.is_finished()
@@ -525,7 +525,6 @@ impl AppState {
             loop {
                 let result = t_koma_knowledge::watcher::run_ghost_watcher(
                     settings.clone(),
-                    workspace_root.clone(),
                     ghost_name_task.clone(),
                 )
                 .await;

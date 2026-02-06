@@ -56,13 +56,8 @@ impl Tool for MemoryNoteValidateTool {
         let engine = context.knowledge_engine()
             .ok_or("knowledge engine not available")?;
 
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
-
         let result = engine
-            .note_validate(&ctx, &input.note_id, input.trust_score)
+            .note_validate(context.ghost_name(), &input.note_id, input.trust_score)
             .await
             .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&result).map_err(|e| e.to_string())

@@ -86,12 +86,7 @@ impl Tool for MemoryNoteUpdateTool {
             parent: input.parent,
         };
 
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
-
-        let result = engine.note_update(&ctx, request).await.map_err(|e| e.to_string())?;
+        let result = engine.note_update(context.ghost_name(), request).await.map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
     }
 }

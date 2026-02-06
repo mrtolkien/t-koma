@@ -7,22 +7,30 @@
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    KnowledgeContext, MemoryScope, NoteCreateRequest, NoteUpdateRequest, WriteScope,
+    NoteCreateRequest, NoteSearchScope, NoteUpdateRequest, WriteScope,
 };
 use t_koma_knowledge::storage::{KnowledgeStore, NoteRecord, replace_tags, upsert_note};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
-/// Build a test engine + context pair with temp dirs.
-async fn setup() -> (KnowledgeEngine, KnowledgeContext, TempDir) {
+/// Build a test engine with temp dirs. Returns (engine, ghost_name, temp).
+async fn setup() -> (KnowledgeEngine, String, TempDir) {
     let temp = TempDir::new().expect("tempdir");
-    let shared_root = temp.path().join("knowledge");
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
     tokio::fs::create_dir_all(&shared_root).await.unwrap();
-    let workspace = temp.path().join("ghost-a-workspace");
-    tokio::fs::create_dir_all(&workspace).await.unwrap();
 
+    // Set T_KOMA_DATA_DIR so paths resolve to our temp dir
+    unsafe { std::env::set_var("T_KOMA_DATA_DIR", data_root.to_str().unwrap()) };
+
+    // Create ghost workspace dirs
+    let ghost_notes = data_root.join("ghosts").join("ghost-a").join("notes");
+    let ghost_inbox = data_root.join("ghosts").join("ghost-a").join("inbox");
+    tokio::fs::create_dir_all(&ghost_notes).await.unwrap();
+    tokio::fs::create_dir_all(&ghost_inbox).await.unwrap();
+
+    let db_path = data_root.join("shared").join("index.sqlite3");
     let settings = KnowledgeSettings {
-        shared_root_override: Some(shared_root.clone()),
-        knowledge_db_path_override: Some(shared_root.join("index.sqlite3")),
+        knowledge_db_path_override: Some(db_path),
         embedding_dim: Some(8),
         // Use a bogus URL so embedding calls fail fast (we don't need them for these tests)
         embedding_url: "http://127.0.0.1:1".to_string(),
@@ -32,35 +40,20 @@ async fn setup() -> (KnowledgeEngine, KnowledgeContext, TempDir) {
     };
 
     let engine = KnowledgeEngine::open(settings).await.expect("open engine");
-    let context = KnowledgeContext {
-        ghost_name: "ghost-a".to_string(),
-        workspace_root: workspace,
-    };
 
-    (engine, context, temp)
-}
-
-/// Build a second context for ghost-b that shares the same temp dir.
-fn ghost_b_context(temp: &TempDir) -> KnowledgeContext {
-    KnowledgeContext {
-        ghost_name: "ghost-b".to_string(),
-        workspace_root: temp.path().join("ghost-b-workspace"),
-    }
+    (engine, "ghost-a".to_string(), temp)
 }
 
 // ── note_create ──────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn create_private_note() {
-    let (engine, context, _temp) = setup().await;
-    tokio::fs::create_dir_all(&context.workspace_root.join("private_knowledge"))
-        .await
-        .unwrap();
+    let (engine, ghost_name, _temp) = setup().await;
 
     let request = NoteCreateRequest {
         title: "Test Note".to_string(),
         note_type: "Concept".to_string(),
-        scope: WriteScope::Private,
+        scope: WriteScope::GhostNote,
         body: "This is the body.".to_string(),
         parent: None,
         tags: Some(vec!["test".to_string()]),
@@ -68,7 +61,7 @@ async fn create_private_note() {
         trust_score: None,
     };
 
-    let result = engine.note_create(&context, request).await;
+    let result = engine.note_create(&ghost_name, request).await;
     // Will fail on embedding (bogus URL) but the file should be written
     // The engine indexes inline which calls embeddings. Since we use a bogus
     // URL, we expect an error. This is expected — the file was still written.
@@ -96,14 +89,12 @@ async fn create_private_note() {
 
 #[tokio::test]
 async fn create_shared_note() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
-    tokio::fs::create_dir_all(&shared_root).await.unwrap();
+    let (engine, ghost_name, _temp) = setup().await;
 
     let request = NoteCreateRequest {
         title: "Shared Knowledge".to_string(),
         note_type: "HowTo".to_string(),
-        scope: WriteScope::Shared,
+        scope: WriteScope::SharedNote,
         body: "Shared body content.".to_string(),
         parent: None,
         tags: None,
@@ -111,10 +102,12 @@ async fn create_shared_note() {
         trust_score: Some(8),
     };
 
-    let result = engine.note_create(&context, request).await;
+    let result = engine.note_create(&ghost_name, request).await;
     match result {
         Ok(write_result) => {
-            assert!(write_result.path.starts_with(&shared_root));
+            // Path should be under shared/notes
+            let path_str = write_result.path.to_string_lossy();
+            assert!(path_str.contains("shared") && path_str.contains("notes"));
         }
         Err(e) => {
             let err_str = e.to_string();
@@ -132,10 +125,12 @@ async fn create_shared_note() {
 
 #[tokio::test]
 async fn get_own_private_note_succeeds() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -146,7 +141,7 @@ async fn get_own_private_note_succeeds() {
         note_type: "Concept".to_string(),
         type_valid: true,
         path: shared_root.join("ghost-a-own.md"),
-        scope: "ghost_private".to_string(),
+        scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost-a".to_string(),
@@ -163,17 +158,19 @@ async fn get_own_private_note_succeeds() {
     upsert_note(store.pool(), &note).await.unwrap();
 
     let doc = engine
-        .memory_get(&context, "ghost-a-own", MemoryScope::GhostPrivate)
+        .memory_get(&ghost_name, "ghost-a-own", NoteSearchScope::GhostOnly)
         .await;
     assert!(doc.is_ok());
 }
 
 #[tokio::test]
 async fn get_other_ghost_private_note_fails() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -184,7 +181,7 @@ async fn get_other_ghost_private_note_fails() {
         note_type: "Concept".to_string(),
         type_valid: true,
         path: shared_root.join("ghost-b-secret.md"),
-        scope: "ghost_private".to_string(),
+        scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-b".to_string()),
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost-b".to_string(),
@@ -202,7 +199,7 @@ async fn get_other_ghost_private_note_fails() {
 
     // Ghost-a tries to read ghost-b's note
     let result = engine
-        .memory_get(&context, "ghost-b-secret", MemoryScope::GhostPrivate)
+        .memory_get(&ghost_name, "ghost-b-secret", NoteSearchScope::GhostOnly)
         .await;
     assert!(
         result.is_err(),
@@ -212,10 +209,12 @@ async fn get_other_ghost_private_note_fails() {
 
 #[tokio::test]
 async fn get_shared_note_from_any_ghost() {
-    let (engine, _context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, _ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -225,7 +224,7 @@ async fn get_shared_note_from_any_ghost() {
         note_type: "Reference".to_string(),
         type_valid: true,
         path: shared_root.join("shared-note.md"),
-        scope: "shared".to_string(),
+        scope: "shared_note".to_string(),
         owner_ghost: None,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost-a".to_string(),
@@ -242,9 +241,8 @@ async fn get_shared_note_from_any_ghost() {
     upsert_note(store.pool(), &note).await.unwrap();
 
     // Ghost-b can read shared note
-    let ctx_b = ghost_b_context(&temp);
     let doc = engine
-        .memory_get(&ctx_b, "shared-note", MemoryScope::SharedOnly)
+        .memory_get("ghost-b", "shared-note", NoteSearchScope::SharedOnly)
         .await;
     assert!(doc.is_ok(), "any ghost should read shared notes");
 }
@@ -253,10 +251,12 @@ async fn get_shared_note_from_any_ghost() {
 
 #[tokio::test]
 async fn update_own_note_succeeds() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -283,7 +283,7 @@ Original body.
         note_type: "Concept".to_string(),
         type_valid: true,
         path: note_path.clone(),
-        scope: "ghost_private".to_string(),
+        scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost-a".to_string(),
@@ -308,7 +308,7 @@ Original body.
         parent: None,
     };
 
-    let result = engine.note_update(&context, request).await;
+    let result = engine.note_update(&ghost_name, request).await;
     match result {
         Ok(write_result) => {
             assert_eq!(write_result.note_id, "updatable-note");
@@ -329,10 +329,12 @@ Original body.
 
 #[tokio::test]
 async fn update_other_ghost_note_denied() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -358,7 +360,7 @@ Ghost B content.
         note_type: "Concept".to_string(),
         type_valid: true,
         path: note_path,
-        scope: "ghost_private".to_string(),
+        scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-b".to_string()),
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost-b".to_string(),
@@ -382,7 +384,7 @@ Ghost B content.
 
     // Ghost-a tries to update ghost-b's note — should fail at get phase
     // (private notes not visible) or at write access check
-    let result = engine.note_update(&context, request).await;
+    let result = engine.note_update(&ghost_name, request).await;
     assert!(result.is_err(), "ghost-a should not update ghost-b's note");
 }
 
@@ -390,10 +392,12 @@ Ghost B content.
 
 #[tokio::test]
 async fn validate_note_updates_metadata() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -419,7 +423,7 @@ Content.
         note_type: "Concept".to_string(),
         type_valid: true,
         path: note_path,
-        scope: "ghost_private".to_string(),
+        scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost-a".to_string(),
@@ -435,7 +439,7 @@ Content.
     };
     upsert_note(store.pool(), &note).await.unwrap();
 
-    let result = engine.note_validate(&context, "val-note", Some(9)).await;
+    let result = engine.note_validate(&ghost_name, "val-note", Some(9)).await;
     match result {
         Ok(write_result) => {
             assert_eq!(write_result.note_id, "val-note");
@@ -461,10 +465,12 @@ Content.
 
 #[tokio::test]
 async fn comment_appends_to_front_matter() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -490,7 +496,7 @@ Body text.
         note_type: "Concept".to_string(),
         type_valid: true,
         path: note_path,
-        scope: "ghost_private".to_string(),
+        scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
         created_at: "2025-01-01T00:00:00Z".to_string(),
         created_by_ghost: "ghost-a".to_string(),
@@ -507,7 +513,7 @@ Body text.
     upsert_note(store.pool(), &note).await.unwrap();
 
     let result = engine
-        .note_comment(&context, "comment-note", "This is my review comment.")
+        .note_comment(&ghost_name, "comment-note", "This is my review comment.")
         .await;
     match result {
         Ok(write_result) => {
@@ -533,33 +539,26 @@ Body text.
 
 #[tokio::test]
 async fn capture_to_ghost_inbox() {
-    let (engine, context, _temp) = setup().await;
-    let inbox_dir = context
-        .workspace_root
-        .join("private_knowledge")
-        .join("inbox");
-    tokio::fs::create_dir_all(&inbox_dir).await.unwrap();
+    let (engine, ghost_name, _temp) = setup().await;
 
     let result = engine
-        .memory_capture(&context, "Quick note to self", WriteScope::Private, None)
+        .memory_capture(&ghost_name, "Quick note to self", WriteScope::GhostNote, None)
         .await;
     assert!(result.is_ok());
     let path = result.unwrap();
-    assert!(path.contains("private_knowledge/inbox"));
+    assert!(path.contains("inbox"));
 }
 
 #[tokio::test]
 async fn capture_to_shared_inbox() {
-    let (engine, context, temp) = setup().await;
-    let shared_inbox = temp.path().join("knowledge").join("inbox");
-    tokio::fs::create_dir_all(&shared_inbox).await.unwrap();
+    let (engine, ghost_name, _temp) = setup().await;
 
     let result = engine
-        .memory_capture(&context, "Shared info", WriteScope::Shared, None)
+        .memory_capture(&ghost_name, "Shared info", WriteScope::SharedNote, None)
         .await;
     assert!(result.is_ok());
     let path = result.unwrap();
-    assert!(path.contains("knowledge/inbox"));
+    assert!(path.contains("shared") && path.contains("notes"));
 }
 
 // ── reference topic CRUD ─────────────────────────────────────────────
@@ -620,7 +619,7 @@ Description of {title}.
         note_type: "ReferenceTopic".to_string(),
         type_valid: true,
         path: path.clone(),
-        scope: "reference".to_string(),
+        scope: "shared_reference".to_string(),
         owner_ghost: None,
         created_at: fetched_at.to_string(),
         created_by_ghost: ghost.to_string(),
@@ -645,10 +644,12 @@ Description of {title}.
 
 #[tokio::test]
 async fn topic_list_returns_inserted_topics() {
-    let (engine, _context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, _ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -690,10 +691,12 @@ async fn topic_list_returns_inserted_topics() {
 
 #[tokio::test]
 async fn topic_update_changes_status_and_tags() {
-    let (engine, context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -718,7 +721,7 @@ async fn topic_update_changes_status_and_tags() {
         tags: Some(vec!["updated".to_string(), "changed".to_string()]),
     };
 
-    let result = engine.topic_update(&context, request).await;
+    let result = engine.topic_update(&ghost_name, request).await;
     match result {
         Ok(()) => {
             // Verify file was updated
@@ -754,10 +757,12 @@ async fn topic_update_changes_status_and_tags() {
 
 #[tokio::test]
 async fn recent_topics_returns_most_recent() {
-    let (engine, _context, temp) = setup().await;
-    let shared_root = temp.path().join("knowledge");
+    let (engine, _ghost_name, temp) = setup().await;
+    let data_root = temp.path().join("data");
+    let shared_root = data_root.join("shared").join("notes");
 
-    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
         .await
         .unwrap();
 
@@ -800,39 +805,39 @@ async fn recent_topics_returns_most_recent() {
 mod slow {
     use super::*;
 
-    async fn setup_with_embeddings() -> (KnowledgeEngine, KnowledgeContext, TempDir) {
+    async fn setup_with_embeddings() -> (KnowledgeEngine, String, TempDir) {
         let temp = TempDir::new().expect("tempdir");
-        let shared_root = temp.path().join("knowledge");
+        let data_root = temp.path().join("data");
+        let shared_root = data_root.join("shared").join("notes");
         tokio::fs::create_dir_all(&shared_root).await.unwrap();
-        let workspace = temp.path().join("ghost-a-workspace");
-        tokio::fs::create_dir_all(&workspace.join("private_knowledge"))
-            .await
-            .unwrap();
 
+        let ghost_notes = data_root.join("ghosts").join("ghost-a").join("notes");
+        let ghost_inbox = data_root.join("ghosts").join("ghost-a").join("inbox");
+        tokio::fs::create_dir_all(&ghost_notes).await.unwrap();
+        tokio::fs::create_dir_all(&ghost_inbox).await.unwrap();
+
+        unsafe { std::env::set_var("T_KOMA_DATA_DIR", data_root.to_str().unwrap()) };
+
+        let db_path = data_root.join("shared").join("index.sqlite3");
         let settings = KnowledgeSettings {
-            shared_root_override: Some(shared_root.clone()),
-            knowledge_db_path_override: Some(shared_root.join("index.sqlite3")),
+            knowledge_db_path_override: Some(db_path),
             reconcile_seconds: 999_999,
             ..Default::default()
         };
 
         let engine = KnowledgeEngine::open(settings).await.expect("open engine");
-        let context = KnowledgeContext {
-            ghost_name: "ghost-a".to_string(),
-            workspace_root: workspace,
-        };
 
-        (engine, context, temp)
+        (engine, "ghost-a".to_string(), temp)
     }
 
     #[tokio::test]
     async fn create_and_search_note() {
-        let (engine, context, _temp) = setup_with_embeddings().await;
+        let (engine, ghost_name, _temp) = setup_with_embeddings().await;
 
         let request = NoteCreateRequest {
             title: "Rust Error Handling".to_string(),
             note_type: "Concept".to_string(),
-            scope: WriteScope::Private,
+            scope: WriteScope::GhostNote,
             body: "Rust uses Result and Option types for error handling. \
                    The ? operator propagates errors up the call stack."
                 .to_string(),
@@ -843,18 +848,18 @@ mod slow {
         };
 
         let write_result = engine
-            .note_create(&context, request)
+            .note_create(&ghost_name, request)
             .await
             .expect("create should succeed with Ollama running");
 
         // Now search for it
-        let query = t_koma_knowledge::MemoryQuery {
+        let query = t_koma_knowledge::NoteQuery {
             query: "error handling in Rust".to_string(),
-            scope: MemoryScope::GhostPrivate,
+            scope: NoteSearchScope::GhostOnly,
             options: Default::default(),
         };
         let results = engine
-            .memory_search(&context, query)
+            .memory_search(&ghost_name, query)
             .await
             .expect("search should succeed");
 

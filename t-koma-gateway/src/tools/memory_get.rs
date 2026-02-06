@@ -22,8 +22,8 @@ impl MemoryGetTool {
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["all", "shared", "ghost", "private", "projects", "diary"],
-                    "description": "Scope to search in. Default 'all' tries shared + own private."
+                    "enum": ["all", "shared", "ghost"],
+                    "description": "Scope to search in. Default 'all' tries shared + own ghost notes."
                 }
             },
             "required": ["note_id_or_title"],
@@ -31,14 +31,11 @@ impl MemoryGetTool {
         })
     }
 
-    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::MemoryScope {
+    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::NoteSearchScope {
         match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::MemoryScope::SharedOnly,
-            Some("ghost") => t_koma_knowledge::models::MemoryScope::GhostOnly,
-            Some("private") => t_koma_knowledge::models::MemoryScope::GhostPrivate,
-            Some("projects") => t_koma_knowledge::models::MemoryScope::GhostProjects,
-            Some("diary") => t_koma_knowledge::models::MemoryScope::GhostDiary,
-            _ => t_koma_knowledge::models::MemoryScope::All,
+            Some("shared") => t_koma_knowledge::models::NoteSearchScope::SharedOnly,
+            Some("ghost") => t_koma_knowledge::models::NoteSearchScope::GhostOnly,
+            _ => t_koma_knowledge::models::NoteSearchScope::All,
         }
     }
 }
@@ -73,12 +70,8 @@ impl Tool for MemoryGetTool {
             .ok_or("knowledge engine not available")?;
 
         let scope = Self::parse_scope(input.scope);
-        let ctx = t_koma_knowledge::models::KnowledgeContext {
-            ghost_name: context.ghost_name().to_string(),
-            workspace_root: context.workspace_root().to_path_buf(),
-        };
 
-        let doc = engine.memory_get(&ctx, &input.note_id_or_title, scope).await.map_err(|e| e.to_string())?;
+        let doc = engine.memory_get(context.ghost_name(), &input.note_id_or_title, scope).await.map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())
     }
 }

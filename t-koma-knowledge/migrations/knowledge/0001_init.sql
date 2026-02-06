@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS notes (
     content_hash TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     CHECK (
-        (scope IN ('ghost_private','ghost_projects','ghost_diary') AND owner_ghost IS NOT NULL)
-        OR (scope IN ('shared','reference') AND owner_ghost IS NULL)
+        (scope IN ('ghost_note','ghost_reference','ghost_diary') AND owner_ghost IS NOT NULL)
+        OR (scope IN ('shared_note','shared_reference') AND owner_ghost IS NULL)
     )
 );
 
