@@ -163,7 +163,7 @@ impl ContentRegistry {
                 .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
             let front: PromptFrontMatter = toml::from_str(&front_matter)
                 .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
-            let template = PromptTemplate::from_parts(front, body)?;
+            let template = PromptTemplate::from_parts(front, body, path.clone())?;
 
             validate_template_identity(&template.id, &id_from_name, &template.scope, suffix.as_deref())?;
 

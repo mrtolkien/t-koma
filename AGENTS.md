@@ -33,34 +33,54 @@ Relationship summary:
 - A ghost can have multiple sessions with its owner.
 - Ghost names are unique per T-KOMA.
 
-## Development Flow
+## Code organization and style
+
+### MCPs
+
+Make extensive use of MCPs available to you:
+
+- context7 for up-to-date library doc
+- rust-analyzer-mcp for refactors and code actions (file name changes, ...)
+- gh for interacting with github, including reading files
+
+### Development Flow
 
 - Always start by creating a markdown spec in `vibe/specs/` for validation by
   the user.
-- After validation, create an append-only tracking file in `vibe/ongoing/`.
-- Update the ongoing file after each meaningful step.
+- Make sure you are running in a git worktree to isolate your changes
 - Iterate until all spec items are built and, if realistic, tested.
-- Run `cargo check --all-features --all-targets`.
-- Run `cargo clippy --all-features --all-targets`.
-- Run `cargo test` (no live-tests).
+  - At each step of the integration:
+    - Run `cargo check --all-features --all-targets`.
+    - Run `cargo clippy --all-features --all-targets`.
+    - Run `cargo test` (no live-tests).
+  - Once an atomic feature is added, make an atomic commit in the
+    conventional-commit style (`feat:`, `fix:`, ...)
 - Rename the spec file to start with `_` when complete.
+- Create a pull request with the gh mcp
 
-## Project Layout (Short)
+### Locality of Concern
+
+- Files that describe or support a feature should live near the feature's crate
+  or module.
+  - For example knowledge-system prompts live inside
+    `t-koma-knowledge/knowledge/prompts`.
+
+### Project Layout (Short)
 
 - `t-koma-core`: Shared types, config, WebSocket message schema.
-- `t-koma-db`: SQLite layer. Split into T-KOMA DB and per-ghost DBs.
+- `t-koma-db`: SQLite layer for operators/ghosts/interfaces/sessions.
+- `t-koma-knowledge`: Knowledge and memory indexing/search crate (tools-only
+  gateway surface).
 - `t-koma-gateway`: T-KOMA server, providers, chat/session orchestration, tools,
   and transport handlers.
 - `t-koma-cli`: TUI + management CLI.
 
 ## Database Notes
 
-- T-KOMA DB: operators, ghosts, interfaces. Stored at platform data dir.
-- Ghost DB: sessions and messages. Stored at
-  `.../t-koma/ghosts/{name}/db.sqlite3`.
-- Ghost workspace CWD is the same folder as its DB.
+- SQLite storage for operators, ghosts, interfaces, sessions, and messages lives
+  under the platform data dir and ghost workspaces.
 - Reference schemas: `t-koma-db/schema.sql`, `t-koma-db/ghost_schema.sql`.
-- Shared SQLite runtime bootstrap lives in `t-koma-db/src/sqlite_runtime.rs`
+- SQLite runtime bootstrap lives in `t-koma-db/src/sqlite_runtime.rs`
   (sqlite-vec init, pool options, PRAGMAs).
 
 Key types:
@@ -192,7 +212,7 @@ Full examples live in:
 - Messages: add to `t-koma-gateway/messages/en/*.toml` as `[message-id]` with
   `body` and optional `vars`/`title`. Use `{{var}}`.
 - Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
-  and a `# loaded:` comment.
+  and a `# loaded:` comment to know where they are used.
 - Update `t-koma-gateway/src/content/ids.rs` after changes.
 
 ## Common Tasks (Pointer Only)
@@ -207,3 +227,8 @@ Detailed how-tos are in `vibe/knowledge/`:
 - Anthropic/OpenRouter specifics: `vibe/knowledge/anthropic_claude_api.md`,
   `vibe/knowledge/openrouter.md`
 - sqlite-vec notes: `vibe/knowledge/sqlite-vec.md`
+
+ALWAYS read relevant files in knowledge.md before implementing a feature. If you
+see outdated information, update it. If you learn something new during the task
+that will be useful for future tasks, create a new knowledge file and list it
+here.

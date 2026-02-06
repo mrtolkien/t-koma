@@ -117,7 +117,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create shared application state
-    let state = Arc::new(AppState::new(default_model_alias, models, koma_db));
+    let knowledge_settings = t_koma_knowledge::KnowledgeSettings::from(&config.settings.tools.knowledge);
+    let state = Arc::new(AppState::new(
+        default_model_alias,
+        models,
+        koma_db,
+        knowledge_settings,
+    ));
+    state.start_shared_knowledge_watcher().await;
 
     // Get Discord token from secrets
     let discord_token = config.discord_bot_token().map(|s| s.to_string());

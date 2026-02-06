@@ -199,7 +199,7 @@ fn extract_template_vars(template: &str) -> Vec<String> {
             break;
         };
         let var = after_start[..end].trim();
-        if !var.is_empty() {
+        if !var.is_empty() && !var.trim().starts_with("include ") {
             vars.push(var.to_string());
         }
         rest = &after_start[end + 2..];

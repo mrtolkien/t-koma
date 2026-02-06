@@ -1,4 +1,5 @@
 use tracing::info;
+use chrono::{Duration as ChronoDuration, Utc};
 
 use crate::chat::history::{ChatMessage, build_history_messages};
 use crate::prompt::SystemPrompt;
@@ -144,7 +145,9 @@ impl SessionChat {
 
         // Build system prompt with tools
         let tools = self.tool_manager.get_tools();
-        let system_prompt = SystemPrompt::with_tools(&tools);
+        let mut system_prompt = SystemPrompt::with_tools(&tools);
+        self.add_ghost_prompt_context(&mut system_prompt, ghost_db.workspace_path())
+            .await?;
         let system_blocks = build_system_prompt(&system_prompt);
 
         // Build API messages from history
@@ -487,7 +490,9 @@ impl SessionChat {
         let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
 
         let tools = self.tool_manager.get_tools();
-        let system_prompt = SystemPrompt::with_tools(&tools);
+        let mut system_prompt = SystemPrompt::with_tools(&tools);
+        self.add_ghost_prompt_context(&mut system_prompt, ghost_db.workspace_path())
+            .await?;
         let system_blocks = build_system_prompt(&system_prompt);
         let api_messages = build_history_messages(&history, Some(50));
 
@@ -556,6 +561,76 @@ impl SessionChat {
         GhostRepository::update_tool_state_by_name(koma_db.pool(), context.ghost_name(), &cwd)
             .await?;
         context.clear_dirty();
+        Ok(())
+    }
+
+    async fn add_ghost_prompt_context(
+        &self,
+        system_prompt: &mut SystemPrompt,
+        workspace_root: &std::path::Path,
+    ) -> Result<(), ChatError> {
+        let boot = workspace_root.join("BOOT.md");
+        let soul = workspace_root.join("SOUL.md");
+        let user = workspace_root.join("USER.md");
+        let diary_root = workspace_root.join("diary");
+        let projects_root = workspace_root.join("projects");
+
+        if let Ok(content) = tokio::fs::read_to_string(&boot).await
+            && !content.trim().is_empty()
+        {
+            system_prompt.add_context(format!("# BOOT.md\n\n{}", content.trim()), false);
+        }
+        if let Ok(content) = tokio::fs::read_to_string(&soul).await
+            && !content.trim().is_empty()
+        {
+            system_prompt.add_context(format!("# SOUL.md\n\n{}", content.trim()), false);
+        }
+        if let Ok(content) = tokio::fs::read_to_string(&user).await
+            && !content.trim().is_empty()
+        {
+            system_prompt.add_context(format!("# USER.md\n\n{}", content.trim()), false);
+        }
+
+        let today = Utc::now().date_naive();
+        for day in [today, today - ChronoDuration::days(1)] {
+            let path = diary_root.join(format!("{}.md", day));
+            if let Ok(content) = tokio::fs::read_to_string(&path).await
+                && !content.trim().is_empty()
+            {
+                system_prompt.add_context(
+                    format!("# Diary {}\n\n{}", day.format("%Y-%m-%d"), content.trim()),
+                    false,
+                );
+            }
+        }
+
+        if let Ok(mut entries) = tokio::fs::read_dir(&projects_root).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                if path.file_name().and_then(|v| v.to_str()) == Some(".archive") {
+                    continue;
+                }
+                let readme = path.join("README.md");
+                if let Ok(content) = tokio::fs::read_to_string(&readme).await {
+                    let paragraph = content
+                        .split("\n\n")
+                        .find(|para| !para.trim().is_empty())
+                        .unwrap_or("")
+                        .trim();
+                    if !paragraph.is_empty() {
+                        let name = path.file_name().and_then(|v| v.to_str()).unwrap_or("project");
+                        system_prompt.add_context(
+                            format!("# Project {}\n\n{}", name, paragraph),
+                            false,
+                        );
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 

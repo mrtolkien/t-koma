@@ -73,7 +73,13 @@ pub fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
         },
     );
 
-    Arc::new(AppState::new(default_model.alias, models, db))
+    let knowledge_settings = t_koma_knowledge::KnowledgeSettings::default();
+    Arc::new(AppState::new(
+        default_model.alias,
+        models,
+        db,
+        knowledge_settings,
+    ))
 }
 
 #[allow(dead_code)]

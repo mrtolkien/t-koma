@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 t-koma-core.workspace = true
 t-koma-db = { path = "../t-koma-db" }
+t-koma-knowledge = { path = "../t-koma-knowledge" }
 
 # Async runtime
 tokio.workspace = true

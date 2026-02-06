@@ -113,6 +113,10 @@ pub struct ToolsSettings {
     /// Web tools settings
     #[serde(default)]
     pub web: WebToolsSettings,
+
+    /// Knowledge tools settings
+    #[serde(default)]
+    pub knowledge: KnowledgeToolsSettings,
 }
 
 /// Web tools configuration
@@ -129,6 +133,52 @@ pub struct WebToolsSettings {
     /// Web fetch settings
     #[serde(default)]
     pub fetch: WebFetchSettings,
+}
+
+/// Knowledge tools configuration
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct KnowledgeToolsSettings {
+    /// Embedding provider base URL
+    pub embedding_url: Option<String>,
+
+    /// Embedding model name
+    pub embedding_model: Option<String>,
+
+    /// Embedding dimension (if known)
+    pub embedding_dim: Option<usize>,
+
+    /// Embedding batch size
+    pub embedding_batch: Option<usize>,
+
+    /// Reconciliation interval in seconds
+    pub reconcile_seconds: Option<u64>,
+
+    /// Optional override for shared knowledge root
+    pub shared_root_override: Option<String>,
+
+    /// Optional override for reference root
+    pub reference_root_override: Option<String>,
+
+    /// Optional override for knowledge index DB path
+    pub knowledge_db_path_override: Option<String>,
+
+    /// Optional override for types allowlist path
+    pub types_allowlist_path: Option<String>,
+
+    /// Search defaults
+    #[serde(default)]
+    pub search: KnowledgeSearchSettings,
+}
+
+/// Knowledge search defaults
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct KnowledgeSearchSettings {
+    pub rrf_k: Option<usize>,
+    pub max_results: Option<usize>,
+    pub graph_depth: Option<u8>,
+    pub graph_max: Option<usize>,
+    pub bm25_limit: Option<usize>,
+    pub dense_limit: Option<usize>,
 }
 
 /// Web search settings
