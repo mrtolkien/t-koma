@@ -8,8 +8,9 @@ use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
     DiaryQuery, DiarySearchResult, KnowledgeScope, NoteCreateRequest, NoteDocument, NoteQuery,
     NoteResult, NoteSearchScope, NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus,
-    ReferenceQuery, ReferenceSearchResult, TopicCreateRequest, TopicCreateResult, TopicListEntry,
-    TopicSearchResult, TopicUpdateRequest, WriteScope,
+    ReferenceQuery, ReferenceSearchResult, ReferenceSaveRequest, ReferenceSaveResult,
+    TopicCreateRequest, TopicCreateResult, TopicListEntry, TopicSearchResult, TopicUpdateRequest,
+    WriteScope,
 };
 use crate::paths::knowledge_db_path;
 use crate::storage::KnowledgeStore;
@@ -17,6 +18,7 @@ use crate::storage::KnowledgeStore;
 pub(crate) mod get;
 pub(crate) mod notes;
 pub(crate) mod reference;
+pub(crate) mod save;
 pub(crate) mod search;
 pub(crate) mod topics;
 
@@ -196,6 +198,15 @@ impl KnowledgeEngine {
         max_chars: Option<usize>,
     ) -> KnowledgeResult<NoteDocument> {
         reference::reference_get(self, note_id, topic, file_path, max_chars).await
+    }
+
+    /// Save content to a reference topic, creating topic and collection if needed.
+    pub async fn reference_save(
+        &self,
+        ghost_name: &str,
+        request: ReferenceSaveRequest,
+    ) -> KnowledgeResult<ReferenceSaveResult> {
+        save::reference_save(self, ghost_name, request).await
     }
 
     /// Build an approval summary for a topic creation request (Phase 1).
