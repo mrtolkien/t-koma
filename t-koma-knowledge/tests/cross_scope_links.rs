@@ -131,3 +131,99 @@ async fn test_cross_scope_link_resolution() {
         .iter()
         .any(|link| matches!(link.scope, t_koma_knowledge::models::KnowledgeScope::SharedNote)));
 }
+
+/// Verify that ghost notes can link to shared reference topics via wiki links.
+#[tokio::test]
+async fn test_ghost_note_links_to_reference_topic() {
+    let temp = TempDir::new().expect("tempdir");
+    let data_root = temp.path().join("data");
+    let reference_root = data_root.join("shared").join("references");
+    let ghost_root = data_root.join("ghosts").join("ghost").join("notes");
+
+    tokio::fs::create_dir_all(&reference_root).await.unwrap();
+    tokio::fs::create_dir_all(&ghost_root).await.unwrap();
+
+    let db_path = data_root.join("shared").join("index.sqlite3");
+    let store = KnowledgeStore::open(&db_path, Some(8))
+        .await
+        .unwrap();
+
+    // Insert a SharedReference topic note
+    let ref_topic = NoteRecord {
+        id: "ref-topic-1".to_string(),
+        title: "Dioxus Framework".to_string(),
+        note_type: "ReferenceTopic".to_string(),
+        type_valid: true,
+        path: reference_root.join("dioxus/topic.md"),
+        scope: "shared_reference".to_string(),
+        owner_ghost: None,
+        created_at: "2025-01-01T00:00:00Z".to_string(),
+        created_by_ghost: "researcher".to_string(),
+        created_by_model: "claude".to_string(),
+        trust_score: 10,
+        last_validated_at: None,
+        last_validated_by_ghost: None,
+        last_validated_by_model: None,
+        version: None,
+        parent_id: None,
+        comments_json: None,
+        content_hash: "ref-topic-hash".to_string(),
+    };
+    upsert_note(store.pool(), &ref_topic).await.unwrap();
+
+    // Insert a ghost note that wiki-links to the reference topic
+    let ghost_note = NoteRecord {
+        id: "ghost-note-2".to_string(),
+        title: "UI Research Notes".to_string(),
+        note_type: "Idea".to_string(),
+        type_valid: true,
+        path: ghost_root.join("ui-research.md"),
+        scope: "ghost_note".to_string(),
+        owner_ghost: Some("ghost".to_string()),
+        created_at: "2025-01-01T00:00:00Z".to_string(),
+        created_by_ghost: "ghost".to_string(),
+        created_by_model: "model".to_string(),
+        trust_score: 5,
+        last_validated_at: None,
+        last_validated_by_ghost: None,
+        last_validated_by_model: None,
+        version: None,
+        parent_id: None,
+        comments_json: None,
+        content_hash: "ghost-note-2-hash".to_string(),
+    };
+    upsert_note(store.pool(), &ghost_note).await.unwrap();
+
+    // Create a wiki link from ghost note to reference topic by title
+    replace_links(
+        store.pool(),
+        "ghost-note-2",
+        Some("ghost"),
+        &[("Dioxus Framework".to_string(), None)],
+    )
+    .await
+    .unwrap();
+
+    // Verify the link resolves cross-scope
+    let links = load_links_out(
+        store.pool(),
+        "ghost-note-2",
+        10,
+        t_koma_knowledge::models::KnowledgeScope::GhostNote,
+        "ghost",
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        links.iter().any(|link| link.title == "Dioxus Framework"),
+        "expected link to reference topic 'Dioxus Framework', got: {links:?}"
+    );
+    assert!(
+        links.iter().any(|link| matches!(
+            link.scope,
+            t_koma_knowledge::models::KnowledgeScope::SharedReference
+        )),
+        "expected link scope to be SharedReference, got: {links:?}"
+    );
+}
