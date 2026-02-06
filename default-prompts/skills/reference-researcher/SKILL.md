@@ -44,24 +44,26 @@ Do NOT create a reference topic for:
 
 Follow this priority order to understand the topic before creating a reference:
 
-1. **Find the repository**: Use `gh search repos` to locate the main repo.
-   ```
-   run_shell_command(command="gh search repos 'dioxus' --language=Rust --sort=stars --limit=5")
-   ```
-
-2. **Read repo metadata**: Use `gh api` to get description, stars, topics.
-   ```
-   run_shell_command(command="gh api repos/DioxusLabs/dioxus --jq '.description, .stargazers_count, .topics'")
-   ```
-
-3. **Find documentation sites**: Use `web_search` to find official docs.
+1. **Find documentation first**: Use `web_search` to find official docs. Many
+   projects have a dedicated docsite repo (e.g. `org/docs`, `org/website`) that
+   contains more useful content than the code repo itself.
    ```
    web_search(query="dioxus official documentation site")
    ```
 
-4. **Read key pages**: Use `web_fetch` to read specific doc pages.
+2. **Read key doc pages**: Use `web_fetch` to read specific doc pages.
    ```
    web_fetch(url="https://dioxuslabs.com/learn/0.6/", prompt="What are the key concepts and getting started steps?")
+   ```
+
+3. **Find the code repository**: Use `gh search repos` to locate the main repo.
+   ```
+   run_shell_command(command="gh search repos 'dioxus' --language=Rust --sort=stars --limit=5")
+   ```
+
+4. **Read repo metadata**: Use `gh api` to get description, stars, topics.
+   ```
+   run_shell_command(command="gh api repos/DioxusLabs/dioxus --jq '.description, .stargazers_count, .topics'")
    ```
 
 5. **Understand before creating**: Read enough to write a meaningful topic
@@ -82,12 +84,24 @@ asked to approve before anything is downloaded.
   "body": "Dioxus is a portable, performant framework for building cross-platform UIs in Rust...",
   "sources": [
     {"type": "git", "url": "https://github.com/DioxusLabs/dioxus", "ref": "main"},
+    {"type": "git", "url": "https://github.com/DioxusLabs/docsite", "ref": "main", "role": "docs"},
     {"type": "web", "url": "https://dioxuslabs.com/learn/0.6/"}
   ],
   "tags": ["rust", "ui", "framework", "dioxus"],
   "max_age_days": 30
 }
 ```
+
+#### Source Roles
+
+Each source has an optional `role` field: `"docs"` or `"code"`.
+
+- **`docs`**: Documentation content. Boosted in search results (1.5x by default).
+- **`code`**: Source code. Normal ranking.
+- If omitted, role is inferred: `web` sources default to `docs`, `git` sources
+  default to `code`.
+- For git repos that are primarily documentation (docsites, wikis), set
+  `"role": "docs"` explicitly to get the search boost.
 
 ### If the Operator Denies (Too Large)
 
@@ -128,13 +142,20 @@ the specific pages you want indexed:
 
 ## Writing a Good Topic Description
 
-The `body` field is indexed and searchable. Write it as if explaining the topic
-to another ghost who has never heard of it:
+The `body` is passed IN FULL to the LLM as context when `reference_search`
+matches the topic. Write it as a concise briefing — not a tutorial, not a full
+explanation, but the essential context an LLM needs to work with this technology:
 
-- What is this library/framework?
-- What problem does it solve?
-- What are the key concepts and abstractions?
-- What are common patterns or gotchas?
+1. **Opening paragraph**: A 2-3 sentence recap of the topic (good for
+   embeddings and discoverability).
+2. **Key concepts**: Bullet-point the core abstractions, terminology, and
+   patterns the LLM should know when reading the reference files.
+3. **Content notes**: Caveats about the reference contents — known gaps, version
+   discrepancies, areas where the docs are weak. These notes help the LLM
+   interpret search results correctly.
+
+Do NOT include code examples in the body — those belong in the reference files
+themselves. The body is context, not content.
 
 A good body makes the topic discoverable via `reference_topic_search` even when
 the searcher uses different terminology than the topic title.
@@ -154,6 +175,25 @@ the searcher uses different terminology than the topic title.
   `"obsolete"` when the library is deprecated or superseded.
 - **Tag updates**: Keep tags current to aid discoverability.
 
+### Marking Individual Files
+
+Use `reference_file_update` to manage the quality of individual reference files.
+Three status levels:
+
+- **`active`** (default): Normal ranking in search results.
+- **`problematic`**: File has some incorrect or misleading information. Still
+  searchable, but penalized (0.5x score). Use when a file is partially wrong
+  but still contains useful content. Always provide a reason.
+- **`obsolete`**: File is completely outdated or wrong. Excluded from search
+  entirely. Use when a file would actively mislead. Always provide a reason.
+
+```
+reference_file_update(note_id="abc123", status="problematic", reason="API examples use v0.4 syntax, current version is v0.6")
+```
+
+The reason is appended to the topic.md body as a warning note, so future
+researchers (ghosts or humans) understand why the file was flagged.
+
 ## Using Reference Material
 
 After creating a topic, use `reference_search` to find specific information
@@ -164,4 +204,13 @@ reference_search(topic="dioxus", question="how to handle form input events")
 ```
 
 This searches the chunked and embedded source files, returning the most relevant
-code snippets and documentation passages.
+code snippets and documentation passages. The response also includes the full
+topic body as context.
+
+To read the complete content of a specific reference file (not just snippets),
+use `reference_get`:
+
+```
+reference_get(topic="dioxus", file_path="examples/form_input.rs")
+reference_get(note_id="abc123")
+```

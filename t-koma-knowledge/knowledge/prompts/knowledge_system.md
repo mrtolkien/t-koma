@@ -40,7 +40,9 @@ Front matter (TOML between `+++`):
 - `memory_search`: hybrid search across shared + ghost memory. Default scope is `all`.
 - `memory_get`: fetch full note by id/title. Resolves across allowed scopes.
 - `memory_capture`: append raw info to inbox for later curation. Default scope is `ghost` (private).
-- `reference_search`: find topic by embeddings, then search its files.
+- `reference_search`: find topic by embeddings, then search its files. Returns full topic.md body as LLM context plus ranked file chunks. Documentation sources are boosted over code.
+- `reference_get`: fetch the full content of a reference file by note_id or topic+path. Use when you need the complete file, not just search snippets.
+- `reference_file_update`: mark a reference file as active, problematic, or obsolete. Adds a warning to the topic page. Use when you discover outdated or incorrect reference content.
 - `memory_note_create`: create a structured note with validated front matter.
 - `memory_note_update`: patch an existing note (title, body, tags, trust).
 - `memory_note_validate`: record validation metadata and adjust trust score.
