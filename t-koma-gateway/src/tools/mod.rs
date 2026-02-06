@@ -56,12 +56,4 @@ pub trait Tool: Send + Sync {
     fn prompt(&self) -> Option<&'static str> {
         None
     }
-
-    /// Skill name required to unlock this tool.
-    ///
-    /// Returns `None` for always-visible tools (default). Skill-gated tools
-    /// override this to return the skill name that must be loaded first.
-    fn requires_skill(&self) -> Option<&str> {
-        None
-    }
 }

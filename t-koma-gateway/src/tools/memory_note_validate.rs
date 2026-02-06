@@ -18,11 +18,7 @@ impl Tool for MemoryNoteValidateTool {
     }
 
     fn description(&self) -> &str {
-        "Record validation metadata and optionally adjust trust score."
-    }
-
-    fn requires_skill(&self) -> Option<&str> {
-        Some("note-writer")
+        "Record validation metadata and optionally adjust trust score. Load the note-writer skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

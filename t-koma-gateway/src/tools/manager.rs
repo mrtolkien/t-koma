@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use serde_json::Value;
 
 use super::{
@@ -61,35 +59,9 @@ impl ToolManager {
         Self { tools }
     }
 
-    /// Get all tools (unfiltered) for backward compatibility and tests.
+    /// Get all tools as references for use with the provider API.
     pub fn get_tools(&self) -> Vec<&dyn Tool> {
         self.tools.iter().map(|t| t.as_ref()).collect()
-    }
-
-    /// Get tools visible to the ghost, filtered by unlocked skills.
-    ///
-    /// Always-visible tools (where `requires_skill()` returns `None`) are
-    /// always included. Skill-gated tools are only included if their required
-    /// skill name appears in `unlocked_tools`.
-    ///
-    /// Skill-gated tools are appended after always-visible tools to maximize
-    /// Anthropic prompt cache hits for the stable prefix.
-    pub fn get_visible_tools(&self, unlocked_tools: &HashSet<String>) -> Vec<&dyn Tool> {
-        let mut always_visible = Vec::new();
-        let mut skill_unlocked = Vec::new();
-
-        for tool in &self.tools {
-            match tool.requires_skill() {
-                None => always_visible.push(tool.as_ref()),
-                Some(skill) if unlocked_tools.contains(skill) => {
-                    skill_unlocked.push(tool.as_ref())
-                }
-                Some(_) => {} // hidden
-            }
-        }
-
-        always_visible.extend(skill_unlocked);
-        always_visible
     }
 
     /// Execute a tool by name with the given input and context

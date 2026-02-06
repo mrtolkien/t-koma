@@ -21,11 +21,7 @@ impl Tool for ReferenceTopicUpdateTool {
     }
 
     fn description(&self) -> &str {
-        "Update reference topic metadata (status, body, tags, max_age_days) without re-fetching sources."
-    }
-
-    fn requires_skill(&self) -> Option<&str> {
-        Some("reference-researcher")
+        "Update reference topic metadata (status, body, tags, max_age_days) without re-fetching sources. Load the reference-researcher skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

@@ -18,11 +18,7 @@ impl Tool for MemoryNoteCommentTool {
     }
 
     fn description(&self) -> &str {
-        "Add a comment entry to a note's front matter."
-    }
-
-    fn requires_skill(&self) -> Option<&str> {
-        Some("note-writer")
+        "Add a comment entry to a note's front matter. Load the note-writer skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

@@ -39,8 +39,6 @@ pub struct Skill {
     pub license: Option<String>,
     /// Optional compatibility notes
     pub compatibility: Option<String>,
-    /// Tool names that this skill unlocks when loaded.
-    pub unlocks_tools: Vec<String>,
     /// Additional metadata
     pub metadata: HashMap<String, String>,
     /// Path to the skill directory
@@ -57,7 +55,6 @@ impl Skill {
             description: String::new(),
             license: None,
             compatibility: None,
-            unlocks_tools: Vec::new(),
             metadata: HashMap::new(),
             path,
             content: None,
@@ -139,14 +136,6 @@ impl Skill {
         // Extract optional fields
         self.license = doc["license"].as_str().map(|s| s.to_string());
         self.compatibility = doc["compatibility"].as_str().map(|s| s.to_string());
-
-        // Extract unlocks_tools list
-        if let Some(tools) = doc["unlocks_tools"].as_vec() {
-            self.unlocks_tools = tools
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-        }
 
         // Extract metadata
         if let Some(metadata) = doc["metadata"].as_hash() {

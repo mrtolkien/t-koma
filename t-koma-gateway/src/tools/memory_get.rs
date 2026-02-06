@@ -47,11 +47,7 @@ impl Tool for MemoryGetTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch a full memory note by id or title."
-    }
-
-    fn requires_skill(&self) -> Option<&str> {
-        Some("note-writer")
+        "Fetch a full memory note by id or title. Load the note-writer skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

@@ -2,12 +2,6 @@
 name: note-writer
 description: Create and manage structured knowledge notes. Use when you need to persist important information, create concept notes, record decisions, or maintain a knowledge base.
 license: MIT
-unlocks_tools:
-  - memory_note_create
-  - memory_note_update
-  - memory_note_validate
-  - memory_note_comment
-  - memory_get
 metadata:
   author: t-koma
   version: "1.0"

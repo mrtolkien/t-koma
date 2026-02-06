@@ -34,11 +34,7 @@ impl Tool for MemoryNoteCreateTool {
     }
 
     fn description(&self) -> &str {
-        "Create a structured note with validated front matter."
-    }
-
-    fn requires_skill(&self) -> Option<&str> {
-        Some("note-writer")
+        "Create a structured note with validated front matter. Load the note-writer skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

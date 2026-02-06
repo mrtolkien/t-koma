@@ -34,11 +34,7 @@ impl Tool for ReferenceTopicCreateTool {
     }
 
     fn description(&self) -> &str {
-        "Create a new reference topic by fetching external sources (git repos, web pages), indexing with embeddings."
-    }
-
-    fn requires_skill(&self) -> Option<&str> {
-        Some("reference-researcher")
+        "Create a new reference topic by fetching external sources (git repos, web pages), indexing with embeddings. Load the reference-researcher skill first for best results."
     }
 
     fn input_schema(&self) -> Value {

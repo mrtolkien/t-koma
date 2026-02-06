@@ -22,11 +22,7 @@ impl Tool for MemoryNoteUpdateTool {
     }
 
     fn description(&self) -> &str {
-        "Update an existing note (title, body, tags, trust, parent)."
-    }
-
-    fn requires_skill(&self) -> Option<&str> {
-        Some("note-writer")
+        "Update an existing note (title, body, tags, trust, parent). Load the note-writer skill first for best results."
     }
 
     fn input_schema(&self) -> Value {
