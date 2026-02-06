@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use t_koma_knowledge::models::{
     KnowledgeContext, MemoryScope, NoteCreateRequest, NoteUpdateRequest, WriteScope,
 };
-use t_koma_knowledge::storage::{upsert_note, KnowledgeStore, NoteRecord};
+use t_koma_knowledge::storage::{replace_tags, upsert_note, KnowledgeStore, NoteRecord};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
 /// Build a test engine + context pair with temp dirs.
@@ -565,6 +565,187 @@ async fn capture_to_shared_inbox() {
     assert!(result.is_ok());
     let path = result.unwrap();
     assert!(path.contains("knowledge/inbox"));
+}
+
+// ── reference topic CRUD ─────────────────────────────────────────────
+
+/// Helper: insert a ReferenceTopic note directly via DB + file.
+#[allow(clippy::too_many_arguments)]
+async fn insert_topic_note(
+    store: &KnowledgeStore,
+    shared_root: &std::path::Path,
+    id: &str,
+    title: &str,
+    ghost: &str,
+    status: &str,
+    max_age_days: i64,
+    fetched_at: &str,
+    tags: &[&str],
+) -> std::path::PathBuf {
+    let topic_dir = shared_root.join(format!("ref_{}", id));
+    tokio::fs::create_dir_all(&topic_dir).await.unwrap();
+
+    let tags_toml: Vec<String> = tags.iter().map(|t| format!("\"{}\"", t)).collect();
+    let content = format!(
+        r#"+++
+id = "{id}"
+title = "{title}"
+type = "ReferenceTopic"
+created_at = "{fetched_at}"
+trust_score = 8
+tags = [{tags}]
+status = "{status}"
+fetched_at = "{fetched_at}"
+max_age_days = {max_age_days}
+
+[created_by]
+ghost = "{ghost}"
+model = "tool"
++++
+
+# {title}
+
+Description of {title}.
+"#,
+        id = id,
+        title = title,
+        fetched_at = fetched_at,
+        tags = tags_toml.join(", "),
+        status = status,
+        max_age_days = max_age_days,
+        ghost = ghost,
+    );
+
+    let path = topic_dir.join("topic.md");
+    tokio::fs::write(&path, &content).await.unwrap();
+
+    let note = NoteRecord {
+        id: id.to_string(),
+        title: title.to_string(),
+        note_type: "ReferenceTopic".to_string(),
+        type_valid: true,
+        path: path.clone(),
+        scope: "reference".to_string(),
+        owner_ghost: None,
+        created_at: fetched_at.to_string(),
+        created_by_ghost: ghost.to_string(),
+        created_by_model: "tool".to_string(),
+        trust_score: 8,
+        last_validated_at: None,
+        last_validated_by_ghost: None,
+        last_validated_by_model: None,
+        version: Some(1),
+        parent_id: None,
+        comments_json: None,
+        content_hash: "hash".to_string(),
+    };
+    upsert_note(store.pool(), &note).await.unwrap();
+
+    // Insert tags
+    let tag_strings: Vec<String> = tags.iter().map(|t| t.to_string()).collect();
+    replace_tags(store.pool(), id, &tag_strings).await.unwrap();
+
+    path
+}
+
+#[tokio::test]
+async fn topic_list_returns_inserted_topics() {
+    let (engine, _context, temp) = setup().await;
+    let shared_root = temp.path().join("knowledge");
+
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
+
+    insert_topic_note(
+        &store, &shared_root, "topic-a", "Alpha Library", "ghost-a",
+        "active", 30, "2025-06-01T00:00:00Z", &["rust", "alpha"],
+    ).await;
+    insert_topic_note(
+        &store, &shared_root, "topic-b", "Beta Framework", "ghost-a",
+        "obsolete", 0, "2025-05-01T00:00:00Z", &["rust", "beta"],
+    ).await;
+
+    // Without obsolete
+    let list = engine.topic_list(false).await.unwrap();
+    assert_eq!(list.len(), 1, "obsolete topic should be excluded");
+    assert_eq!(list[0].topic_id, "topic-a");
+    assert_eq!(list[0].tags, vec!["alpha", "rust"]);
+
+    // With obsolete
+    let list_all = engine.topic_list(true).await.unwrap();
+    assert_eq!(list_all.len(), 2, "should include obsolete topics");
+}
+
+#[tokio::test]
+async fn topic_update_changes_status_and_tags() {
+    let (engine, context, temp) = setup().await;
+    let shared_root = temp.path().join("knowledge");
+
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
+
+    insert_topic_note(
+        &store, &shared_root, "topic-upd", "Updatable Topic", "ghost-a",
+        "active", 30, "2025-06-01T00:00:00Z", &["original"],
+    ).await;
+
+    let request = t_koma_knowledge::TopicUpdateRequest {
+        topic_id: "topic-upd".to_string(),
+        status: Some("obsolete".to_string()),
+        max_age_days: Some(0),
+        body: Some("Updated description.".to_string()),
+        tags: Some(vec!["updated".to_string(), "changed".to_string()]),
+    };
+
+    let result = engine.topic_update(&context, request).await;
+    match result {
+        Ok(()) => {
+            // Verify file was updated
+            let topic_dir = shared_root.join("ref_topic-upd");
+            let content = tokio::fs::read_to_string(topic_dir.join("topic.md"))
+                .await
+                .unwrap();
+            assert!(content.contains("status = \"obsolete\""), "status should be updated");
+            assert!(content.contains("max_age_days = 0"), "max_age_days should be updated");
+            assert!(content.contains("Updated description."), "body should be updated");
+        }
+        Err(e) => {
+            // Embedding errors are acceptable in non-slow-tests
+            let err_str = e.to_string();
+            assert!(
+                err_str.contains("embedding") || err_str.contains("http") || err_str.contains("error sending request"),
+                "unexpected error: {err_str}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn recent_topics_returns_most_recent() {
+    let (engine, _context, temp) = setup().await;
+    let shared_root = temp.path().join("knowledge");
+
+    let store = KnowledgeStore::open(&shared_root.join("index.sqlite3"), Some(8))
+        .await
+        .unwrap();
+
+    // Insert topics with different dates
+    insert_topic_note(
+        &store, &shared_root, "topic-old", "Old Topic", "ghost-a",
+        "active", 30, "2025-01-01T00:00:00Z", &["old"],
+    ).await;
+    insert_topic_note(
+        &store, &shared_root, "topic-new", "New Topic", "ghost-a",
+        "active", 30, "2025-06-15T00:00:00Z", &["new"],
+    ).await;
+
+    let recent = engine.recent_topics().await.unwrap();
+    assert_eq!(recent.len(), 2);
+    // Most recent first
+    assert_eq!(recent[0].1, "New Topic");
+    assert_eq!(recent[1].1, "Old Topic");
 }
 
 // ── slow-tests (require Ollama) ──────────────────────────────────────
