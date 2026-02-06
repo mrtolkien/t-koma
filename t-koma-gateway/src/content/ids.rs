@@ -199,5 +199,8 @@ pub const PROMPT_CODING_GUIDELINES: &str = "coding-guidelines";
 /// content: prompts/system-base.md
 pub const PROMPT_SYSTEM_BASE: &str = "system-base";
 
+/// content: prompts/system-prompt.md
+pub const PROMPT_SYSTEM_PROMPT: &str = "system-prompt";
+
 /// content: prompts/tool-use.md
 pub const PROMPT_TOOL_USE: &str = "tool-use";

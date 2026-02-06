@@ -44,6 +44,8 @@ pub use settings::{
     Settings,
     SettingsError,
     GatewaySettings,
+    KnowledgeToolsSettings,
+    KnowledgeSearchSettings,
 };
 
 /// Combined configuration containing both secrets and settings.

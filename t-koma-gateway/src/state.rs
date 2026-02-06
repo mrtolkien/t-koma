@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::Serialize;
 use std::sync::OnceLock;
+use std::time::Duration;
+
+use serde::Serialize;
 use tokio::sync::{RwLock, broadcast};
+use tokio::task::JoinHandle;
+use tracing::error;
 #[cfg(feature = "live-tests")]
-use tracing::{error, info};
+use tracing::info;
 
 use crate::providers::provider::Provider;
 #[cfg(feature = "live-tests")]
@@ -173,6 +177,15 @@ pub struct AppState {
     pending_tool_loops: RwLock<HashMap<String, PendingToolContinuation>>,
     /// High-level chat interface - handles all conversation logic including tools
     pub session_chat: SessionChat,
+
+    /// Knowledge settings for watchers
+    knowledge_settings: t_koma_knowledge::KnowledgeSettings,
+
+    /// Shared knowledge watcher handle
+    shared_knowledge_watcher: RwLock<Option<JoinHandle<()>>>,
+
+    /// Ghost knowledge watcher handles by ghost name
+    ghost_knowledge_watchers: RwLock<HashMap<String, JoinHandle<()>>>,
 }
 
 /// Model entry tracked by the gateway
@@ -189,6 +202,7 @@ impl AppState {
         default_model_alias: String,
         models: HashMap<String, ModelEntry>,
         koma_db: t_koma_db::KomaDbPool,
+        knowledge_settings: t_koma_knowledge::KnowledgeSettings,
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
         let _ = GLOBAL_LOG_TX.set(log_tx.clone());
@@ -205,6 +219,9 @@ impl AppState {
             pending_tool_approvals: RwLock::new(HashMap::new()),
             pending_tool_loops: RwLock::new(HashMap::new()),
             session_chat,
+            knowledge_settings,
+            shared_knowledge_watcher: RwLock::new(None),
+            ghost_knowledge_watchers: RwLock::new(HashMap::new()),
         }
     }
 
@@ -387,6 +404,8 @@ impl AppState {
         {
             let guard = self.ghost_dbs.read().await;
             if let Some(db) = guard.get(ghost_name) {
+                self.ensure_ghost_watcher(ghost_name, db.workspace_path().to_path_buf())
+                    .await;
                 return Ok(db.clone());
             }
         }
@@ -394,7 +413,67 @@ impl AppState {
         let db = t_koma_db::GhostDbPool::new(ghost_name).await?;
         let mut guard = self.ghost_dbs.write().await;
         guard.insert(ghost_name.to_string(), db.clone());
+        self.ensure_ghost_watcher(ghost_name, db.workspace_path().to_path_buf())
+            .await;
         Ok(db)
+    }
+
+    /// Start the shared knowledge watcher if not already running.
+    pub async fn start_shared_knowledge_watcher(&self) {
+        let mut guard = self.shared_knowledge_watcher.write().await;
+        if let Some(handle) = guard.as_ref()
+            && !handle.is_finished()
+        {
+            return;
+        }
+
+        let settings = self.knowledge_settings.clone();
+        let handle = tokio::spawn(async move {
+            let mut backoff = 2u64;
+            loop {
+                let result =
+                    t_koma_knowledge::watcher::run_shared_watcher(settings.clone()).await;
+                if let Err(err) = result {
+                    error!("shared knowledge watcher crashed: {err}");
+                }
+                tokio::time::sleep(Duration::from_secs(backoff)).await;
+                backoff = (backoff * 2).min(60);
+            }
+        });
+
+        *guard = Some(handle);
+    }
+
+    async fn ensure_ghost_watcher(&self, ghost_name: &str, workspace_root: std::path::PathBuf) {
+        let mut guard = self.ghost_knowledge_watchers.write().await;
+        if let Some(handle) = guard.get(ghost_name)
+            && !handle.is_finished()
+        {
+            return;
+        }
+
+        let settings = self.knowledge_settings.clone();
+        let ghost_name_key = ghost_name.to_string();
+        let ghost_name_log = ghost_name_key.clone();
+        let ghost_name_task = ghost_name_key.clone();
+        let handle = tokio::spawn(async move {
+            let mut backoff = 2u64;
+            loop {
+                let result = t_koma_knowledge::watcher::run_ghost_watcher(
+                    settings.clone(),
+                    workspace_root.clone(),
+                    ghost_name_task.clone(),
+                )
+                .await;
+                if let Err(err) = result {
+                    error!("ghost knowledge watcher crashed ({}): {err}", ghost_name_log);
+                }
+                tokio::time::sleep(Duration::from_secs(backoff)).await;
+                backoff = (backoff * 2).min(60);
+            }
+        });
+
+        guard.insert(ghost_name_key, handle);
     }
 
     /// Set the active ghost for an operator

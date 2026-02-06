@@ -1,0 +1,6 @@
+{
+  "enabledMcpjsonServers": [
+    "rust-analyzer"
+  ],
+  "enableAllProjectMcpServers": true
+}

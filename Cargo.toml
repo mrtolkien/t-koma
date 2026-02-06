@@ -1,5 +1,5 @@
 [workspace]
-members = ["t-koma-core", "t-koma-gateway", "t-koma-cli", "t-koma-db"]
+members = ["t-koma-core", "t-koma-gateway", "t-koma-cli", "t-koma-db", "t-koma-knowledge"]
 resolver = "2"
 
 [workspace.package]

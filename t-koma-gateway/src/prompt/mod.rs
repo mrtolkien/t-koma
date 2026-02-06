@@ -9,7 +9,7 @@ pub mod block;
 pub mod context;
 pub mod render;
 
-pub use base::{base_system_prompt, coding_instructions, full_system_prompt, tool_use_instructions};
+pub use base::full_system_prompt;
 pub use block::{CacheControl, PromptBlock};
 pub use context::{EnvironmentInfo, PromptContext};
 pub use render::{SystemBlock, build_simple_system_prompt, build_system_prompt};
@@ -34,9 +34,7 @@ impl SystemPrompt {
     /// Create a new system prompt with the base t-koma instructions
     pub fn new() -> Self {
         let mut prompt = Self::default();
-        prompt.add_instruction(base_system_prompt(), false);
-        prompt.add_instruction(tool_use_instructions(), false);
-        prompt.add_instruction(coding_instructions(), true); // Cache here
+        prompt.add_instruction(full_system_prompt(), true);
         prompt
     }
 

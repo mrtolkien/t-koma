@@ -2,9 +2,7 @@
 
 use std::{path::Path, sync::OnceLock};
 
-use rusqlite::ffi::{
-    SQLITE_OK, sqlite3, sqlite3_api_routines, sqlite3_auto_extension,
-};
+use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_api_routines, sqlite3_auto_extension};
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -19,7 +17,7 @@ pub(crate) fn init_sqlite_vec_once() -> DbResult<()> {
     let rc = *SQLITE_VEC_INIT_RC.get_or_init(|| unsafe {
         type SqliteVecInitFn = unsafe extern "C" fn(
             *mut sqlite3,
-            *mut *mut i8,
+            *mut *const i8,
             *const sqlite3_api_routines,
         ) -> i32;
 

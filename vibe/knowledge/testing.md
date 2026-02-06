@@ -83,7 +83,7 @@ async fn test_my_conversation_feature() {
 
     let koma_db = t_koma_db::test_helpers::create_test_koma_pool()
         .await
-        .expect("Failed to create test T-KOMA DB");
+        .expect("Failed to create test database pool");
 
     let operator = OperatorRepository::create_new(
         koma_db.pool(),
