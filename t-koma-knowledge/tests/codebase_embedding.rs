@@ -66,11 +66,19 @@ impl CodebaseFixture {
             let dst = topic_dir.join(file_name);
             tokio::fs::copy(&src, &dst)
                 .await
-                .unwrap_or_else(|e| panic!("failed to copy {} -> {}: {}", src.display(), dst.display(), e));
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "failed to copy {} -> {}: {}",
+                        src.display(),
+                        dst.display(),
+                        e
+                    )
+                });
         }
 
         // Write topic.md with TOML front matter
-        let files_toml: Vec<String> = SOURCE_FILES.iter().map(|f| format!("\"{}\"", f)).collect();
+        let files_toml: Vec<String> =
+            SOURCE_FILES.iter().map(|f| format!("\"{}\"", f)).collect();
         let topic_md = format!(
             r#"+++
 id = "topic-knowledge-src"
@@ -139,24 +147,40 @@ fn crate_src_dir() -> PathBuf {
 
 // ── Snapshot helpers ────────────────────────────────────────────────
 
+/// A self-documenting snapshot entry: shows the query, total hit count,
+/// and the top N results with enough snippet to judge relevance.
 #[derive(Debug, Serialize)]
-struct SnapshotHit {
-    title: String,
-    note_type: String,
-    score: String,
-    snippet_preview: String,
+struct SearchSnapshot {
+    query: String,
+    total_hits: usize,
+    top_results: Vec<HitSnapshot>,
 }
 
-fn snapshot_results(results: &[MemoryResult]) -> Vec<SnapshotHit> {
-    results
-        .iter()
-        .map(|r| SnapshotHit {
-            title: r.summary.title.clone(),
-            note_type: r.summary.note_type.clone(),
-            score: format!("{:.4}", r.summary.score),
-            snippet_preview: r.summary.snippet.chars().take(80).collect(),
-        })
-        .collect()
+#[derive(Debug, Serialize)]
+struct HitSnapshot {
+    rank: usize,
+    file: String,
+    note_type: String,
+    snippet: String,
+}
+
+/// Build a snapshot showing the query and the top `n` results.
+fn build_snapshot(query: &str, results: &[MemoryResult], n: usize) -> SearchSnapshot {
+    SearchSnapshot {
+        query: query.to_string(),
+        total_hits: results.len(),
+        top_results: results
+            .iter()
+            .take(n)
+            .enumerate()
+            .map(|(i, r)| HitSnapshot {
+                rank: i + 1,
+                file: r.summary.title.clone(),
+                note_type: r.summary.note_type.clone(),
+                snippet: r.summary.snippet.chars().take(120).collect(),
+            })
+            .collect(),
+    }
 }
 
 // ── Test cases ──────────────────────────────────────────────────────
@@ -166,13 +190,14 @@ fn snapshot_results(results: &[MemoryResult]) -> Vec<SnapshotHit> {
 async fn hybrid_search_finds_search_pipeline() {
     let f = CodebaseFixture::setup().await;
 
+    let question = "hybrid search with BM25 and embeddings";
     let results = f
         .engine
         .reference_search(
             &f.context,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
-                question: "hybrid search with BM25 and embeddings".to_string(),
+                question: question.to_string(),
                 options: Default::default(),
             },
         )
@@ -181,7 +206,6 @@ async fn hybrid_search_finds_search_pipeline() {
 
     assert!(!results.is_empty(), "should find at least one result");
 
-    // Verify search.rs appears in results (it contains the BM25+dense pipeline)
     let has_search_file = results
         .iter()
         .any(|r| r.summary.title.contains("search"));
@@ -190,7 +214,10 @@ async fn hybrid_search_finds_search_pipeline() {
         "search.rs should appear in results for BM25+embeddings query"
     );
 
-    assert_yaml_snapshot!("hybrid_search_finds_search_pipeline", snapshot_results(&results));
+    assert_yaml_snapshot!(
+        "hybrid_search_finds_search_pipeline",
+        build_snapshot(question, &results, 2)
+    );
 }
 
 /// Verify that scope isolation works: a ghost-private note is not visible
@@ -217,6 +244,8 @@ async fn scope_isolation_ghost_vs_reference() {
         )
         .await;
 
+    let question = "BM25 search pipeline";
+
     // Reference search should only return reference-scoped results
     let ref_results = f
         .engine
@@ -224,7 +253,7 @@ async fn scope_isolation_ghost_vs_reference() {
             &f.context,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
-                question: "BM25 search pipeline".to_string(),
+                question: question.to_string(),
                 options: Default::default(),
             },
         )
@@ -245,7 +274,7 @@ async fn scope_isolation_ghost_vs_reference() {
         .memory_search(
             &f.context,
             MemoryQuery {
-                query: "BM25 search pipeline".to_string(),
+                query: question.to_string(),
                 scope: MemoryScope::GhostPrivate,
                 options: Default::default(),
             },
@@ -264,9 +293,17 @@ async fn scope_isolation_ghost_vs_reference() {
     assert_yaml_snapshot!(
         "scope_isolation_ghost_vs_reference",
         serde_json::json!({
-            "reference_result_count": ref_results.len(),
-            "private_note_in_reference": private_leaked,
-            "private_note_in_memory": has_private,
+            "query": question,
+            "reference_search": {
+                "total_hits": ref_results.len(),
+                "contains_private_note": private_leaked,
+                "top_file": ref_results.first().map(|r| &r.summary.title),
+            },
+            "memory_search_ghost_private": {
+                "total_hits": mem_results.len(),
+                "contains_private_note": has_private,
+                "top_title": mem_results.first().map(|r| &r.summary.title),
+            },
         })
     );
 }
@@ -277,23 +314,26 @@ async fn scope_isolation_ghost_vs_reference() {
 async fn toml_front_matter_parsing() {
     let f = CodebaseFixture::setup().await;
 
+    let question = "core source files models search graph";
     let results = f
         .engine
         .reference_search(
             &f.context,
             ReferenceQuery {
                 topic: "t-koma-knowledge source".to_string(),
-                question: "core source files models search graph".to_string(),
+                question: question.to_string(),
                 options: Default::default(),
             },
         )
         .await
         .expect("reference search");
 
-    // The topic itself should be findable
     assert!(!results.is_empty(), "should find reference topic results");
 
-    assert_yaml_snapshot!("toml_front_matter_parsing", snapshot_results(&results));
+    assert_yaml_snapshot!(
+        "toml_front_matter_parsing",
+        build_snapshot(question, &results, 2)
+    );
 }
 
 /// Verify that tree-sitter code chunking produces meaningful chunks from
@@ -302,14 +342,14 @@ async fn toml_front_matter_parsing() {
 async fn tree_sitter_code_chunking() {
     let f = CodebaseFixture::setup().await;
 
-    // Query for a specific function that should be in its own chunk
+    let question = "sanitize FTS5 query quoting tokens";
     let results = f
         .engine
         .reference_search(
             &f.context,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
-                question: "sanitize FTS5 query quoting tokens".to_string(),
+                question: question.to_string(),
                 options: Default::default(),
             },
         )
@@ -318,13 +358,18 @@ async fn tree_sitter_code_chunking() {
 
     assert!(!results.is_empty(), "should find FTS5 sanitization code");
 
-    // The snippet should contain actual Rust code
     let has_code = results
         .iter()
         .any(|r| r.summary.snippet.contains("fn ") || r.summary.snippet.contains("pub"));
-    assert!(has_code, "snippets should contain Rust code from chunked source files");
+    assert!(
+        has_code,
+        "snippets should contain Rust code from chunked source files"
+    );
 
-    assert_yaml_snapshot!("tree_sitter_code_chunking", snapshot_results(&results));
+    assert_yaml_snapshot!(
+        "tree_sitter_code_chunking",
+        build_snapshot(question, &results, 2)
+    );
 }
 
 /// Verify that knowledge graph links (tags, parent) are resolved and
@@ -333,13 +378,14 @@ async fn tree_sitter_code_chunking() {
 async fn knowledge_graph_link_resolution() {
     let f = CodebaseFixture::setup().await;
 
+    let question = "knowledge graph link resolution parent";
     let results = f
         .engine
         .reference_search(
             &f.context,
             ReferenceQuery {
                 topic: "knowledge source".to_string(),
-                question: "knowledge graph link resolution parent".to_string(),
+                question: question.to_string(),
                 options: Default::default(),
             },
         )
@@ -348,22 +394,42 @@ async fn knowledge_graph_link_resolution() {
 
     assert!(!results.is_empty(), "should find graph-related results");
 
-    // Check that at least some results have graph metadata populated
-    // (tags come from the topic.md which has tags = ["rust", "knowledge", "t-koma"])
-    let snapshot: Vec<_> = results
-        .iter()
-        .map(|r| {
-            serde_json::json!({
-                "title": r.summary.title,
-                "note_type": r.summary.note_type,
-                "has_tags": !r.tags.is_empty(),
-                "tag_count": r.tags.len(),
-                "has_parents": !r.parents.is_empty(),
-                "links_out_count": r.links_out.len(),
-                "links_in_count": r.links_in.len(),
+    #[derive(Debug, Serialize)]
+    struct GraphSnapshot {
+        query: String,
+        total_hits: usize,
+        top_results: Vec<GraphHit>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct GraphHit {
+        rank: usize,
+        file: String,
+        has_parents: bool,
+        tag_count: usize,
+        links_out: usize,
+        links_in: usize,
+        snippet: String,
+    }
+
+    let snapshot = GraphSnapshot {
+        query: question.to_string(),
+        total_hits: results.len(),
+        top_results: results
+            .iter()
+            .take(2)
+            .enumerate()
+            .map(|(i, r)| GraphHit {
+                rank: i + 1,
+                file: r.summary.title.clone(),
+                has_parents: !r.parents.is_empty(),
+                tag_count: r.tags.len(),
+                links_out: r.links_out.len(),
+                links_in: r.links_in.len(),
+                snippet: r.summary.snippet.chars().take(120).collect(),
             })
-        })
-        .collect();
+            .collect(),
+    };
 
     assert_yaml_snapshot!("knowledge_graph_link_resolution", snapshot);
 }

@@ -1,0 +1,13 @@
+---
+source: t-koma-knowledge/tests/codebase_embedding.rs
+expression: "serde_json::json!({\n    \"query\": question, \"reference_search\":\n    {\n        \"total_hits\": ref_results.len(), \"contains_private_note\":\n        private_leaked, \"top_file\":\n        ref_results.first().map(|r| &r.summary.title),\n    }, \"memory_search_ghost_private\":\n    {\n        \"total_hits\": mem_results.len(), \"contains_private_note\": has_private,\n        \"top_title\": mem_results.first().map(|r| &r.summary.title),\n    },\n})"
+---
+memory_search_ghost_private:
+  contains_private_note: true
+  top_title: Private Search Notes
+  total_hits: 1
+query: BM25 search pipeline
+reference_search:
+  contains_private_note: false
+  top_file: search.rs
+  total_hits: 8

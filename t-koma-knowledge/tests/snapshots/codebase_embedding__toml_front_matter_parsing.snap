@@ -1,0 +1,15 @@
+---
+source: t-koma-knowledge/tests/codebase_embedding.rs
+expression: "build_snapshot(question, &results, 2)"
+---
+query: core source files models search graph
+total_hits: 8
+top_results:
+  - rank: 1
+    file: search.rs
+    note_type: ReferenceFile
+    snippet: "pub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingClient,\n    pool: &SqlitePoo"
+  - rank: 2
+    file: search.rs
+    note_type: ReferenceFile
+    snippet: "pub(crate) struct ResolvedSearchOptions {\n    pub(crate) max_results: usize,\n    pub(crate) graph_depth: u8,\n    pub(cra"
