@@ -5,7 +5,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::config::KnowledgeSettings;
+use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};

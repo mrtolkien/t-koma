@@ -60,6 +60,14 @@ Make extensive use of MCPs available to you:
 - Rename the spec file to start with `_` when complete.
 - Create a pull request with the gh mcp
 
+### Config Organization
+
+- All resolved config types belong in `t-koma-core/src/config/`. The TOML
+  `Settings` structs (with `Option<T>` fields) live in `settings.rs`; resolved
+  types (with concrete defaults) live in dedicated files like `knowledge.rs`.
+- New config should be editable via the TUI (already supported via "Edit in
+  Editor").
+
 ### Locality of Concern
 
 - Files that describe or support a feature should live near the feature's crate

@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::config::KnowledgeSettings;
+use crate::KnowledgeSettings;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 
 #[derive(Debug, Clone)]

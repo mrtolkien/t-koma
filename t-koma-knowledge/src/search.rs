@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 
-use crate::config::KnowledgeSettings;
+use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::graph::{load_links_in, load_links_out, load_parent, load_tags};

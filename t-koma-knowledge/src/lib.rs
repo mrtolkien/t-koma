@@ -1,6 +1,5 @@
 //! Knowledge & memory subsystem for T-KOMA.
 
-pub mod config;
 pub mod embeddings;
 pub mod errors;
 pub mod graph;
@@ -14,7 +13,7 @@ pub mod storage;
 pub mod chunker;
 pub mod watcher;
 
-pub use config::{KnowledgeSettings, SearchDefaults};
+pub use t_koma_core::config::{KnowledgeSettings, SearchDefaults};
 pub use errors::KnowledgeError;
 pub use models::{
     KnowledgeScope, MemoryQuery, MemoryResult, NoteCreateRequest, NoteDocument, NoteSummary,

@@ -524,6 +524,19 @@ mode = "markdown"
 max_chars = 20000
 timeout_seconds = 30
 cache_ttl_minutes = 15
+
+# [tools.knowledge]
+# embedding_url = "http://127.0.0.1:11434"
+# embedding_model = "qwen3-embedding:8b"
+# embedding_batch = 32
+# reconcile_seconds = 300
+# [tools.knowledge.search]
+# rrf_k = 60
+# max_results = 8
+# graph_depth = 1
+# graph_max = 20
+# bm25_limit = 20
+# dense_limit = 20
 "#;
 
 #[cfg(test)]

@@ -32,12 +32,14 @@
 //! level = "info"
 //! ```
 
+pub mod knowledge;
 mod secrets;
 mod settings;
 
 use crate::message::ProviderType;
 
 pub use secrets::{Secrets, SecretsError};
+pub use knowledge::{KnowledgeSettings, SearchDefaults};
 pub use settings::{
     ModelConfig,
     OpenRouterSettings,

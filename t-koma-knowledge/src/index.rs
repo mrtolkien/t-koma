@@ -3,7 +3,7 @@ use std::path::Path;
 use sqlx::SqlitePool;
 use walkdir::WalkDir;
 
-use crate::config::KnowledgeSettings;
+use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
 use crate::ingest::{ingest_markdown, ingest_reference_file, ingest_reference_topic};

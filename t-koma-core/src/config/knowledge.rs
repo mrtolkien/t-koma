@@ -1,9 +1,16 @@
+//! Knowledge system configuration types.
+//!
+//! These types define the resolved (non-optional) settings used by
+//! `t-koma-knowledge`. They are created from the user-facing
+//! `KnowledgeToolsSettings` TOML structs via `From`.
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use t_koma_core::config::{KnowledgeSearchSettings, KnowledgeToolsSettings};
+use super::settings::{KnowledgeSearchSettings, KnowledgeToolsSettings};
 
+/// Resolved knowledge engine settings (all values filled with defaults).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeSettings {
     #[serde(default = "default_embedding_url")]
@@ -45,6 +52,7 @@ impl Default for KnowledgeSettings {
     }
 }
 
+/// Resolved search tuning knobs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchDefaults {
     #[serde(default = "default_rrf_k")]
