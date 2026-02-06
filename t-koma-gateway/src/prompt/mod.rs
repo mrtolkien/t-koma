@@ -151,6 +151,6 @@ mod tests {
         let prompt = SystemPrompt::new();
         let s = prompt.to_simple_string();
         assert!(s.contains("T-KOMA"));
-        assert!(s.contains("Using Tools"));
+        assert!(s.contains("GHOST"));
     }
 }

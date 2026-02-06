@@ -5,8 +5,6 @@ id = "system-prompt"
 
 {{ include "system-base.md" }}
 
-{{ include "tool-use.md" }}
-
 {{ include "coding-guidelines.md" }}
 
 {{ include "../../t-koma-knowledge/knowledge/prompts/knowledge_system.md" }}
