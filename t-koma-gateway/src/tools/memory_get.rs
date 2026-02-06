@@ -5,7 +5,7 @@ use crate::tools::{Tool, ToolContext};
 
 #[derive(Debug, Deserialize)]
 struct MemoryGetInput {
-    name: String,
+    note_id_or_title: String,
     scope: Option<String>,
 }
 
@@ -16,10 +16,17 @@ impl MemoryGetTool {
         json!({
             "type": "object",
             "properties": {
-                "name": {"type": "string"},
-                "scope": {"type": "string"}
+                "note_id_or_title": {
+                    "type": "string",
+                    "description": "Note ID or title to fetch."
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["all", "shared", "ghost", "private", "projects", "diary"],
+                    "description": "Scope to search in. Default 'all' tries shared + own private."
+                }
             },
-            "required": ["name"],
+            "required": ["note_id_or_title"],
             "additionalProperties": false
         })
     }
@@ -50,6 +57,15 @@ impl Tool for MemoryGetTool {
         Self::schema()
     }
 
+    fn prompt(&self) -> Option<&'static str> {
+        Some(
+            "Use memory_get to fetch the full content and metadata of a note.\n\
+            - Pass the exact note ID or title as note_id_or_title.\n\
+            - Default scope 'all' resolves across shared + own private scopes.\n\
+            - For private notes, only your own notes are accessible.",
+        )
+    }
+
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: MemoryGetInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
@@ -64,7 +80,7 @@ impl Tool for MemoryGetTool {
             workspace_root: context.workspace_root().to_path_buf(),
         };
 
-        let doc = engine.memory_get(&ctx, &input.name, scope).await.map_err(|e| e.to_string())?;
+        let doc = engine.memory_get(&ctx, &input.note_id_or_title, scope).await.map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())
     }
 }

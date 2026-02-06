@@ -7,16 +7,28 @@ use crate::tools::{Tool, ToolContext};
 struct MemorySearchInput {
     query: String,
     scope: Option<String>,
-    options: Option<SearchOptions>,
+    options: Option<ToolSearchOptions>,
 }
 
 #[derive(Debug, Deserialize)]
-struct SearchOptions {
+struct ToolSearchOptions {
     max_results: Option<usize>,
     graph_depth: Option<u8>,
     graph_max: Option<usize>,
     bm25_limit: Option<usize>,
     dense_limit: Option<usize>,
+}
+
+impl From<ToolSearchOptions> for t_koma_knowledge::models::SearchOptions {
+    fn from(value: ToolSearchOptions) -> Self {
+        Self {
+            max_results: value.max_results,
+            graph_depth: value.graph_depth,
+            graph_max: value.graph_max,
+            bm25_limit: value.bm25_limit,
+            dense_limit: value.dense_limit,
+        }
+    }
 }
 
 pub struct MemorySearchTool;
@@ -26,8 +38,12 @@ impl MemorySearchTool {
         json!({
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
-                "scope": {"type": "string"},
+                "query": {"type": "string", "description": "Search query string."},
+                "scope": {
+                    "type": "string",
+                    "enum": ["all", "shared", "ghost", "private", "projects", "diary"],
+                    "description": "Scope to search. 'all' = shared + own private. 'shared' = shared only. 'ghost' = all own private. 'private'/'projects'/'diary' = specific ghost scope."
+                },
                 "options": {
                     "type": "object",
                     "properties": {
@@ -74,8 +90,12 @@ impl Tool for MemorySearchTool {
     fn prompt(&self) -> Option<&'static str> {
         Some(
             "Use memory_search to retrieve knowledge notes and ghost memory.\n\
-- Prefer concise queries.\n\
-- Use scope to limit results (shared, ghost, private, projects, diary).",
+            - Default scope is 'all' (shared + your own private notes).\n\
+            - Use 'shared' to search only shared knowledge visible to all ghosts.\n\
+            - Use 'ghost' to search only your own private notes (private + projects + diary).\n\
+            - Use 'private', 'projects', or 'diary' to narrow to a specific ghost scope.\n\
+            - Prefer concise, specific queries for better retrieval quality.\n\
+            - You will NEVER see another ghost's private notes regardless of scope.",
         )
     }
 
@@ -88,13 +108,7 @@ impl Tool for MemorySearchTool {
 
         let engine = t_koma_knowledge::KnowledgeEngine::new(knowledge_settings);
         let scope = Self::parse_scope(input.scope);
-        let options = input.options.map(|value| t_koma_knowledge::models::SearchOptions {
-            max_results: value.max_results,
-            graph_depth: value.graph_depth,
-            graph_max: value.graph_max,
-            bm25_limit: value.bm25_limit,
-            dense_limit: value.dense_limit,
-        }).unwrap_or_default();
+        let options = input.options.map(Into::into).unwrap_or_default();
 
         let query = t_koma_knowledge::models::MemoryQuery {
             query: input.query,

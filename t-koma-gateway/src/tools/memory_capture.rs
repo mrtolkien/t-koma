@@ -16,8 +16,15 @@ impl MemoryCaptureTool {
         json!({
             "type": "object",
             "properties": {
-                "payload": {"type": "string"},
-                "scope": {"type": "string"}
+                "payload": {
+                    "type": "string",
+                    "description": "Raw text to capture into the memory inbox."
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["ghost", "shared"],
+                    "description": "Where to capture. 'ghost' (default) = your private inbox. 'shared' = shared knowledge inbox."
+                }
             },
             "required": ["payload"],
             "additionalProperties": false
@@ -44,6 +51,16 @@ impl Tool for MemoryCaptureTool {
 
     fn input_schema(&self) -> Value {
         Self::schema()
+    }
+
+    fn prompt(&self) -> Option<&'static str> {
+        Some(
+            "Use memory_capture to store raw, unstructured info for later curation.\n\
+            - Default scope is 'ghost' (your private inbox).\n\
+            - Use 'shared' only for information that should be visible to all ghosts.\n\
+            - Captured text is written as a timestamped inbox file.\n\
+            - Reconciliation will index it later; no immediate search results.",
+        )
     }
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {

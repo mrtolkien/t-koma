@@ -7,11 +7,11 @@ use crate::tools::{Tool, ToolContext};
 struct ReferenceSearchInput {
     topic: String,
     question: String,
-    options: Option<SearchOptions>,
+    options: Option<ToolSearchOptions>,
 }
 
 #[derive(Debug, Deserialize)]
-struct SearchOptions {
+struct ToolSearchOptions {
     max_results: Option<usize>,
     graph_depth: Option<u8>,
     graph_max: Option<usize>,
@@ -19,15 +19,42 @@ struct SearchOptions {
     dense_limit: Option<usize>,
 }
 
+impl From<ToolSearchOptions> for t_koma_knowledge::models::SearchOptions {
+    fn from(value: ToolSearchOptions) -> Self {
+        Self {
+            max_results: value.max_results,
+            graph_depth: value.graph_depth,
+            graph_max: value.graph_max,
+            bm25_limit: value.bm25_limit,
+            dense_limit: value.dense_limit,
+        }
+    }
+}
+
 pub struct ReferenceSearchTool;
 
-impl ReferenceSearchTool {
-    fn schema() -> Value {
+#[async_trait::async_trait]
+impl Tool for ReferenceSearchTool {
+    fn name(&self) -> &str {
+        "reference_search"
+    }
+
+    fn description(&self) -> &str {
+        "Search the reference corpus by topic and question."
+    }
+
+    fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "topic": {"type": "string"},
-                "question": {"type": "string"},
+                "topic": {
+                    "type": "string",
+                    "description": "Topic to match against reference topics (e.g. 'sqlite-vec', 'Anthropic API')."
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Specific question to search within the topic's files."
+                },
                 "options": {
                     "type": "object",
                     "properties": {
@@ -44,20 +71,14 @@ impl ReferenceSearchTool {
             "additionalProperties": false
         })
     }
-}
 
-#[async_trait::async_trait]
-impl Tool for ReferenceSearchTool {
-    fn name(&self) -> &str {
-        "reference_search"
-    }
-
-    fn description(&self) -> &str {
-        "Search the reference corpus by topic and question."
-    }
-
-    fn input_schema(&self) -> Value {
-        Self::schema()
+    fn prompt(&self) -> Option<&'static str> {
+        Some(
+            "Use reference_search to find information in the curated reference corpus.\n\
+            - First matches the `topic` against ReferenceTopic notes, then searches within that topic's files.\n\
+            - Always operates on the reference scope (read-only, system-maintained).\n\
+            - Use for documentation, source code references, and external knowledge.",
+        )
     }
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
@@ -68,13 +89,7 @@ impl Tool for ReferenceSearchTool {
         let knowledge_settings = t_koma_knowledge::KnowledgeSettings::from(&settings.tools.knowledge);
         let engine = t_koma_knowledge::KnowledgeEngine::new(knowledge_settings);
 
-        let options = input.options.map(|value| t_koma_knowledge::models::SearchOptions {
-            max_results: value.max_results,
-            graph_depth: value.graph_depth,
-            graph_max: value.graph_max,
-            bm25_limit: value.bm25_limit,
-            dense_limit: value.dense_limit,
-        }).unwrap_or_default();
+        let options = input.options.map(Into::into).unwrap_or_default();
 
         let query = t_koma_knowledge::models::ReferenceQuery {
             topic: input.topic,
