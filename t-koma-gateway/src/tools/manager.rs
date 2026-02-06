@@ -7,7 +7,12 @@ use super::{
     memory_note_comment::MemoryNoteCommentTool, memory_note_create::MemoryNoteCreateTool,
     memory_note_update::MemoryNoteUpdateTool, memory_note_validate::MemoryNoteValidateTool,
     memory_search::MemorySearchTool, read_file::ReadFileTool,
-    reference_search::ReferenceSearchTool, search::SearchTool, shell::ShellTool,
+    reference_search::ReferenceSearchTool,
+    reference_topic_create::ReferenceTopicCreateTool,
+    reference_topic_list::ReferenceTopicListTool,
+    reference_topic_search::ReferenceTopicSearchTool,
+    reference_topic_update::ReferenceTopicUpdateTool,
+    search::SearchTool, shell::ShellTool,
     web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
@@ -42,6 +47,10 @@ impl ToolManager {
             Box::new(MemoryNoteUpdateTool),
             Box::new(MemoryNoteValidateTool),
             Box::new(MemoryNoteCommentTool),
+            Box::new(ReferenceTopicCreateTool),
+            Box::new(ReferenceTopicSearchTool),
+            Box::new(ReferenceTopicListTool),
+            Box::new(ReferenceTopicUpdateTool),
         ];
         Self { tools }
     }
