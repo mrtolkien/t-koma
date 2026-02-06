@@ -426,6 +426,16 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
         let formatted: Vec<String> = files.iter().map(|f| format!("\"{}\"", f)).collect();
         lines.push(format!("files = [{}]", formatted.join(", ")));
     }
+    // Reference topic fields
+    if let Some(status) = &front.status {
+        lines.push(format!("status = \"{}\"", status));
+    }
+    if let Some(fetched_at) = front.fetched_at {
+        lines.push(format!("fetched_at = \"{}\"", fetched_at.to_rfc3339()));
+    }
+    if let Some(max_age) = front.max_age_days {
+        lines.push(format!("max_age_days = {}", max_age));
+    }
     lines.push(String::new());
     lines.push("[created_by]".to_string());
     lines.push(format!("ghost = \"{}\"", front.created_by.ghost));
@@ -441,6 +451,24 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
                 "text = \"{}\"",
                 comment.text.replace('"', "\\\"")
             ));
+        }
+    }
+    if let Some(sources) = &front.sources {
+        for src in sources {
+            lines.push(String::new());
+            lines.push("[[sources]]".to_string());
+            lines.push(format!("type = \"{}\"", src.source_type));
+            lines.push(format!("url = \"{}\"", src.url));
+            if let Some(ref_name) = &src.ref_name {
+                lines.push(format!("ref = \"{}\"", ref_name));
+            }
+            if let Some(commit) = &src.commit {
+                lines.push(format!("commit = \"{}\"", commit));
+            }
+            if let Some(paths) = &src.paths {
+                let formatted: Vec<String> = paths.iter().map(|p| format!("\"{}\"", p)).collect();
+                lines.push(format!("paths = [{}]", formatted.join(", ")));
+            }
         }
     }
     lines.join("\n")

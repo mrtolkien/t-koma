@@ -17,7 +17,9 @@ pub use t_koma_core::config::{KnowledgeSettings, SearchDefaults};
 pub use errors::KnowledgeError;
 pub use models::{
     KnowledgeScope, MemoryQuery, MemoryResult, NoteCreateRequest, NoteDocument, NoteSummary,
-    NoteUpdateRequest, NoteWriteResult, ReferenceQuery, WriteScope,
+    NoteUpdateRequest, NoteWriteResult, ReferenceQuery, TopicCreateRequest, TopicCreateResult,
+    TopicListEntry, TopicSearchResult, TopicSourceInput, TopicStatus, TopicUpdateRequest,
+    WriteScope,
 };
 pub use engine::KnowledgeEngine;
 pub use embeddings::EmbeddingClient;

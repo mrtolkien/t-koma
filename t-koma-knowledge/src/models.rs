@@ -180,6 +180,114 @@ pub struct NoteWriteResult {
     pub path: PathBuf,
 }
 
+// ── Reference topic models ──────────────────────────────────────────
+
+/// Status of a reference topic.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TopicStatus {
+    #[default]
+    Active,
+    Stale,
+    Obsolete,
+}
+
+impl TopicStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Stale => "stale",
+            Self::Obsolete => "obsolete",
+        }
+    }
+}
+
+impl std::fmt::Display for TopicStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for TopicStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(Self::Active),
+            "stale" => Ok(Self::Stale),
+            "obsolete" => Ok(Self::Obsolete),
+            other => Err(format!("unknown topic status: {}", other)),
+        }
+    }
+}
+
+/// Source descriptor for a reference topic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicSourceInput {
+    #[serde(rename = "type")]
+    pub source_type: String,
+    pub url: String,
+    #[serde(rename = "ref")]
+    pub ref_name: Option<String>,
+    pub paths: Option<Vec<String>>,
+}
+
+/// Input for creating a new reference topic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicCreateRequest {
+    pub title: String,
+    pub body: String,
+    pub sources: Vec<TopicSourceInput>,
+    pub tags: Option<Vec<String>>,
+    pub max_age_days: Option<i64>,
+    pub trust_score: Option<i64>,
+}
+
+/// Result of a successful topic creation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicCreateResult {
+    pub topic_id: String,
+    pub file_count: usize,
+    pub chunk_count: usize,
+}
+
+/// Entry in a topic listing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicListEntry {
+    pub topic_id: String,
+    pub title: String,
+    pub status: String,
+    pub is_stale: bool,
+    pub fetched_at: Option<DateTime<Utc>>,
+    pub max_age_days: i64,
+    pub created_by_ghost: String,
+    pub source_count: usize,
+    pub file_count: usize,
+    pub tags: Vec<String>,
+}
+
+/// Result of a topic search query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicSearchResult {
+    pub topic_id: String,
+    pub title: String,
+    pub status: String,
+    pub is_stale: bool,
+    pub fetched_at: Option<DateTime<Utc>>,
+    pub tags: Vec<String>,
+    pub score: f32,
+    pub snippet: String,
+}
+
+/// Input for updating an existing reference topic's metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TopicUpdateRequest {
+    pub topic_id: String,
+    pub status: Option<String>,
+    pub max_age_days: Option<i64>,
+    pub body: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
 /// Generate a stable note ID.
 pub fn generate_note_id() -> String {
     Uuid::new_v4().to_string()
