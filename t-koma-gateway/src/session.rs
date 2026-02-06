@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tracing::info;
 use chrono::{Duration as ChronoDuration, Utc};
 
@@ -71,13 +73,15 @@ pub enum ToolApprovalDecision {
 /// should use. It handles everything: history, system prompts, tool loops, etc.
 pub struct SessionChat {
     pub(crate) tool_manager: ToolManager,
+    knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
 }
 
 impl SessionChat {
     /// Create a new SessionChat instance
-    pub fn new() -> Self {
+    pub fn new(knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>) -> Self {
         Self {
             tool_manager: ToolManager::new(),
+            knowledge_engine,
         }
     }
 
@@ -531,6 +535,9 @@ impl SessionChat {
         }
 
         let mut context = ToolContext::new(ghost_name, workspace_root.clone(), cwd, false);
+        if let Some(engine) = &self.knowledge_engine {
+            context = context.with_knowledge_engine(Arc::clone(engine));
+        }
 
         if !is_within_workspace(&context, context.cwd()) {
             context.set_cwd(workspace_root.clone());
@@ -692,7 +699,7 @@ impl SessionChat {
 
 impl Default for SessionChat {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 

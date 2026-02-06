@@ -69,10 +69,8 @@ impl Tool for MemoryGetTool {
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: MemoryGetInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        t_koma_core::load_dotenv();
-        let settings = t_koma_core::Settings::load().map_err(|e| e.to_string())?;
-        let knowledge_settings = t_koma_knowledge::KnowledgeSettings::from(&settings.tools.knowledge);
-        let engine = t_koma_knowledge::KnowledgeEngine::new(knowledge_settings);
+        let engine = context.knowledge_engine()
+            .ok_or("knowledge engine not available")?;
 
         let scope = Self::parse_scope(input.scope);
         let ctx = t_koma_knowledge::models::KnowledgeContext {

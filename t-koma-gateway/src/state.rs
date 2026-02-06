@@ -178,8 +178,8 @@ pub struct AppState {
     /// High-level chat interface - handles all conversation logic including tools
     pub session_chat: SessionChat,
 
-    /// Knowledge settings for watchers
-    knowledge_settings: t_koma_knowledge::KnowledgeSettings,
+    /// Persistent knowledge engine (DB pool opened once at startup)
+    knowledge_engine: Arc<t_koma_knowledge::KnowledgeEngine>,
 
     /// Shared knowledge watcher handle
     shared_knowledge_watcher: RwLock<Option<JoinHandle<()>>>,
@@ -202,11 +202,11 @@ impl AppState {
         default_model_alias: String,
         models: HashMap<String, ModelEntry>,
         koma_db: t_koma_db::KomaDbPool,
-        knowledge_settings: t_koma_knowledge::KnowledgeSettings,
+        knowledge_engine: Arc<t_koma_knowledge::KnowledgeEngine>,
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
         let _ = GLOBAL_LOG_TX.set(log_tx.clone());
-        let session_chat = SessionChat::new();
+        let session_chat = SessionChat::new(Some(Arc::clone(&knowledge_engine)));
 
         Self {
             default_model_alias,
@@ -219,10 +219,15 @@ impl AppState {
             pending_tool_approvals: RwLock::new(HashMap::new()),
             pending_tool_loops: RwLock::new(HashMap::new()),
             session_chat,
-            knowledge_settings,
+            knowledge_engine,
             shared_knowledge_watcher: RwLock::new(None),
             ghost_knowledge_watchers: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Access the knowledge settings (from the engine).
+    pub fn knowledge_settings(&self) -> &t_koma_knowledge::KnowledgeSettings {
+        self.knowledge_engine.settings()
     }
 
     /// Get the default model entry
@@ -427,7 +432,7 @@ impl AppState {
             return;
         }
 
-        let settings = self.knowledge_settings.clone();
+        let settings = self.knowledge_engine.settings().clone();
         let handle = tokio::spawn(async move {
             let mut backoff = 2u64;
             loop {
@@ -452,7 +457,7 @@ impl AppState {
             return;
         }
 
-        let settings = self.knowledge_settings.clone();
+        let settings = self.knowledge_engine.settings().clone();
         let ghost_name_key = ghost_name.to_string();
         let ghost_name_log = ghost_name_key.clone();
         let ghost_name_task = ghost_name_key.clone();

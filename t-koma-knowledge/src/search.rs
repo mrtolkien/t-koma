@@ -24,12 +24,26 @@ use crate::storage::KnowledgeStore;
 pub struct KnowledgeEngine {
     settings: KnowledgeSettings,
     embedder: EmbeddingClient,
+    store: KnowledgeStore,
 }
 
 impl KnowledgeEngine {
-    pub fn new(settings: KnowledgeSettings) -> Self {
+    /// Open a persistent KnowledgeEngine that reuses a single DB pool.
+    pub async fn open(settings: KnowledgeSettings) -> KnowledgeResult<Self> {
+        let path = knowledge_db_path(&settings)?;
+        let store = KnowledgeStore::open(&path, settings.embedding_dim).await?;
         let embedder = EmbeddingClient::new(&settings);
-        Self { settings, embedder }
+        Ok(Self { settings, embedder, store })
+    }
+
+    /// Access the underlying connection pool.
+    pub fn pool(&self) -> &SqlitePool {
+        self.store.pool()
+    }
+
+    /// Access the knowledge settings.
+    pub fn settings(&self) -> &KnowledgeSettings {
+        &self.settings
     }
 
     pub async fn memory_search(
@@ -39,14 +53,13 @@ impl KnowledgeEngine {
     ) -> KnowledgeResult<Vec<MemoryResult>> {
         let mut results = Vec::new();
 
-        let store = self.store().await?;
         let scopes = resolve_scopes(&query.scope);
         for scope in scopes {
-            self.maybe_reconcile(context, scope, &store).await?;
+            self.maybe_reconcile(context, scope).await?;
             let partial = search_store(
                 &self.settings,
                 &self.embedder,
-                store.pool(),
+                self.store.pool(),
                 &query,
                 scope,
                 &context.ghost_name,
@@ -71,11 +84,10 @@ impl KnowledgeEngine {
         note_id_or_title: &str,
         scope: MemoryScope,
     ) -> KnowledgeResult<NoteDocument> {
-        let store = self.store().await?;
         let scopes = resolve_scopes(&scope);
         for scope in scopes {
             let doc = fetch_note(
-                store.pool(),
+                self.store.pool(),
                 note_id_or_title,
                 scope,
                 &context.ghost_name,
@@ -152,25 +164,25 @@ impl KnowledgeEngine {
             &content,
         )
         .await?;
-        let store = self.store().await?;
-        crate::storage::upsert_note(store.pool(), &ingested.note).await?;
-        crate::storage::replace_tags(store.pool(), &note_id, &ingested.tags).await?;
+        let pool = self.store.pool();
+        crate::storage::upsert_note(pool, &ingested.note).await?;
+        crate::storage::replace_tags(pool, &note_id, &ingested.tags).await?;
         crate::storage::replace_links(
-            store.pool(),
+            pool,
             &note_id,
             ingested.note.owner_ghost.as_deref(),
             &ingested.links,
         )
         .await?;
         let chunk_ids = crate::storage::replace_chunks(
-            store.pool(),
+            pool,
             &note_id,
             &ingested.note.title,
             &ingested.note.note_type,
             &ingested.chunks,
         )
         .await?;
-        crate::index::embed_chunks(&self.settings, &self.embedder, store.pool(), &ingested.chunks, &chunk_ids).await?;
+        crate::index::embed_chunks(&self.settings, &self.embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
         Ok(NoteWriteResult {
             note_id,
@@ -184,8 +196,6 @@ impl KnowledgeEngine {
         context: &KnowledgeContext,
         request: NoteUpdateRequest,
     ) -> KnowledgeResult<NoteWriteResult> {
-        let store = self.store().await?;
-
         // Fetch existing note and verify access
         let doc = self
             .memory_get(context, &request.note_id, MemoryScope::All)
@@ -236,24 +246,25 @@ impl KnowledgeEngine {
             &content,
         )
         .await?;
-        crate::storage::upsert_note(store.pool(), &ingested.note).await?;
-        crate::storage::replace_tags(store.pool(), &request.note_id, &ingested.tags).await?;
+        let pool = self.store.pool();
+        crate::storage::upsert_note(pool, &ingested.note).await?;
+        crate::storage::replace_tags(pool, &request.note_id, &ingested.tags).await?;
         crate::storage::replace_links(
-            store.pool(),
+            pool,
             &request.note_id,
             ingested.note.owner_ghost.as_deref(),
             &ingested.links,
         )
         .await?;
         let chunk_ids = crate::storage::replace_chunks(
-            store.pool(),
+            pool,
             &request.note_id,
             &ingested.note.title,
             &ingested.note.note_type,
             &ingested.chunks,
         )
         .await?;
-        crate::index::embed_chunks(&self.settings, &self.embedder, store.pool(), &ingested.chunks, &chunk_ids).await?;
+        crate::index::embed_chunks(&self.settings, &self.embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
         Ok(NoteWriteResult {
             note_id: request.note_id,
@@ -295,7 +306,6 @@ impl KnowledgeEngine {
         tokio::fs::rename(&tmp_path, &doc.path).await?;
 
         // Update DB record
-        let store = self.store().await?;
         let scope = doc.scope;
         let owner_ghost = if scope.is_shared() {
             None
@@ -310,7 +320,7 @@ impl KnowledgeEngine {
             &content,
         )
         .await?;
-        crate::storage::upsert_note(store.pool(), &ingested.note).await?;
+        crate::storage::upsert_note(self.store.pool(), &ingested.note).await?;
 
         Ok(NoteWriteResult {
             note_id: note_id.to_string(),
@@ -351,7 +361,6 @@ impl KnowledgeEngine {
         tokio::fs::rename(&tmp_path, &doc.path).await?;
 
         // Update DB
-        let store = self.store().await?;
         let scope = doc.scope;
         let owner_ghost = if scope.is_shared() {
             None
@@ -366,7 +375,7 @@ impl KnowledgeEngine {
             &content,
         )
         .await?;
-        crate::storage::upsert_note(store.pool(), &ingested.note).await?;
+        crate::storage::upsert_note(self.store.pool(), &ingested.note).await?;
 
         Ok(NoteWriteResult {
             note_id: note_id.to_string(),
@@ -379,30 +388,25 @@ impl KnowledgeEngine {
         context: &KnowledgeContext,
         query: ReferenceQuery,
     ) -> KnowledgeResult<Vec<MemoryResult>> {
-        let store = self.store().await?;
-        self.maybe_reconcile(context, KnowledgeScope::Reference, &store).await?;
+        self.maybe_reconcile(context, KnowledgeScope::Reference).await?;
 
-        let topics = search_reference_topics(&self.settings, &self.embedder, store.pool(), &query).await?;
+        let pool = self.store.pool();
+        let topics = search_reference_topics(&self.settings, &self.embedder, pool, &query).await?;
         let top_topic = topics.first().map(|result| result.summary.id.clone());
 
         if let Some(topic_id) = top_topic {
-            return search_reference_files(store.pool(), &self.settings, &self.embedder, &topic_id, &query).await;
+            return search_reference_files(pool, &self.settings, &self.embedder, &topic_id, &query).await;
         }
 
         Ok(Vec::new())
-    }
-
-    async fn store(&self) -> KnowledgeResult<KnowledgeStore> {
-        let path = knowledge_db_path(&self.settings)?;
-        KnowledgeStore::open(&path, self.settings.embedding_dim).await
     }
 
     async fn maybe_reconcile(
         &self,
         context: &KnowledgeContext,
         scope: KnowledgeScope,
-        store: &KnowledgeStore,
     ) -> KnowledgeResult<()> {
+        let pool = self.store.pool();
         let key = match scope {
             KnowledgeScope::Shared | KnowledgeScope::Reference => "last_reconcile_shared".to_string(),
             _ => format!("last_reconcile_ghost:{}", context.ghost_name),
@@ -411,7 +415,7 @@ impl KnowledgeEngine {
             "SELECT value FROM meta WHERE key = ? LIMIT 1",
         )
         .bind(&key)
-        .fetch_optional(store.pool())
+        .fetch_optional(pool)
         .await?;
         let now = Utc::now();
         let should_run = match last {
@@ -424,12 +428,12 @@ impl KnowledgeEngine {
         if should_run {
             match scope {
                 KnowledgeScope::Shared | KnowledgeScope::Reference => {
-                    reconcile_shared(&self.settings, store.pool(), &self.embedder).await?;
+                    reconcile_shared(&self.settings, pool, &self.embedder).await?;
                 }
                 _ => {
                     reconcile_ghost(
                         &self.settings,
-                        store.pool(),
+                        pool,
                         &self.embedder,
                         &context.workspace_root,
                         &context.ghost_name,
@@ -440,7 +444,7 @@ impl KnowledgeEngine {
             sqlx::query("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)")
                 .bind(key)
                 .bind(now.to_rfc3339())
-                .execute(store.pool())
+                .execute(pool)
                 .await?;
         }
 

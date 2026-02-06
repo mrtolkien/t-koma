@@ -118,11 +118,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create shared application state
     let knowledge_settings = t_koma_knowledge::KnowledgeSettings::from(&config.settings.tools.knowledge);
+    let knowledge_engine = Arc::new(
+        t_koma_knowledge::KnowledgeEngine::open(knowledge_settings)
+            .await
+            .expect("failed to open knowledge store"),
+    );
     let state = Arc::new(AppState::new(
         default_model_alias,
         models,
         koma_db,
-        knowledge_settings,
+        knowledge_engine,
     ));
     state.start_shared_knowledge_watcher().await;
 

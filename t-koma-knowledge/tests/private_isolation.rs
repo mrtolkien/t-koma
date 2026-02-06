@@ -69,7 +69,7 @@ async fn test_private_note_isolation() {
     upsert_note(store.pool(), &ghost_a_note).await.unwrap();
     upsert_note(store.pool(), &ghost_b_note).await.unwrap();
 
-    let engine = KnowledgeEngine::new(settings);
+    let engine = KnowledgeEngine::open(settings).await.expect("open engine");
     let context = KnowledgeContext {
         ghost_name: "ghost-a".to_string(),
         workspace_root: temp.path().join("ghost-a-workspace"),

@@ -31,7 +31,7 @@ async fn setup() -> (KnowledgeEngine, KnowledgeContext, TempDir) {
         ..Default::default()
     };
 
-    let engine = KnowledgeEngine::new(settings);
+    let engine = KnowledgeEngine::open(settings).await.expect("open engine");
     let context = KnowledgeContext {
         ghost_name: "ghost-a".to_string(),
         workspace_root: workspace,
@@ -589,7 +589,7 @@ mod slow {
             ..Default::default()
         };
 
-        let engine = KnowledgeEngine::new(settings);
+        let engine = KnowledgeEngine::open(settings).await.expect("open engine");
         let context = KnowledgeContext {
             ghost_name: "ghost-a".to_string(),
             workspace_root: workspace,
