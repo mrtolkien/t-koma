@@ -47,9 +47,6 @@ Make extensive use of MCPs available to you:
 
 ### Development Flow
 
-- Always start by creating a markdown spec in `vibe/specs/` for validation by
-  the user.
-- Make sure you are running in a git worktree to isolate your changes
 - Iterate until all spec items are built and, if realistic, tested.
   - At each step of the integration:
     - Run `cargo check --all-features --all-targets`.
@@ -57,7 +54,6 @@ Make extensive use of MCPs available to you:
     - Run `cargo test` (no live-tests).
   - Once an atomic feature is added, make an atomic commit in the
     conventional-commit style (`feat:`, `fix:`, ...)
-- Rename the spec file to start with `_` when complete.
 - Create a pull request with the gh mcp
 
 ### Config Organization
@@ -274,14 +270,14 @@ Memory tools:
 - `memory_capture`: Write raw text to ghost inbox. NOT embedded, NOT indexed.
   Accepts optional `source` field for provenance tracking.
 - `memory_get`: Retrieve a note by ID or title. (skill: `note-writer`)
-- `memory_note_create`: Create a structured note with front matter.
-  (skill: `note-writer`)
+- `memory_note_create`: Create a structured note with front matter. (skill:
+  `note-writer`)
 - `memory_note_update`: Patch an existing note (title, body, tags, etc.).
   (skill: `note-writer`)
 - `memory_note_validate`: Mark a note as validated, optionally adjust trust.
   (skill: `note-writer`)
-- `memory_note_comment`: Append a timestamped comment to a note.
-  (skill: `note-writer`)
+- `memory_note_comment`: Append a timestamped comment to a note. (skill:
+  `note-writer`)
 - `search_diary`: Search diary entries by keyword or concept. Diary files are
   plain markdown (YYYY-MM-DD.md, no front matter).
 
@@ -292,12 +288,12 @@ Reference tools:
 - `reference_topic_search`: Semantic search over existing reference topics.
 - `reference_topic_list`: List all topics with staleness info.
 - `reference_topic_create`: Create a new reference topic from git/web sources.
-  Sources can have a `role` (docs/code) to control search boost.
-  (skill: `reference-researcher`)
-- `reference_topic_update`: Update topic metadata (status, body, tags).
-  (skill: `reference-researcher`)
-- `reference_get`: Fetch the full content of a reference file.
-  (skill: `reference-researcher`)
+  Sources can have a `role` (docs/code) to control search boost. (skill:
+  `reference-researcher`)
+- `reference_topic_update`: Update topic metadata (status, body, tags). (skill:
+  `reference-researcher`)
+- `reference_get`: Fetch the full content of a reference file. (skill:
+  `reference-researcher`)
 - `reference_file_update`: Mark a reference file as active/problematic/obsolete.
   (skill: `reference-researcher`)
 
@@ -310,8 +306,8 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 ### Topic Discovery
 
 - The 10 most recent reference topics are injected into the ghost's system
-  prompt via `build_ghost_context_vars()` in `session.rs`, rendered through
-  the `ghost-context.md` Jinja template.
+  prompt via `build_ghost_context_vars()` in `session.rs`, rendered through the
+  `ghost-context.md` Jinja template.
 - For older topics, use `reference_topic_search` with a semantic query.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
