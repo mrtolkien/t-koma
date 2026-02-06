@@ -1,4 +1,5 @@
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct ToolContext {
@@ -7,6 +8,7 @@ pub struct ToolContext {
     cwd: PathBuf,
     allow_outside_workspace: bool,
     dirty: bool,
+    knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
 }
 
 pub const APPROVAL_REQUIRED_PREFIX: &str = "APPROVAL_REQUIRED:";
@@ -24,7 +26,17 @@ impl ToolContext {
             cwd,
             allow_outside_workspace,
             dirty: false,
+            knowledge_engine: None,
         }
+    }
+
+    pub fn with_knowledge_engine(mut self, engine: Arc<t_koma_knowledge::KnowledgeEngine>) -> Self {
+        self.knowledge_engine = Some(engine);
+        self
+    }
+
+    pub fn knowledge_engine(&self) -> Option<&Arc<t_koma_knowledge::KnowledgeEngine>> {
+        self.knowledge_engine.as_ref()
     }
 
     pub fn ghost_name(&self) -> &str {

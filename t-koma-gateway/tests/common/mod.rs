@@ -60,7 +60,7 @@ pub fn load_default_model() -> DefaultModelInfo {
 }
 
 #[allow(dead_code)]
-pub fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
+pub async fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
     let default_model = load_default_model();
     let mut models = HashMap::new();
     models.insert(
@@ -74,11 +74,16 @@ pub fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
     );
 
     let knowledge_settings = t_koma_knowledge::KnowledgeSettings::default();
+    let knowledge_engine = Arc::new(
+        t_koma_knowledge::KnowledgeEngine::open(knowledge_settings)
+            .await
+            .expect("open knowledge engine for tests"),
+    );
     Arc::new(AppState::new(
         default_model.alias,
         models,
         db,
-        knowledge_settings,
+        knowledge_engine,
     ))
 }
 

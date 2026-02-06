@@ -59,7 +59,7 @@ async fn test_multi_turn_story_conversation() {
     let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
         .expect("Failed to set up test environment");
-    let state = common::build_state_with_default_model(env.koma_db.clone());
+    let state = common::build_state_with_default_model(env.koma_db.clone()).await;
     let ghost_db = env.ghost_db;
     let operator = env.operator;
     let ghost = env.ghost;
@@ -279,7 +279,7 @@ async fn test_multi_turn_with_tool_use() {
     let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
         .expect("Failed to set up test environment");
-    let state = common::build_state_with_default_model(env.koma_db.clone());
+    let state = common::build_state_with_default_model(env.koma_db.clone()).await;
     let ghost_db = env.ghost_db;
     let operator = env.operator;
     let ghost = env.ghost;
