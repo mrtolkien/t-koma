@@ -678,15 +678,15 @@ async fn topic_list_returns_inserted_topics() {
     )
     .await;
 
-    // Without obsolete
+    // Topics are no longer filtered by status — both should appear
     let list = engine.topic_list(false).await.unwrap();
-    assert_eq!(list.len(), 1, "obsolete topic should be excluded");
-    assert_eq!(list[0].topic_id, "topic-a");
-    assert_eq!(list[0].tags, vec!["alpha", "rust"]);
+    assert_eq!(list.len(), 2, "all topics should be listed");
 
-    // With obsolete
+    let topic_a = list.iter().find(|e| e.topic_id == "topic-a").expect("topic-a");
+    assert_eq!(topic_a.tags, vec!["alpha", "rust"]);
+
     let list_all = engine.topic_list(true).await.unwrap();
-    assert_eq!(list_all.len(), 2, "should include obsolete topics");
+    assert_eq!(list_all.len(), 2);
 }
 
 #[tokio::test]
@@ -715,8 +715,6 @@ async fn topic_update_changes_status_and_tags() {
 
     let request = t_koma_knowledge::TopicUpdateRequest {
         topic_id: "topic-upd".to_string(),
-        status: Some("obsolete".to_string()),
-        max_age_days: Some(0),
         body: Some("Updated description.".to_string()),
         tags: Some(vec!["updated".to_string(), "changed".to_string()]),
     };
@@ -730,16 +728,12 @@ async fn topic_update_changes_status_and_tags() {
                 .await
                 .unwrap();
             assert!(
-                content.contains("status = \"obsolete\""),
-                "status should be updated"
-            );
-            assert!(
-                content.contains("max_age_days = 0"),
-                "max_age_days should be updated"
-            );
-            assert!(
                 content.contains("Updated description."),
                 "body should be updated"
+            );
+            assert!(
+                content.contains("updated"),
+                "tags should be updated"
             );
         }
         Err(e) => {

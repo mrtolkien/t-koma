@@ -202,44 +202,6 @@ pub struct NoteWriteResult {
 
 // ── Reference topic models ──────────────────────────────────────────
 
-/// Status of a reference topic.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum TopicStatus {
-    #[default]
-    Active,
-    Stale,
-    Obsolete,
-}
-
-impl TopicStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::Stale => "stale",
-            Self::Obsolete => "obsolete",
-        }
-    }
-}
-
-impl std::fmt::Display for TopicStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for TopicStatus {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "active" => Ok(Self::Active),
-            "stale" => Ok(Self::Stale),
-            "obsolete" => Ok(Self::Obsolete),
-            other => Err(format!("unknown topic status: {}", other)),
-        }
-    }
-}
-
 /// Role of a reference source: documentation or code.
 ///
 /// Determines the `note_type` stored in the DB (`ReferenceDocs` vs `ReferenceCode`)
@@ -372,18 +334,22 @@ pub struct TopicCreateResult {
     pub chunk_count: usize,
 }
 
+/// Summary of a collection within a topic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionSummary {
+    pub title: String,
+    pub path: String,
+    pub file_count: usize,
+}
+
 /// Entry in a topic listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicListEntry {
     pub topic_id: String,
     pub title: String,
-    pub status: String,
-    pub is_stale: bool,
-    pub fetched_at: Option<DateTime<Utc>>,
-    pub max_age_days: i64,
     pub created_by_ghost: String,
-    pub source_count: usize,
     pub file_count: usize,
+    pub collections: Vec<CollectionSummary>,
     pub tags: Vec<String>,
 }
 
@@ -392,9 +358,6 @@ pub struct TopicListEntry {
 pub struct TopicSearchResult {
     pub topic_id: String,
     pub title: String,
-    pub status: String,
-    pub is_stale: bool,
-    pub fetched_at: Option<DateTime<Utc>>,
     pub tags: Vec<String>,
     pub score: f32,
     pub snippet: String,
@@ -404,10 +367,49 @@ pub struct TopicSearchResult {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TopicUpdateRequest {
     pub topic_id: String,
-    pub status: Option<String>,
-    pub max_age_days: Option<i64>,
     pub body: Option<String>,
     pub tags: Option<Vec<String>>,
+}
+
+// ── Reference save models ──────────────────────────────────────────
+
+/// Input for saving content to a reference topic.
+///
+/// Creates topic and collection implicitly if they don't exist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceSaveRequest {
+    /// Topic name (fuzzy-matched against existing topics).
+    pub topic: String,
+    /// Relative path within the topic directory (e.g. "bambulab-a1/specs.md").
+    pub path: String,
+    /// Content to write.
+    pub content: String,
+    /// Source URL for provenance tracking.
+    pub source_url: Option<String>,
+    /// Role of the content (docs vs code). Default: docs.
+    pub role: Option<SourceRole>,
+    /// Title for the file note.
+    pub title: Option<String>,
+    /// Title for auto-created collection.
+    pub collection_title: Option<String>,
+    /// Description for auto-created collection.
+    pub collection_description: Option<String>,
+    /// Tags for auto-created collection.
+    pub collection_tags: Option<Vec<String>>,
+    /// Tags for auto-created topic.
+    pub tags: Option<Vec<String>>,
+    /// Description for auto-created topic.
+    pub topic_description: Option<String>,
+}
+
+/// Result of a reference_save operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceSaveResult {
+    pub topic_id: String,
+    pub note_id: String,
+    pub path: String,
+    pub created_topic: bool,
+    pub created_collection: bool,
 }
 
 /// Result of a `reference_search` query, including full topic context.
