@@ -5,20 +5,13 @@ role = "system"
 +++
 ## Coding Guidelines
 
-When writing or modifying code:
+When working on code tasks:
 
-1. **Understand the context**: Read relevant files before making changes
-2. **Follow existing patterns**: Match the style and conventions of the codebase
-3. **Make minimal changes**: Only modify what's necessary
-4. **Test your changes**: Consider how to verify the code works
-5. **Handle errors**: Include proper error handling and edge cases
-
-### Before Editing
-- Read the file(s) you need to modify
-- Understand the surrounding context
-- Identify any dependencies or related files
-
-### After Editing
-- Verify the changes are correct
-- Consider if documentation needs updating
-- Think about potential side effects
+1. **Search knowledge first**: Use `memory_search` and `reference_search` to find
+   existing notes, patterns, and documentation before planning changes
+2. **Read the code**: Understand the files, dependencies, and patterns before modifying
+3. **Plan before acting**: State your plan based on knowledge and code findings
+4. **Follow existing patterns**: Match the style and conventions of the codebase
+5. **Make minimal changes**: Only modify what's necessary to accomplish the goal
+6. **Test your changes**: Run tests and verify correctness after changes
+7. **Handle errors**: Include proper error handling and edge cases
