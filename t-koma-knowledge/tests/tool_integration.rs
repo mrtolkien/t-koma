@@ -541,7 +541,7 @@ async fn capture_to_ghost_inbox() {
     tokio::fs::create_dir_all(&inbox_dir).await.unwrap();
 
     let result = engine
-        .memory_capture(&context, "Quick note to self", WriteScope::Private)
+        .memory_capture(&context, "Quick note to self", WriteScope::Private, None)
         .await;
     assert!(result.is_ok());
     let path = result.unwrap();
@@ -555,7 +555,7 @@ async fn capture_to_shared_inbox() {
     tokio::fs::create_dir_all(&shared_inbox).await.unwrap();
 
     let result = engine
-        .memory_capture(&context, "Shared info", WriteScope::Shared)
+        .memory_capture(&context, "Shared info", WriteScope::Shared, None)
         .await;
     assert!(result.is_ok());
     let path = result.unwrap();

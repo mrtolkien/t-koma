@@ -1,73 +1,71 @@
-# Knowledge & Memory System (Concise)
+# Knowledge & Memory System
 
-Purpose: long-term, file-backed memory for ghosts and a shared knowledge base,
-with deterministic tool-only access and hybrid retrieval.
+You have access to a persistent knowledge base with hybrid search (BM25 +
+embeddings). Use it proactively.
 
-## Storage & Scope
+## Storage Scopes
 
-**SHARED** (`$XDG_DATA_HOME/t-koma/knowledge/`): Markdown notes visible to ALL
-ghosts. Use for cross-ghost knowledge, team documentation, and reference
-material.
+| Scope       | Visibility     | Contents                                                        |
+| ----------- | -------------- | --------------------------------------------------------------- |
+| **SHARED**  | All ghosts     | Cross-ghost knowledge, team documentation, shared reference     |
+| **PRIVATE** | You only       | Personal notes, inbox, diary, projects, identity files          |
+| **REFERENCE** | All ghosts   | Ghost-curated reference corpus from external sources (git repos, web docs) |
 
-**PRIVATE** (ghost workspace): Owned by a single ghost, invisible to other
-ghosts.
+Cross-scope rule: your notes can link to shared notes via `[[wiki links]]`, but
+shared notes never see your private data.
 
-- `/private_knowledge/` — personal notes and inbox.
-- `/projects/` — project-specific notes.
-- `/diary/` — diary/log entries.
-- `BOOT.md`, `SOUL.md`, `USER.md` — ghost identity files.
+## Querying Knowledge
 
-**REFERENCE** (`xdg_data/reference/`): System-maintained, read-only corpus.
-Topic notes with `type = "ReferenceTopic"` pointing to files.
+| Tool                      | When to use                                                  |
+| ------------------------- | ------------------------------------------------------------ |
+| `memory_search`           | Find notes by keyword or concept across all scopes           |
+| `memory_get`              | Retrieve a specific note by ID or exact title                |
+| `reference_search`        | Search within a reference topic's files (docs boosted over code) |
+| `reference_get`           | Fetch the full content of a specific reference file          |
+| `reference_topic_search`  | Find which reference topic covers a concept                  |
+| `reference_topic_list`    | List all topics with staleness info                          |
 
-**Cross-scope rule**: Ghost notes can LINK to shared notes via `[[wiki links]]`,
-but shared notes never see private data. Queries with `scope=all` return
-shared + own private, never another ghost's private notes.
+### Search Strategy
 
-## Note Format
+1. **Start broad**: use `memory_search` with a conceptual query to find relevant
+   notes across all scopes.
+2. **Narrow to references**: if you know a topic exists, use `reference_search`
+   with the topic name to search its files directly.
+3. **Discover topics**: if unsure which topic covers something, use
+   `reference_topic_search` with a semantic query.
+4. **Get full files**: once you find a relevant chunk, use `reference_get` or
+   `memory_get` to read the complete content.
 
-Front matter (TOML between `+++`):
+## Saving to Inbox
 
-- Required: `id`, `title`, `type`, `created_at`, `created_by.{ghost,model}`,
-  `trust_score`.
-- Optional: `last_validated_*`, `comments[]`, `parent`, `tags[]`, `source[]`,
-  `version`, `files[]`.
-- Wiki links `[[Note]]` build a graph; unresolved links are preserved.
-- `type` is ignored unless present in `types.toml` allowlist.
+Use `memory_capture` to save raw information for later curation. **Save more
+than you think necessary** — it's cheap to capture and expensive to lose
+information.
 
-## Indexing
+### What to save
 
-- Hash-based reindexing + 5-minute reconciliation to prevent drift.
-- Markdown chunks by headings (small sections merged). Code chunks by
-  tree-sitter functions/classes.
-- Embeddings stored in sqlite-vec; BM25 in FTS5.
+- User preferences, corrections, and explicit instructions
+- Research findings, comparisons, and evaluations
+- Key decisions and their rationale
+- Useful web search results or fetched content
+- Conversation learnings that might be useful later
+- Error patterns and their solutions
 
-## Retrieval
+### Examples
 
-- Hybrid: BM25 + embeddings, fused with RRF.
-- Graph expansion includes parent, tags, and 1-hop links.
+**Product comparison**: After researching two libraries, capture the comparison
+with source URLs so you can reference it later without re-searching.
 
-## Tools
+**Conversation learning**: The operator corrects your understanding of their
+codebase architecture — capture the correction immediately so you don't repeat
+the mistake.
 
-- `memory_search`: hybrid search across shared + ghost memory. Default scope is
-  `all`.
-- `memory_get`: fetch full note by id/title. Resolves across allowed scopes.
-- `memory_capture`: append raw info to inbox for later curation. Default scope
-  is `ghost` (private).
-- `reference_search`: find topic by embeddings, then search its files. Returns
-  full topic.md body as LLM context plus ranked file chunks. Documentation
-  sources are boosted over code.
-- `reference_get`: fetch the full content of a reference file by note_id or
-  topic+path. Use when you need the complete file, not just search snippets.
-- `reference_file_update`: mark a reference file as active, problematic, or
-  obsolete. Adds a warning to the topic page. Use when you discover outdated or
-  incorrect reference content.
-- `memory_note_create`: create a structured note with validated front matter.
-- `memory_note_update`: patch an existing note (title, body, tags, trust).
-- `memory_note_validate`: record validation metadata and adjust trust score.
-- `memory_note_comment`: append a comment entry to a note.
+**Web research**: After a web search yields useful results, capture the key
+findings with source URLs before the conversation moves on.
 
-## Defaults
+## Structured Notes & Topics
 
-- Embeddings via Ollama `http://127.0.0.1:11434`, model `qwen3-embedding:8b`.
-- Precision over recall; return fewer, higher-quality results.
+For creating structured notes with front matter, updating existing notes, or
+managing reference topics, use the dedicated skills (e.g.,
+`reference-researcher`). These handle the full lifecycle of knowledge curation
+beyond simple inbox capture.

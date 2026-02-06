@@ -19,6 +19,7 @@ pub struct AnthropicClient {
     api_key: String,
     model: String,
     base_url: String,
+    dump_queries: bool,
 }
 
 /// Request body for the Messages API with prompt caching support
@@ -130,7 +131,14 @@ impl AnthropicClient {
             api_key: api_key.into(),
             model: model.into(),
             base_url: "https://api.anthropic.com/v1".to_string(),
+            dump_queries: false,
         }
+    }
+
+    /// Enable or disable debug query logging
+    pub fn with_dump_queries(mut self, enabled: bool) -> Self {
+        self.dump_queries = enabled;
+        self
     }
 
     /// Send a simple single-turn message.
@@ -203,6 +211,14 @@ impl AnthropicClient {
             tools: tool_definitions,
         };
 
+        let dump = if self.dump_queries
+            && let Ok(val) = serde_json::to_value(&request_body)
+        {
+            crate::providers::query_dump::QueryDump::request("anthropic", &self.model, &val).await
+        } else {
+            None
+        };
+
         let response = self
             .http_client
             .post(&url)
@@ -220,6 +236,13 @@ impl AnthropicClient {
         }
 
         let messages_response: MessagesResponse = response.json().await?;
+
+        if let Some(dump) = dump
+            && let Ok(val) = serde_json::to_value(&messages_response)
+        {
+            dump.response(&val).await;
+        }
+
         Ok(messages_response)
     }
 

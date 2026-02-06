@@ -138,7 +138,12 @@ async fn test_comprehensive_coding_workflow() {
     // Set up system prompt with all tools
     let tool_manager = ToolManager::new();
     let tools = tool_manager.get_tools();
-    let system_prompt = SystemPrompt::with_tools(&tools);
+    let system_prompt = SystemPrompt::with_tools(&tools, &[
+        ("reference_topics", ""),
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+    ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let model = default_model.model.as_str();
 

@@ -20,6 +20,7 @@ pub struct OpenRouterClient {
     base_url: String,
     http_referer: Option<String>,
     app_name: Option<String>,
+    dump_queries: bool,
 }
 
 /// Request body for the Chat Completions API
@@ -157,7 +158,14 @@ impl OpenRouterClient {
             base_url: "https://openrouter.ai/api/v1".to_string(),
             http_referer,
             app_name,
+            dump_queries: false,
         }
+    }
+
+    /// Enable or disable debug query logging
+    pub fn with_dump_queries(mut self, enabled: bool) -> Self {
+        self.dump_queries = enabled;
+        self
     }
 
     /// Update the model for this client
@@ -453,6 +461,14 @@ impl Provider for OpenRouterClient {
             max_tokens: 4096,
         };
 
+        let dump = if self.dump_queries
+            && let Ok(val) = serde_json::to_value(&request_body)
+        {
+            crate::providers::query_dump::QueryDump::request("openrouter", &self.model, &val).await
+        } else {
+            None
+        };
+
         let response = self
             .http_client
             .post(&url)
@@ -469,7 +485,16 @@ impl Provider for OpenRouterClient {
             });
         }
 
-        let completions_response: ChatCompletionsResponse = response.json().await?;
+        let response_text = response.text().await?;
+
+        if let Some(dump) = &dump
+            && let Ok(val) = serde_json::from_str::<Value>(&response_text)
+        {
+            dump.response(&val).await;
+        }
+
+        let completions_response: ChatCompletionsResponse =
+            serde_json::from_str(&response_text).map_err(ProviderError::Serialization)?;
         Ok(self.convert_response(completions_response))
     }
 
