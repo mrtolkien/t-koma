@@ -231,7 +231,8 @@ Full examples live in:
 ## Knowledge & Memory Tools
 
 The knowledge system lives in `t-koma-knowledge` with gateway tools in
-`t-koma-gateway/src/tools/memory_*.rs` and `reference_*.rs`.
+`t-koma-gateway/src/tools/memory_*.rs`, `search_diary.rs`, and
+`reference_search.rs`.
 
 ### Folder Layout
 
@@ -259,8 +260,8 @@ Five-variant `KnowledgeScope` enum:
 Helpers: `is_shared()` → SharedNote | SharedReference. `is_reference()` →
 SharedReference | GhostReference. `is_note()` → SharedNote | GhostNote.
 
-Cross-scope rule: ghost notes can link to shared notes, but shared notes never
-see private data.
+Cross-scope rule: ghost notes can link to shared notes and reference topics via
+`[[Title]]` wiki links, but shared notes never see private data.
 
 ### Tools
 
@@ -281,6 +282,8 @@ Memory tools:
   (skill: `note-writer`)
 - `memory_note_comment`: Append a timestamped comment to a note.
   (skill: `note-writer`)
+- `search_diary`: Search diary entries by keyword or concept. Diary files are
+  plain markdown (YYYY-MM-DD.md, no front matter).
 
 Reference tools:
 
@@ -312,6 +315,8 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 - For older topics, use `reference_topic_search` with a semantic query.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
+- The `knowledge-organizer` skill explains the physical file layout and indexing
+  pipeline for agents that need lower-level understanding.
 
 ### Approval System
 
