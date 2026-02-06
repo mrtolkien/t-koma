@@ -8,7 +8,7 @@ pub mod ingest;
 pub mod models;
 pub mod parser;
 pub mod paths;
-pub mod search;
+pub mod engine;
 pub mod storage;
 pub mod chunker;
 pub mod watcher;
@@ -19,5 +19,5 @@ pub use models::{
     KnowledgeScope, MemoryQuery, MemoryResult, NoteCreateRequest, NoteDocument, NoteSummary,
     NoteUpdateRequest, NoteWriteResult, ReferenceQuery, WriteScope,
 };
-pub use search::KnowledgeEngine;
+pub use engine::KnowledgeEngine;
 pub use embeddings::EmbeddingClient;
