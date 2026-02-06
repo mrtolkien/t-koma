@@ -1,8 +1,0 @@
----
-source: t-koma-knowledge/tests/codebase_embedding.rs
-assertion_line: 264
-expression: "serde_json::json!({\n    \"reference_result_count\": ref_results.len(), \"private_note_in_reference\":\n    private_leaked, \"private_note_in_memory\": has_private,\n})"
----
-private_note_in_memory: true
-private_note_in_reference: false
-reference_result_count: 8
