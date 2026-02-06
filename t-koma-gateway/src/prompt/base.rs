@@ -20,6 +20,6 @@ mod tests {
     fn test_full_prompt_combines_sections() {
         let full = full_system_prompt();
         assert!(full.contains("T-KOMA"));
-        assert!(full.contains("Using Tools"));
+        assert!(full.contains("GHOST"));
     }
 }
