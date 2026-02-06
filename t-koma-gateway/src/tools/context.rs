@@ -1,12 +1,88 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+/// Reason why a tool requires operator approval before proceeding.
+///
+/// Each variant carries the data needed to render an appropriate approval
+/// message in the transport layer (WebSocket, Discord, etc.).
+#[derive(Debug, Clone)]
+pub enum ApprovalReason {
+    /// Tool wants to access a path outside the ghost workspace.
+    WorkspaceEscape(String),
+    /// Tool wants to create a reference topic (potentially large fetch).
+    ReferenceTopicCreate {
+        title: String,
+        summary: String,
+    },
+}
+
+impl ApprovalReason {
+    /// Parse an approval reason from a tool error string.
+    ///
+    /// Returns `None` if the error does not start with `APPROVAL_REQUIRED:`.
+    /// Backward compatible: bare path strings become `WorkspaceEscape`.
+    pub fn parse(error: &str) -> Option<Self> {
+        let payload = error.strip_prefix(APPROVAL_REQUIRED_PREFIX)?;
+        let payload = payload.trim();
+        if payload.is_empty() {
+            return None;
+        }
+
+        // JSON payload → structured reason
+        if payload.starts_with('{')
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(payload)
+            && let Some(reason_type) = value.get("reason").and_then(|v| v.as_str())
+        {
+            return match reason_type {
+                "reference_topic_create" => Some(ApprovalReason::ReferenceTopicCreate {
+                    title: value.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    summary: value.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                }),
+                _ => None,
+            };
+        }
+
+        // Bare string → workspace escape (backward compatible)
+        Some(ApprovalReason::WorkspaceEscape(payload.to_string()))
+    }
+
+    /// Format this reason as a tool error string.
+    pub fn to_error(&self) -> String {
+        match self {
+            ApprovalReason::WorkspaceEscape(path) => {
+                format!("{}{}", APPROVAL_REQUIRED_PREFIX, path)
+            }
+            ApprovalReason::ReferenceTopicCreate { title, summary } => {
+                let json = serde_json::json!({
+                    "reason": "reference_topic_create",
+                    "title": title,
+                    "summary": summary,
+                });
+                format!("{}{}", APPROVAL_REQUIRED_PREFIX, json)
+            }
+        }
+    }
+
+    /// Denial message shown to the ghost when the operator denies approval.
+    pub fn denial_message(&self) -> &'static str {
+        match self {
+            ApprovalReason::WorkspaceEscape(_) => {
+                "Error: Operator denied approval to leave the workspace."
+            }
+            ApprovalReason::ReferenceTopicCreate { .. } => {
+                "Error: Operator denied approval to create this reference topic."
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolContext {
     ghost_name: String,
     workspace_root: PathBuf,
     cwd: PathBuf,
     allow_outside_workspace: bool,
+    approved_actions: Vec<String>,
     dirty: bool,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
 }
@@ -25,6 +101,7 @@ impl ToolContext {
             workspace_root,
             cwd,
             allow_outside_workspace,
+            approved_actions: Vec::new(),
             dirty: false,
             knowledge_engine: None,
         }
@@ -66,6 +143,33 @@ impl ToolContext {
         self.allow_outside_workspace = allow;
     }
 
+    /// Grant a one-shot named approval (consumed on first `has_approval` check).
+    pub fn grant_approval(&mut self, action: &str) {
+        self.approved_actions.push(action.to_string());
+    }
+
+    /// Check (and consume) a named approval. Returns `true` if it was granted.
+    pub fn has_approval(&mut self, action: &str) -> bool {
+        if let Some(pos) = self.approved_actions.iter().position(|a| a == action) {
+            self.approved_actions.swap_remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Apply the appropriate context changes when an approval reason is granted.
+    pub fn apply_approval(&mut self, reason: &ApprovalReason) {
+        match reason {
+            ApprovalReason::WorkspaceEscape(_) => {
+                self.set_allow_outside_workspace(true);
+            }
+            ApprovalReason::ReferenceTopicCreate { .. } => {
+                self.grant_approval("reference_topic_create");
+            }
+        }
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
@@ -75,12 +179,15 @@ impl ToolContext {
     }
 
     pub fn new_for_tests(root: &Path) -> Self {
-        Self::new(
-            "test-ghost".to_string(),
-            root.to_path_buf(),
-            root.to_path_buf(),
-            false,
-        )
+        Self {
+            ghost_name: "test-ghost".to_string(),
+            workspace_root: root.to_path_buf(),
+            cwd: root.to_path_buf(),
+            allow_outside_workspace: false,
+            approved_actions: Vec::new(),
+            dirty: false,
+            knowledge_engine: None,
+        }
     }
 }
 

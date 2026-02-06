@@ -9,7 +9,7 @@ use crate::prompt::render::{SystemBlock, build_system_prompt};
 use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderResponse, extract_all_text, has_tool_uses,
 };
-use crate::tools::context::{approval_required_path, is_within_workspace};
+use crate::tools::context::{ApprovalReason, is_within_workspace};
 use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
@@ -50,7 +50,7 @@ pub struct PendingToolUse {
 pub struct PendingToolApproval {
     pub pending_tool_uses: Vec<PendingToolUse>,
     pub completed_results: Vec<DbContentBlock>,
-    pub requested_path: Option<String>,
+    pub reason: ApprovalReason,
 }
 
 #[derive(Debug, Clone)]
@@ -359,11 +359,11 @@ impl SessionChat {
             let content = match result {
                 Ok(output) => output,
                 Err(e) => {
-                    if let Some(path) = approval_required_path(&e) {
+                    if let Some(reason) = ApprovalReason::parse(&e) {
                         return Err(ChatError::ToolApprovalRequired(PendingToolApproval {
                             pending_tool_uses: tool_uses[index..].to_vec(),
                             completed_results: tool_results.clone(),
-                            requested_path: Some(path.to_string()),
+                            reason,
                         }));
                     }
                     format!("Error: {}", e)
@@ -399,7 +399,7 @@ impl SessionChat {
         let mut tool_results = pending.completed_results;
         match decision {
             ToolApprovalDecision::Approve => {
-                tool_context.set_allow_outside_workspace(true);
+                tool_context.apply_approval(&pending.reason);
                 self.persist_tool_context(koma_db, &mut tool_context)
                     .await?;
                 self.execute_tool_uses(
@@ -412,9 +412,10 @@ impl SessionChat {
                 .await?;
             }
             ToolApprovalDecision::Deny => {
+                let denial = pending.reason.denial_message();
                 for (index, tool_use) in pending.pending_tool_uses.iter().enumerate() {
                     let content = if index == 0 {
-                        "Error: Operator denied approval to leave the workspace.".to_string()
+                        denial.to_string()
                     } else {
                         "Error: Skipped because approval was denied.".to_string()
                     };

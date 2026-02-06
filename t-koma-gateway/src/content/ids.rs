@@ -7,6 +7,9 @@ pub const APPROVAL_REQUIRED: &str = "approval-required";
 /// content: messages/en/approvals.toml#approval-required-with-path
 pub const APPROVAL_REQUIRED_WITH_PATH: &str = "approval-required-with-path";
 
+/// content: messages/en/approvals.toml#approval-reference-topic-create
+pub const APPROVAL_REFERENCE_TOPIC_CREATE: &str = "approval-reference-topic-create";
+
 /// content: messages/en/approvals.toml#no-pending-approval
 pub const NO_PENDING_APPROVAL: &str = "no-pending-approval";
 
