@@ -461,12 +461,13 @@ impl Provider for OpenRouterClient {
             max_tokens: 4096,
         };
 
-        if self.dump_queries
+        let dump = if self.dump_queries
             && let Ok(val) = serde_json::to_value(&request_body)
         {
-            crate::providers::query_dump::dump_query("openrouter", &self.model, "request", &val)
-                .await;
-        }
+            crate::providers::query_dump::QueryDump::request("openrouter", &self.model, &val).await
+        } else {
+            None
+        };
 
         let response = self
             .http_client
@@ -486,11 +487,10 @@ impl Provider for OpenRouterClient {
 
         let response_text = response.text().await?;
 
-        if self.dump_queries
+        if let Some(dump) = &dump
             && let Ok(val) = serde_json::from_str::<Value>(&response_text)
         {
-            crate::providers::query_dump::dump_query("openrouter", &self.model, "response", &val)
-                .await;
+            dump.response(&val).await;
         }
 
         let completions_response: ChatCompletionsResponse =
