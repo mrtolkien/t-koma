@@ -34,7 +34,7 @@ impl EmbeddingClient {
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(KnowledgeError::InvalidFrontMatter(format!(
+            return Err(KnowledgeError::Embedding(format!(
                 "embedding request failed: {status} {text}"
             )));
         }
@@ -49,7 +49,7 @@ impl EmbeddingClient {
             return Ok(vec![embedding]);
         }
 
-        Err(KnowledgeError::InvalidFrontMatter(
+        Err(KnowledgeError::Embedding(
             "embedding response missing vectors".to_string(),
         ))
     }

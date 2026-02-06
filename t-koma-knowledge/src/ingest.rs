@@ -34,7 +34,7 @@ pub async fn ingest_reference_topic(
         note_type: "ReferenceTopic".to_string(),
         type_valid: true,
         path: path.to_path_buf(),
-        scope: scope_string(KnowledgeScope::Reference),
+        scope: KnowledgeScope::Reference.as_str().to_string(),
         owner_ghost: None,
         created_at: parsed.front.created_at.to_rfc3339(),
         created_by_ghost: parsed.front.created_by.ghost.clone(),
@@ -101,7 +101,7 @@ pub async fn ingest_markdown(
         note_type: parsed.front.note_type.clone(),
         type_valid,
         path: path.to_path_buf(),
-        scope: scope_string(scope),
+        scope: scope.as_str().to_string(),
         owner_ghost,
         created_at: parsed.front.created_at.to_rfc3339(),
         created_by_ghost: parsed.front.created_by.ghost.clone(),
@@ -156,7 +156,7 @@ pub async fn ingest_reference_file(
         note_type: "ReferenceFile".to_string(),
         type_valid: true,
         path: path.to_path_buf(),
-        scope: scope_string(KnowledgeScope::Reference),
+        scope: KnowledgeScope::Reference.as_str().to_string(),
         owner_ghost: None,
         created_at: Utc::now().to_rfc3339(),
         created_by_ghost: "system".to_string(),
@@ -242,16 +242,6 @@ async fn load_type_allowlist(settings: &KnowledgeSettings) -> KnowledgeResult<Op
     Ok(Some(value.types.into_iter().collect()))
 }
 
-fn scope_string(scope: KnowledgeScope) -> String {
-    match scope {
-        KnowledgeScope::Shared => "shared",
-        KnowledgeScope::GhostPrivate => "ghost_private",
-        KnowledgeScope::GhostProjects => "ghost_projects",
-        KnowledgeScope::GhostDiary => "ghost_diary",
-        KnowledgeScope::Reference => "reference",
-    }
-    .to_string()
-}
 
 #[derive(Debug, serde::Deserialize)]
 struct TypeAllowList {

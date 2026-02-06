@@ -328,11 +328,14 @@ pub async fn replace_chunks(
         .bind(note_id)
         .execute(pool)
         .await?;
-    for (chunk_id,) in existing_ids {
-        sqlx::query("DELETE FROM chunk_vec WHERE rowid = ?")
-            .bind(chunk_id)
-            .execute(pool)
-            .await?;
+    if !existing_ids.is_empty() {
+        let placeholders = existing_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!("DELETE FROM chunk_vec WHERE rowid IN ({})", placeholders);
+        let mut q = sqlx::query(&sql);
+        for (chunk_id,) in &existing_ids {
+            q = q.bind(chunk_id);
+        }
+        q.execute(pool).await?;
     }
 
     let mut ids = Vec::new();
@@ -379,7 +382,7 @@ pub async fn upsert_vec(
     embedding: &[f32],
 ) -> KnowledgeResult<()> {
     let payload = serde_json::to_string(embedding).map_err(|e| {
-        KnowledgeError::InvalidFrontMatter(format!("embedding serialize failed: {e}"))
+        KnowledgeError::Embedding(format!("embedding serialize failed: {e}"))
     })?;
 
     sqlx::query("INSERT OR REPLACE INTO chunk_vec(rowid, embedding) VALUES (?, ?)")

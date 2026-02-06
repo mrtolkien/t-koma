@@ -236,6 +236,24 @@ async fn search_store(
     Ok(results)
 }
 
+/// Sanitize user input for FTS5 MATCH by quoting each word.
+///
+/// FTS5 has special operators (AND, OR, NOT, NEAR, quotes, etc.). Passing
+/// raw user input can cause SQLite parse errors. We split on whitespace
+/// and wrap each non-empty token in double quotes, joining with spaces
+/// so FTS5 treats them as an implicit AND of literal terms.
+fn sanitize_fts5_query(raw: &str) -> String {
+    let tokens: Vec<String> = raw
+        .split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{}\"", t.replace('"', "")))
+        .collect();
+    if tokens.is_empty() {
+        return "\"\"".to_string();
+    }
+    tokens.join(" ")
+}
+
 async fn bm25_search(
     pool: &SqlitePool,
     query: &str,
@@ -243,8 +261,9 @@ async fn bm25_search(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<(i64, f32)>> {
-    let scope_value = scope_string(scope);
-    let rows = if is_shared_scope(scope) {
+    let safe_query = sanitize_fts5_query(query);
+    let scope_value = scope.as_str();
+    let rows = if scope.is_shared() {
         sqlx::query_as::<_, (i64, f32)>(
             r#"SELECT chunk_id, bm25(chunk_fts) as score
                FROM chunk_fts
@@ -253,7 +272,7 @@ async fn bm25_search(
                ORDER BY score ASC
                LIMIT ?"#,
         )
-        .bind(query)
+        .bind(&safe_query)
         .bind(scope_value)
         .bind(limit as i64)
         .fetch_all(pool)
@@ -267,7 +286,7 @@ async fn bm25_search(
                ORDER BY score ASC
                LIMIT ?"#,
         )
-        .bind(query)
+        .bind(&safe_query)
         .bind(scope_value)
         .bind(ghost_name)
         .bind(limit as i64)
@@ -292,12 +311,12 @@ async fn dense_search(
         return Ok(Vec::new());
     }
     let payload = serde_json::to_string(&embeddings[0]).map_err(|e| {
-        KnowledgeError::InvalidFrontMatter(format!("embedding serialize failed: {e}"))
+        KnowledgeError::Embedding(format!("embedding serialize failed: {e}"))
     })?;
 
     let rows = if let Some(note_ids) = note_filter {
         let placeholders = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-        let sql = if is_shared_scope(scope) {
+        let sql = if scope.is_shared() {
             format!(
                 "SELECT c.id, v.distance FROM chunk_vec v JOIN chunks c ON c.id = v.rowid JOIN notes n ON n.id = c.note_id WHERE v.embedding MATCH ? AND n.id IN ({}) AND n.scope = ? AND n.owner_ghost IS NULL ORDER BY v.distance ASC LIMIT ?",
                 placeholders
@@ -313,13 +332,13 @@ async fn dense_search(
         for id in note_ids {
             query_builder = query_builder.bind(id);
         }
-        query_builder = query_builder.bind(scope_string(scope));
-        if !is_shared_scope(scope) {
+        query_builder = query_builder.bind(scope.as_str());
+        if !scope.is_shared() {
             query_builder = query_builder.bind(ghost_name);
         }
         query_builder = query_builder.bind(limit as i64);
         query_builder.fetch_all(pool).await?
-    } else if is_shared_scope(scope) {
+    } else if scope.is_shared() {
         sqlx::query_as::<_, (i64, f32)>(
             r#"SELECT c.id, v.distance
                FROM chunk_vec v
@@ -330,7 +349,7 @@ async fn dense_search(
                LIMIT ?"#,
         )
         .bind(payload)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(limit as i64)
         .fetch_all(pool)
         .await?
@@ -345,7 +364,7 @@ async fn dense_search(
                LIMIT ?"#,
         )
         .bind(payload)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(ghost_name)
         .bind(limit as i64)
         .fetch_all(pool)
@@ -386,7 +405,7 @@ async fn hydrate_summaries(
     let mut summaries = Vec::new();
 
     for (chunk_id, score) in ranked {
-        let row = if is_shared_scope(scope) {
+        let row = if scope.is_shared() {
             sqlx::query_as::<_, (String, String, String, String, i64, String, String)>(
                 r#"SELECT n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, c.content
                    FROM chunks c
@@ -395,7 +414,7 @@ async fn hydrate_summaries(
                    LIMIT 1"#,
             )
             .bind(chunk_id)
-            .bind(scope_string(scope))
+            .bind(scope.as_str())
             .fetch_optional(pool)
             .await?
         } else {
@@ -407,7 +426,7 @@ async fn hydrate_summaries(
                    LIMIT 1"#,
             )
             .bind(chunk_id)
-            .bind(scope_string(scope))
+            .bind(scope.as_str())
             .bind(ghost_name)
             .fetch_optional(pool)
             .await?
@@ -421,7 +440,7 @@ async fn hydrate_summaries(
                 title,
                 note_type,
                 path: path.into(),
-                scope: scope_from_str(&scope),
+                scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
                 trust_score,
                 score: *score * trust_boost,
                 snippet,
@@ -438,7 +457,7 @@ async fn fetch_note(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Option<NoteDocument>> {
-    let row = if is_shared_scope(scope) {
+    let row = if scope.is_shared() {
         sqlx::query_as::<_, (
         String,
         String,
@@ -465,7 +484,7 @@ async fn fetch_note(
         )
         .bind(note_id_or_title)
         .bind(note_id_or_title)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .fetch_optional(pool)
         .await?
     } else {
@@ -495,7 +514,7 @@ async fn fetch_note(
         )
         .bind(note_id_or_title)
         .bind(note_id_or_title)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(ghost_name)
         .fetch_optional(pool)
         .await?
@@ -525,7 +544,7 @@ async fn fetch_note(
             title,
             note_type,
             path: path.into(),
-            scope: scope_from_str(&scope),
+            scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
             trust_score,
             created_at: DateTime::parse_from_rfc3339(&created_at)
                 .map(|dt| dt.with_timezone(&Utc))
@@ -577,8 +596,9 @@ async fn search_reference_files(
         filter_ids
     );
 
+    let safe_question = sanitize_fts5_query(&query.question);
     let mut query_builder = sqlx::query_as::<_, (i64, f32)>(&sql);
-    query_builder = query_builder.bind(&query.question);
+    query_builder = query_builder.bind(&safe_question);
     for id in &note_ids {
         query_builder = query_builder.bind(id);
     }
@@ -643,8 +663,9 @@ async fn search_reference_topics(
         "SELECT chunk_id, bm25(chunk_fts) as score FROM chunk_fts JOIN notes ON notes.id = chunk_fts.note_id WHERE chunk_fts MATCH ? AND notes.id IN ({}) ORDER BY score ASC LIMIT ?",
         placeholders
     );
+    let safe_topic = sanitize_fts5_query(&query.topic);
     let mut query_builder = sqlx::query_as::<_, (i64, f32)>(&sql);
-    query_builder = query_builder.bind(&query.topic);
+    query_builder = query_builder.bind(&safe_topic);
     for id in &topic_ids {
         query_builder = query_builder.bind(id);
     }
@@ -725,28 +746,3 @@ struct ResolvedSearchOptions {
     dense_limit: usize,
 }
 
-fn scope_string(scope: KnowledgeScope) -> String {
-    match scope {
-        KnowledgeScope::Shared => "shared",
-        KnowledgeScope::GhostPrivate => "ghost_private",
-        KnowledgeScope::GhostProjects => "ghost_projects",
-        KnowledgeScope::GhostDiary => "ghost_diary",
-        KnowledgeScope::Reference => "reference",
-    }
-    .to_string()
-}
-
-fn is_shared_scope(scope: KnowledgeScope) -> bool {
-    matches!(scope, KnowledgeScope::Shared | KnowledgeScope::Reference)
-}
-
-fn scope_from_str(scope: &str) -> KnowledgeScope {
-    match scope {
-        "shared" => KnowledgeScope::Shared,
-        "ghost_private" => KnowledgeScope::GhostPrivate,
-        "ghost_projects" => KnowledgeScope::GhostProjects,
-        "ghost_diary" => KnowledgeScope::GhostDiary,
-        "reference" => KnowledgeScope::Reference,
-        _ => KnowledgeScope::Shared,
-    }
-}

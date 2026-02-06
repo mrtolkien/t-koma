@@ -10,7 +10,7 @@ pub async fn load_links_out(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<NoteSummary>> {
-    let rows = if is_shared_scope(scope) {
+    let rows = if scope.is_shared() {
         sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>, String)>(
             r#"SELECT l.target_title, n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, s.scope
                FROM note_links l
@@ -20,7 +20,7 @@ pub async fn load_links_out(
                LIMIT ?"#,
         )
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(limit as i64)
         .fetch_all(pool)
         .await?
@@ -35,7 +35,7 @@ pub async fn load_links_out(
         )
         .bind(ghost_name)
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(ghost_name)
         .bind(ghost_name)
         .bind(limit as i64)
@@ -57,7 +57,7 @@ pub async fn load_links_out(
                 path: path
                     .map(std::path::PathBuf::from)
                     .unwrap_or_default(),
-                scope: scope_from_str(&resolved_scope),
+                scope: resolved_scope.parse().unwrap_or(KnowledgeScope::Shared),
                 trust_score: trust_score.unwrap_or(1),
                 score: 0.0,
                 snippet: String::new(),
@@ -73,7 +73,7 @@ pub async fn load_links_in(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<NoteSummary>> {
-    let rows = if is_shared_scope(scope) {
+    let rows = if scope.is_shared() {
         sqlx::query_as::<_, (String, String, String, String, i64, String)>(
             r#"SELECT n.id, n.title, n.note_type, n.path, n.trust_score, n.scope
                FROM note_links l
@@ -82,7 +82,7 @@ pub async fn load_links_in(
                LIMIT ?"#,
         )
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(limit as i64)
         .fetch_all(pool)
         .await?
@@ -95,7 +95,7 @@ pub async fn load_links_in(
                LIMIT ?"#,
         )
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(ghost_name)
         .bind(ghost_name)
         .bind(limit as i64)
@@ -110,7 +110,7 @@ pub async fn load_links_in(
             title,
             note_type,
             path: path.into(),
-            scope: scope_from_str(&scope),
+            scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
             trust_score,
             score: 0.0,
             snippet: String::new(),
@@ -124,7 +124,7 @@ pub async fn load_parent(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<NoteSummary>> {
-    let rows: Vec<(String, String, String, String, i64, String)> = if is_shared_scope(scope) {
+    let rows: Vec<(String, String, String, String, i64, String)> = if scope.is_shared() {
         sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>, String)>(
             r#"SELECT child.parent_id, n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, child.scope
                FROM notes child
@@ -133,7 +133,7 @@ pub async fn load_parent(
                LIMIT 1"#,
         )
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .fetch_all(pool)
         .await?
         .into_iter()
@@ -162,7 +162,7 @@ pub async fn load_parent(
         )
         .bind(ghost_name)
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(ghost_name)
         .fetch_all(pool)
         .await?
@@ -191,7 +191,7 @@ pub async fn load_parent(
             title,
             note_type,
             path: path.into(),
-            scope: scope_from_str(&scope),
+            scope: scope.parse().unwrap_or(KnowledgeScope::Shared),
             trust_score,
             score: 0.0,
             snippet: String::new(),
@@ -205,7 +205,7 @@ pub async fn load_tags(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<String>> {
-    let rows = if is_shared_scope(scope) {
+    let rows = if scope.is_shared() {
         sqlx::query_as::<_, (String,)>(
             r#"SELECT t.tag
                FROM note_tags t
@@ -213,7 +213,7 @@ pub async fn load_tags(
                WHERE t.note_id = ? AND n.scope = ? AND n.owner_ghost IS NULL"#,
         )
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .fetch_all(pool)
         .await?
     } else {
@@ -224,7 +224,7 @@ pub async fn load_tags(
                WHERE t.note_id = ? AND n.scope = ? AND n.owner_ghost = ?"#,
         )
         .bind(note_id)
-        .bind(scope_string(scope))
+        .bind(scope.as_str())
         .bind(ghost_name)
         .fetch_all(pool)
         .await?
@@ -233,30 +233,6 @@ pub async fn load_tags(
     Ok(rows.into_iter().map(|(tag,)| tag).collect())
 }
 
-fn scope_from_str(scope: &str) -> KnowledgeScope {
-    match scope {
-        "shared" => KnowledgeScope::Shared,
-        "ghost_private" => KnowledgeScope::GhostPrivate,
-        "ghost_projects" => KnowledgeScope::GhostProjects,
-        "ghost_diary" => KnowledgeScope::GhostDiary,
-        "reference" => KnowledgeScope::Reference,
-        _ => KnowledgeScope::Shared,
-    }
-}
-fn scope_string(scope: KnowledgeScope) -> String {
-    match scope {
-        KnowledgeScope::Shared => "shared",
-        KnowledgeScope::GhostPrivate => "ghost_private",
-        KnowledgeScope::GhostProjects => "ghost_projects",
-        KnowledgeScope::GhostDiary => "ghost_diary",
-        KnowledgeScope::Reference => "reference",
-    }
-    .to_string()
-}
-
-fn is_shared_scope(scope: KnowledgeScope) -> bool {
-    matches!(scope, KnowledgeScope::Shared | KnowledgeScope::Reference)
-}
 
 pub async fn expand_links_out(
     pool: &SqlitePool,
