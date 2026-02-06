@@ -67,7 +67,7 @@ impl Tool for LoadSkillTool {
         )
     }
 
-    async fn execute(&self, args: Value, _context: &mut ToolContext) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let skill_name = args["skill_name"]
             .as_str()
             .ok_or_else(|| "Missing 'skill_name' parameter".to_string())?;
@@ -95,6 +95,13 @@ impl Tool for LoadSkillTool {
                 "Skill '{}' not found at {:?}",
                 skill_name, skill_path
             ));
+        }
+
+        // Parse skill metadata to register any unlocked tools
+        if let Ok(skill) = t_koma_core::skills::Skill::from_file(&skill_path)
+            && !skill.unlocks_tools.is_empty()
+        {
+            context.unlock_tools(skill.unlocks_tools);
         }
 
         // Read the skill content

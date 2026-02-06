@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::{Duration as ChronoDuration, Utc};
@@ -170,7 +171,7 @@ impl SessionChat {
         let ghost_vars = self
             .build_ghost_context_vars(ghost_db.workspace_path())
             .await?;
-        let tools = self.tool_manager.get_tools();
+        let tools = self.tool_manager.get_visible_tools(&HashSet::new());
         let system_prompt = SystemPrompt::with_tools(&tools, &ghost_vars.as_pairs());
         let system_blocks = build_system_prompt(&system_prompt);
 
@@ -211,14 +212,18 @@ impl SessionChat {
         new_message: Option<&str>,
         max_iterations: usize,
     ) -> Result<String, ChatError> {
-        let tools = self.tool_manager.get_tools();
+        // Load tool context early so skill-unlocked tools can be tracked
+        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
+        let tools = self
+            .tool_manager
+            .get_visible_tools(tool_context.unlocked_tools());
 
         // Initial request to the provider
         let mut response = provider
             .send_conversation(
                 Some(system_blocks.clone()),
                 api_messages.clone(),
-                tools.clone(),
+                tools,
                 new_message,
                 None,
                 None,
@@ -227,7 +232,6 @@ impl SessionChat {
             .map_err(|e| ChatError::Api(e.to_string()))?;
 
         // Handle tool use loop (bounded to prevent infinite loops)
-        let mut tool_context = self.load_tool_context(koma_db, ghost_db).await?;
         for iteration in 0..max_iterations {
             let has_tool_use = has_tool_uses(&response);
 
@@ -271,12 +275,17 @@ impl SessionChat {
             let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
             let new_api_messages = build_history_messages(&history, Some(50));
 
+            // Rebuild visible tools (load_skill may have unlocked new ones)
+            let tools = self
+                .tool_manager
+                .get_visible_tools(tool_context.unlocked_tools());
+
             // Send tool results back to the provider
             response = provider
                 .send_conversation(
                     Some(system_blocks.clone()),
                     new_api_messages,
-                    tools.clone(),
+                    tools,
                     None,
                     None,
                     None,
@@ -517,7 +526,7 @@ impl SessionChat {
         let ghost_vars = self
             .build_ghost_context_vars(ghost_db.workspace_path())
             .await?;
-        let tools = self.tool_manager.get_tools();
+        let tools = self.tool_manager.get_visible_tools(&HashSet::new());
         let system_prompt = SystemPrompt::with_tools(&tools, &ghost_vars.as_pairs());
         let system_blocks = build_system_prompt(&system_prompt);
         let api_messages = build_history_messages(&history, Some(50));
