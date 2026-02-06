@@ -114,8 +114,8 @@ impl TuiApp {
     async fn activate_option(&mut self) {
         match self.selected_category() {
             Category::Config => match self.options_idx {
-                0 => self.begin_prompt(PromptKind::AddModel, None),
-                1 => self.begin_prompt(PromptKind::SetDefaultModel, None),
+                0 => self.begin_prompt(PromptKind::AddModel, None, None),
+                1 => self.begin_prompt(PromptKind::SetDefaultModel, None, None),
                 2 => {
                     self.settings.discord.enabled = !self.settings.discord.enabled;
                     self.settings_dirty = true;
@@ -137,19 +137,66 @@ impl TuiApp {
                     self.operator_view = super::state::OperatorView::All;
                     self.refresh_operators().await;
                 }
-                1 => self.begin_prompt(PromptKind::AddOperator, None),
+                1 => self.begin_prompt(PromptKind::AddOperator, None, None),
                 2 => {
                     self.operator_view = super::state::OperatorView::Pending;
                     self.refresh_operators().await;
+                }
+                3 => {
+                    if let Some(op) = self.operators.get(self.content_idx) {
+                        self.begin_prompt(
+                            PromptKind::SetOperatorAccessLevel,
+                            None,
+                            Some(op.id.clone()),
+                        );
+                    } else {
+                        self.status = "No operator selected".to_string();
+                    }
+                }
+                4 => {
+                    if let Some(op) = self.operators.get(self.content_idx) {
+                        self.begin_prompt(
+                            PromptKind::SetOperatorRateLimits,
+                            None,
+                            Some(op.id.clone()),
+                        );
+                    } else {
+                        self.status = "No operator selected".to_string();
+                    }
+                }
+                5 => {
+                    if let Some(op) = self.operators.get(self.content_idx) {
+                        let operator_id = op.id.clone();
+                        self.disable_operator_rate_limits(&operator_id).await;
+                    } else {
+                        self.status = "No operator selected".to_string();
+                    }
+                }
+                6 => {
+                    if let Some(op) = self.operators.get(self.content_idx) {
+                        if op.access_level
+                            == t_koma_db::OperatorAccessLevel::PuppetMaster
+                        {
+                            self.status =
+                                "Puppet Master is always allowed to escape the workspace"
+                                    .to_string();
+                            return;
+                        }
+                        let operator_id = op.id.clone();
+                        let allow = !op.allow_workspace_escape;
+                        self.set_operator_workspace_escape(&operator_id, allow).await;
+                    } else {
+                        self.status = "No operator selected".to_string();
+                    }
                 }
                 _ => {}
             },
             Category::Ghosts => match self.options_idx {
                 0 => self.refresh_ghosts().await,
-                1 => self.begin_prompt(PromptKind::NewGhost, None),
+                1 => self.begin_prompt(PromptKind::NewGhost, None, None),
                 2 => {
                     if let Some(name) = self.ghosts.get(self.content_idx).map(|g| g.name.clone()) {
-                        self.begin_prompt(PromptKind::DeleteGhostConfirmOne, Some(name));
+                        self.begin_prompt(PromptKind::DeleteGhostConfirmOne, Some(name), None);
                     } else {
                         self.status = "No ghost selected".to_string();
                     }
@@ -179,7 +226,7 @@ impl TuiApp {
 
         match key.code {
             KeyCode::Char('r') => self.restart_gateway().await,
-            KeyCode::Char('/') => self.begin_prompt(PromptKind::GateSearch, None),
+            KeyCode::Char('/') => self.begin_prompt(PromptKind::GateSearch, None, None),
             KeyCode::Char(' ') => {
                 self.gate_paused = !self.gate_paused;
                 self.status = if self.gate_paused {
@@ -203,10 +250,16 @@ impl TuiApp {
         }
     }
 
-    fn begin_prompt(&mut self, kind: PromptKind, target_ghost: Option<String>) {
+    fn begin_prompt(
+        &mut self,
+        kind: PromptKind,
+        target_ghost: Option<String>,
+        target_operator_id: Option<String>,
+    ) {
         self.prompt.kind = Some(kind);
         self.prompt.buffer.clear();
         self.prompt.target_ghost = target_ghost;
+        self.prompt.target_operator_id = target_operator_id;
     }
 
     async fn handle_prompt_key(&mut self, key: KeyEvent) {
@@ -224,6 +277,7 @@ impl TuiApp {
                 let kind = self.prompt.kind;
                 let input = self.prompt.buffer.trim().to_string();
                 let target = self.prompt.target_ghost.clone();
+                let target_operator_id = self.prompt.target_operator_id.clone();
                 self.prompt = super::state::PromptState::default();
 
                 match kind {
@@ -233,7 +287,11 @@ impl TuiApp {
                     Some(PromptKind::NewGhost) => self.add_ghost(&input).await,
                     Some(PromptKind::DeleteGhostConfirmOne) => {
                         if input == "DELETE" {
-                            self.begin_prompt(PromptKind::DeleteGhostConfirmTwo, target);
+                            self.begin_prompt(
+                                PromptKind::DeleteGhostConfirmTwo,
+                                target,
+                                None,
+                            );
                         } else {
                             self.status = "Delete aborted".to_string();
                         }
@@ -243,6 +301,20 @@ impl TuiApp {
                     }
                     Some(PromptKind::GateSearch) => {
                         self.gate_search = if input.is_empty() { None } else { Some(input) };
+                    }
+                    Some(PromptKind::SetOperatorAccessLevel) => {
+                        if let Some(operator_id) = target_operator_id {
+                            self.set_operator_access_level(&operator_id, &input).await;
+                        } else {
+                            self.status = "No operator selected".to_string();
+                        }
+                    }
+                    Some(PromptKind::SetOperatorRateLimits) => {
+                        if let Some(operator_id) = target_operator_id {
+                            self.set_operator_rate_limits(&operator_id, &input).await;
+                        } else {
+                            self.status = "No operator selected".to_string();
+                        }
                     }
                     None => {}
                 }

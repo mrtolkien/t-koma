@@ -16,8 +16,8 @@ use tempfile::NamedTempFile;
 
 use t_koma_core::{ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
 use t_koma_db::{
-    GhostDbPool, GhostRepository, OperatorRepository, OperatorStatus, Platform,
-    SessionRepository,
+    GhostDbPool, GhostRepository, OperatorAccessLevel, OperatorRepository, OperatorStatus,
+    Platform, SessionRepository,
 };
 
 use crate::client::WsClient;
@@ -113,7 +113,14 @@ impl TuiApp {
             return;
         };
 
-        match OperatorRepository::create_new(db.pool(), input, Platform::Api).await {
+        match OperatorRepository::create_new(
+            db.pool(),
+            input,
+            Platform::Api,
+            t_koma_db::OperatorAccessLevel::Standard,
+        )
+        .await
+        {
             Ok(op) => match OperatorRepository::approve(db.pool(), &op.id).await {
                 Ok(_) => {
                     self.status = format!("Created approved operator {}", op.id);
@@ -158,6 +165,122 @@ impl TuiApp {
         }
         self.status = format!("Denied {}", operator.id);
         self.refresh_operators().await;
+    }
+
+    pub(super) async fn set_operator_access_level(
+        &mut self,
+        operator_id: &str,
+        input: &str,
+    ) {
+        let level = match input.trim().to_lowercase().as_str() {
+            "puppet_master" | "puppet" | "pm" | "admin" => OperatorAccessLevel::PuppetMaster,
+            "standard" | "std" => OperatorAccessLevel::Standard,
+            _ => {
+                self.status = "Access level must be puppet_master or standard".to_string();
+                return;
+            }
+        };
+
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        let result = OperatorRepository::set_access_level(db.pool(), operator_id, level).await;
+        if let Err(e) = result {
+            self.status = format!("Set access level failed: {}", e);
+            return;
+        }
+
+        if level == OperatorAccessLevel::PuppetMaster {
+            let _ = OperatorRepository::set_rate_limits(db.pool(), operator_id, None, None).await;
+        }
+
+        self.status = format!("Access level set for {}", operator_id);
+        self.refresh_operators().await;
+    }
+
+    pub(super) async fn set_operator_rate_limits(
+        &mut self,
+        operator_id: &str,
+        input: &str,
+    ) {
+        let trimmed = input.trim().to_lowercase();
+        let (rate_5m, rate_1h) = if trimmed == "none" || trimmed == "off" {
+            (None, None)
+        } else {
+            let parts: Vec<&str> = input.split(',').map(|v| v.trim()).collect();
+            if parts.len() != 2 {
+                self.status = "Use: 5m,1h or 'none'".to_string();
+                return;
+            }
+            let rate_5m = match parts[0].parse::<i64>() {
+                Ok(value) if value > 0 => value,
+                _ => {
+                    self.status = "5m limit must be a positive integer".to_string();
+                    return;
+                }
+            };
+            let rate_1h = match parts[1].parse::<i64>() {
+                Ok(value) if value > 0 => value,
+                _ => {
+                    self.status = "1h limit must be a positive integer".to_string();
+                    return;
+                }
+            };
+            (Some(rate_5m), Some(rate_1h))
+        };
+
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        match OperatorRepository::set_rate_limits(db.pool(), operator_id, rate_5m, rate_1h).await {
+            Ok(_) => {
+                self.status = format!("Rate limits set for {}", operator_id);
+                self.refresh_operators().await;
+            }
+            Err(e) => self.status = format!("Set rate limits failed: {}", e),
+        }
+    }
+
+    pub(super) async fn disable_operator_rate_limits(&mut self, operator_id: &str) {
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        match OperatorRepository::set_rate_limits(db.pool(), operator_id, None, None).await {
+            Ok(_) => {
+                self.status = format!("Rate limits disabled for {}", operator_id);
+                self.refresh_operators().await;
+            }
+            Err(e) => self.status = format!("Disable rate limits failed: {}", e),
+        }
+    }
+
+    pub(super) async fn set_operator_workspace_escape(
+        &mut self,
+        operator_id: &str,
+        allow: bool,
+    ) {
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        match OperatorRepository::set_allow_workspace_escape(db.pool(), operator_id, allow).await {
+            Ok(_) => {
+                self.status = format!(
+                    "Workspace escape {} for {}",
+                    if allow { "enabled" } else { "disabled" },
+                    operator_id
+                );
+                self.refresh_operators().await;
+            }
+            Err(e) => self.status = format!("Workspace escape update failed: {}", e),
+        }
     }
 
     pub(super) async fn add_ghost(&mut self, input: &str) {

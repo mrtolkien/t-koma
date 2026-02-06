@@ -187,6 +187,9 @@ pub const NO_GHOSTS_FOR_OPERATOR: &str = "no-ghosts-for-operator";
 /// content: messages/en/server.toml#operator-created-awaiting-approval
 pub const OPERATOR_CREATED_AWAITING_APPROVAL: &str = "operator-created-awaiting-approval";
 
+/// content: messages/en/server.toml#rate-limited
+pub const RATE_LIMITED: &str = "rate-limited";
+
 /// content: messages/en/server.toml#reply-with-new-or-existing
 pub const REPLY_WITH_NEW_OR_EXISTING: &str = "reply-with-new-or-existing";
 
@@ -213,4 +216,3 @@ pub const PROMPT_SYSTEM_BASE: &str = "system-base";
 
 /// content: prompts/system-prompt.md
 pub const PROMPT_SYSTEM_PROMPT: &str = "system-prompt";
-

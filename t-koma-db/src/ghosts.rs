@@ -249,7 +249,9 @@ impl From<GhostRow> for Ghost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_helpers::create_test_koma_pool, OperatorRepository, Platform};
+    use crate::{
+        test_helpers::create_test_koma_pool, OperatorAccessLevel, OperatorRepository, Platform,
+    };
 
     #[tokio::test]
     async fn test_validate_ghost_name() {
@@ -268,9 +270,14 @@ mod tests {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        let operator = OperatorRepository::create_new(pool, "Test Operator", Platform::Api)
-            .await
-            .unwrap();
+        let operator = OperatorRepository::create_new(
+            pool,
+            "Test Operator",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
 
         let ghost = GhostRepository::create(pool, &operator.id, "Alpha")
             .await
@@ -287,9 +294,14 @@ mod tests {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        let operator = OperatorRepository::create_new(pool, "Test Operator", Platform::Api)
-            .await
-            .unwrap();
+        let operator = OperatorRepository::create_new(
+            pool,
+            "Test Operator",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
 
         GhostRepository::create(pool, &operator.id, "Alpha")
             .await

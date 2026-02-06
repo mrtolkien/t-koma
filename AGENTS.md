@@ -366,6 +366,7 @@ Detailed how-tos are in `vibe/knowledge/`:
   `vibe/knowledge/openrouter.md`
 - sqlite-vec notes: `vibe/knowledge/sqlite-vec.md`
 - Knowledge system: `t-koma-knowledge/knowledge/prompts/knowledge_system.md`
+- Operator access levels: `vibe/knowledge/operator_access_levels.md`
 
 ALWAYS read relevant files in knowledge.md before implementing a feature. If you
 see outdated information, update it. If you learn something new during the task

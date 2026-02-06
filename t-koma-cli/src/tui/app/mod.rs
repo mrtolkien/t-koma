@@ -138,6 +138,10 @@ impl TuiApp {
                 "List All".to_string(),
                 "Add Operator".to_string(),
                 "Pending Approvals".to_string(),
+                "Set Access Level".to_string(),
+                "Set Rate Limits".to_string(),
+                "Disable Rate Limits".to_string(),
+                "Toggle Workspace Escape".to_string(),
             ],
             Category::Ghosts => {
                 vec!["List All".to_string(), "New Ghost".to_string(), "Delete".to_string()]

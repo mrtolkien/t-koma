@@ -78,6 +78,40 @@ impl std::str::FromStr for OperatorStatus {
     }
 }
 
+/// Operator access levels
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OperatorAccessLevel {
+    PuppetMaster,
+    Standard,
+}
+
+impl fmt::Display for OperatorAccessLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OperatorAccessLevel::PuppetMaster => write!(f, "puppet_master"),
+            OperatorAccessLevel::Standard => write!(f, "standard"),
+        }
+    }
+}
+
+impl std::str::FromStr for OperatorAccessLevel {
+    type Err = DbError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "puppet_master" => Ok(OperatorAccessLevel::PuppetMaster),
+            "standard" => Ok(OperatorAccessLevel::Standard),
+            _ => Err(DbError::Serialization(format!(
+                "Invalid access level: {}",
+                s
+            ))),
+        }
+    }
+}
+
+pub const DEFAULT_RATE_LIMIT_5M_MAX: i64 = 10;
+pub const DEFAULT_RATE_LIMIT_1H_MAX: i64 = 100;
+
 /// Operator record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operator {
@@ -85,6 +119,10 @@ pub struct Operator {
     pub name: String,
     pub platform: Platform,
     pub status: OperatorStatus,
+    pub access_level: OperatorAccessLevel,
+    pub rate_limit_5m_max: Option<i64>,
+    pub rate_limit_1h_max: Option<i64>,
+    pub allow_workspace_escape: bool,
     pub created_at: i64,
     pub updated_at: i64,
     pub approved_at: Option<i64>,
@@ -101,19 +139,31 @@ impl OperatorRepository {
         pool: &SqlitePool,
         name: &str,
         platform: Platform,
+        access_level: OperatorAccessLevel,
     ) -> DbResult<Operator> {
         let id = format!("op_{}", Uuid::new_v4());
         let now = Utc::now().timestamp();
         let status_str = OperatorStatus::Pending.to_string();
+        let access_level_str = access_level.to_string();
+        let (rate_limit_5m, rate_limit_1h) = match access_level {
+            OperatorAccessLevel::PuppetMaster => (None, None),
+            OperatorAccessLevel::Standard => (
+                Some(DEFAULT_RATE_LIMIT_5M_MAX),
+                Some(DEFAULT_RATE_LIMIT_1H_MAX),
+            ),
+        };
 
         sqlx::query(
-            "INSERT INTO operators (id, name, platform, status, created_at, updated_at, welcomed)
-             VALUES (?, ?, ?, ?, ?, ?, 0)",
+            "INSERT INTO operators (id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, welcomed)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)",
         )
         .bind(&id)
         .bind(name)
         .bind(platform.to_string())
         .bind(status_str)
+        .bind(access_level_str)
+        .bind(rate_limit_5m)
+        .bind(rate_limit_1h)
         .bind(now)
         .bind(now)
         .execute(pool)
@@ -137,6 +187,7 @@ impl OperatorRepository {
         id: &str,
         name: &str,
         platform: Platform,
+        access_level: OperatorAccessLevel,
     ) -> DbResult<Operator> {
         if let Some(operator) = Self::get_by_id(pool, id).await? {
             debug!("Found existing operator: {}", id);
@@ -145,15 +196,26 @@ impl OperatorRepository {
 
         let now = Utc::now().timestamp();
         let status_str = OperatorStatus::Pending.to_string();
+        let access_level_str = access_level.to_string();
+        let (rate_limit_5m, rate_limit_1h) = match access_level {
+            OperatorAccessLevel::PuppetMaster => (None, None),
+            OperatorAccessLevel::Standard => (
+                Some(DEFAULT_RATE_LIMIT_5M_MAX),
+                Some(DEFAULT_RATE_LIMIT_1H_MAX),
+            ),
+        };
 
         sqlx::query(
-            "INSERT INTO operators (id, name, platform, status, created_at, updated_at, welcomed)
-             VALUES (?, ?, ?, ?, ?, ?, 0)",
+            "INSERT INTO operators (id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, welcomed)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)",
         )
         .bind(id)
         .bind(name)
         .bind(platform.to_string())
         .bind(status_str)
+        .bind(access_level_str)
+        .bind(rate_limit_5m)
+        .bind(rate_limit_1h)
         .bind(now)
         .bind(now)
         .execute(pool)
@@ -171,7 +233,7 @@ impl OperatorRepository {
     /// Get operator by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Operator>> {
         let row = sqlx::query_as::<_, OperatorRow>(
-            "SELECT id, name, platform, status, created_at, updated_at, approved_at, denied_at, welcomed
+            "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
              FROM operators
              WHERE id = ?",
         )
@@ -303,7 +365,7 @@ impl OperatorRepository {
         let rows = match platform {
             Some(platform) => {
                 sqlx::query_as::<_, OperatorRow>(
-                    "SELECT id, name, platform, status, created_at, updated_at, approved_at, denied_at, welcomed
+                    "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
                      FROM operators
                      WHERE status = ? AND platform = ?
                      ORDER BY created_at ASC",
@@ -315,7 +377,7 @@ impl OperatorRepository {
             }
             None => {
                 sqlx::query_as::<_, OperatorRow>(
-                    "SELECT id, name, platform, status, created_at, updated_at, approved_at, denied_at, welcomed
+                    "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
                      FROM operators
                      WHERE status = ?
                      ORDER BY created_at ASC",
@@ -332,7 +394,7 @@ impl OperatorRepository {
     /// List all operators
     pub async fn list_all(pool: &SqlitePool) -> DbResult<Vec<Operator>> {
         let rows = sqlx::query_as::<_, OperatorRow>(
-            "SELECT id, name, platform, status, created_at, updated_at, approved_at, denied_at, welcomed
+            "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
              FROM operators
              ORDER BY created_at ASC",
         )
@@ -357,6 +419,75 @@ impl OperatorRepository {
 
         info!("Removed operator: {}", id);
         Ok(())
+    }
+
+    pub async fn set_access_level(
+        pool: &SqlitePool,
+        id: &str,
+        access_level: OperatorAccessLevel,
+    ) -> DbResult<Operator> {
+        let now = Utc::now().timestamp();
+        sqlx::query(
+            "UPDATE operators
+             SET access_level = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(access_level.to_string())
+        .bind(now)
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        Self::get_by_id(pool, id)
+            .await?
+            .ok_or_else(|| DbError::OperatorNotFound(id.to_string()))
+    }
+
+    pub async fn set_rate_limits(
+        pool: &SqlitePool,
+        id: &str,
+        rate_limit_5m_max: Option<i64>,
+        rate_limit_1h_max: Option<i64>,
+    ) -> DbResult<Operator> {
+        let now = Utc::now().timestamp();
+        sqlx::query(
+            "UPDATE operators
+             SET rate_limit_5m_max = ?, rate_limit_1h_max = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(rate_limit_5m_max)
+        .bind(rate_limit_1h_max)
+        .bind(now)
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        Self::get_by_id(pool, id)
+            .await?
+            .ok_or_else(|| DbError::OperatorNotFound(id.to_string()))
+    }
+
+    pub async fn set_allow_workspace_escape(
+        pool: &SqlitePool,
+        id: &str,
+        allow_workspace_escape: bool,
+    ) -> DbResult<Operator> {
+        let now = Utc::now().timestamp();
+        let allow = if allow_workspace_escape { 1 } else { 0 };
+        sqlx::query(
+            "UPDATE operators
+             SET allow_workspace_escape = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(allow)
+        .bind(now)
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        Self::get_by_id(pool, id)
+            .await?
+            .ok_or_else(|| DbError::OperatorNotFound(id.to_string()))
     }
 
     /// Auto-prune pending operators older than the specified hours
@@ -418,6 +549,10 @@ struct OperatorRow {
     name: String,
     platform: String,
     status: String,
+    access_level: String,
+    rate_limit_5m_max: Option<i64>,
+    rate_limit_1h_max: Option<i64>,
+    allow_workspace_escape: i64,
     created_at: i64,
     updated_at: i64,
     approved_at: Option<i64>,
@@ -432,6 +567,13 @@ impl From<OperatorRow> for Operator {
             name: row.name,
             platform: row.platform.parse().unwrap_or(Platform::Api),
             status: row.status.parse().unwrap_or(OperatorStatus::Pending),
+            access_level: row
+                .access_level
+                .parse()
+                .unwrap_or(OperatorAccessLevel::Standard),
+            rate_limit_5m_max: row.rate_limit_5m_max,
+            rate_limit_1h_max: row.rate_limit_1h_max,
+            allow_workspace_escape: row.allow_workspace_escape != 0,
             created_at: row.created_at,
             updated_at: row.updated_at,
             approved_at: row.approved_at,
@@ -456,6 +598,7 @@ mod tests {
             "operator1",
             "Test Operator",
             Platform::Discord,
+            OperatorAccessLevel::Standard,
         )
         .await
         .unwrap();
@@ -464,6 +607,10 @@ mod tests {
         assert_eq!(operator.name, "Test Operator");
         assert_eq!(operator.platform, Platform::Discord);
         assert_eq!(operator.status, OperatorStatus::Pending);
+        assert_eq!(operator.access_level, OperatorAccessLevel::Standard);
+        assert_eq!(operator.rate_limit_5m_max, Some(DEFAULT_RATE_LIMIT_5M_MAX));
+        assert_eq!(operator.rate_limit_1h_max, Some(DEFAULT_RATE_LIMIT_1H_MAX));
+        assert!(!operator.allow_workspace_escape);
         assert!(!operator.welcomed);
 
         let operator2 = OperatorRepository::get_or_create(
@@ -471,6 +618,7 @@ mod tests {
             "operator1",
             "Different Name",
             Platform::Discord,
+            OperatorAccessLevel::Standard,
         )
         .await
         .unwrap();
@@ -483,7 +631,13 @@ mod tests {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        OperatorRepository::get_or_create(pool, "operator1", "Test", Platform::Discord)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Test",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
 
@@ -501,7 +655,13 @@ mod tests {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        OperatorRepository::get_or_create(pool, "operator1", "Test", Platform::Discord)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Test",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
 
@@ -518,13 +678,31 @@ mod tests {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        OperatorRepository::get_or_create(pool, "operator1", "Op 1", Platform::Discord)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Op 1",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
-        OperatorRepository::get_or_create(pool, "operator2", "Op 2", Platform::Discord)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator2",
+            "Op 2",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
-        OperatorRepository::get_or_create(pool, "operator3", "Op 3", Platform::Api)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator3",
+            "Op 3",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
 
@@ -555,7 +733,13 @@ mod tests {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        OperatorRepository::get_or_create(pool, "operator1", "Op 1", Platform::Discord)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Op 1",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
 
@@ -577,7 +761,13 @@ mod tests {
         let db = create_test_koma_pool().await.unwrap();
         let pool = db.pool();
 
-        OperatorRepository::get_or_create(pool, "operator1", "Op 1", Platform::Discord)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Op 1",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
         OperatorRepository::approve(pool, "operator1").await.unwrap();
@@ -619,7 +809,13 @@ mod tests {
         .await
         .unwrap();
 
-        OperatorRepository::get_or_create(pool, "operator1", "Op 1", Platform::Discord)
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Op 1",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
             .await
             .unwrap();
 
@@ -656,5 +852,49 @@ mod tests {
             Err(DbError::OperatorNotFound(id)) => assert_eq!(id, "missing-operator"),
             other => panic!("expected OperatorNotFound, got: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_set_rate_limits() {
+        let db = create_test_koma_pool().await.unwrap();
+        let pool = db.pool();
+
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Op 1",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+
+        let updated =
+            OperatorRepository::set_rate_limits(pool, "operator1", None, None)
+                .await
+                .unwrap();
+        assert_eq!(updated.rate_limit_5m_max, None);
+        assert_eq!(updated.rate_limit_1h_max, None);
+    }
+
+    #[tokio::test]
+    async fn test_set_allow_workspace_escape() {
+        let db = create_test_koma_pool().await.unwrap();
+        let pool = db.pool();
+
+        OperatorRepository::get_or_create(
+            pool,
+            "operator1",
+            "Op 1",
+            Platform::Discord,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+
+        let updated = OperatorRepository::set_allow_workspace_escape(pool, "operator1", true)
+            .await
+            .unwrap();
+        assert!(updated.allow_workspace_escape);
     }
 }
