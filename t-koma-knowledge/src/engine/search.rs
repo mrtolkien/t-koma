@@ -7,7 +7,8 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::graph::{load_links_in, load_links_out, load_parent, load_tags};
 use crate::models::{
-    KnowledgeScope, NoteQuery, NoteResult, NoteSearchScope, NoteSummary, SearchOptions,
+    DiaryQuery, DiarySearchResult, KnowledgeScope, NoteQuery, NoteResult, NoteSearchScope,
+    NoteSummary, SearchOptions,
 };
 
 pub(crate) async fn search_store(
@@ -66,6 +67,46 @@ pub(crate) async fn search_store(
     }
 
     Ok(results)
+}
+
+/// Search diary entries using the same hybrid BM25 + dense pipeline, scoped to GhostDiary.
+pub(crate) async fn search_diary(
+    settings: &KnowledgeSettings,
+    embedder: &EmbeddingClient,
+    pool: &SqlitePool,
+    query: &DiaryQuery,
+    ghost_name: &str,
+) -> KnowledgeResult<Vec<DiarySearchResult>> {
+    let scope = KnowledgeScope::GhostDiary;
+    let options = merge_options(settings, &query.options);
+    let bm25_hits = bm25_search(pool, &query.query, options.bm25_limit, scope, ghost_name).await?;
+    let dense_hits = dense_search(
+        embedder,
+        pool,
+        &query.query,
+        options.dense_limit,
+        None,
+        scope,
+        ghost_name,
+    )
+    .await?;
+
+    let rrf = rrf_fuse(settings.search.rrf_k, &bm25_hits, &dense_hits);
+    let mut ranked: Vec<(i64, f32)> = rrf.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.truncate(options.max_results);
+
+    let summaries = hydrate_summaries(pool, &ranked, scope, ghost_name).await?;
+
+    Ok(summaries
+        .into_iter()
+        .map(|s| DiarySearchResult {
+            date: s.title,
+            score: s.score,
+            snippet: s.snippet,
+            note_id: s.id,
+        })
+        .collect())
 }
 
 /// Sanitize user input for FTS5 MATCH by quoting each word.
