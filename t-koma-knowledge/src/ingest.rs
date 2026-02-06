@@ -10,7 +10,7 @@ use crate::models::KnowledgeScope;
 use crate::parser::{parse_note, ParsedNote};
 use crate::paths::types_allowlist_path;
 use crate::storage::{ChunkRecord, NoteRecord};
-use crate::config::KnowledgeSettings;
+use crate::KnowledgeSettings;
 
 #[derive(Debug, Clone)]
 pub struct IngestedNote {

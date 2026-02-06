@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::KnowledgeSettings;
+use crate::KnowledgeSettings;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 
 pub const KNOWLEDGE_DIR: &str = "knowledge";
