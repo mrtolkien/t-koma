@@ -2,6 +2,7 @@
 //!
 //! This module handles non-sensitive configuration stored in TOML format
 //! in the XDG config directory (~/.config/t-koma/config.toml).
+//! TODO: Break this down in simpler parts...
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -10,6 +11,72 @@ use std::path::PathBuf;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::message::ProviderType;
+
+/// Default TOML configuration file content
+/// TODO: REVIEW WHY WE NEED DEFAULTS THEN?
+const DEFAULT_CONFIG_TOML: &str = r#"# t-koma configuration file
+# Located at: ~/.config/t-koma/config.toml
+#
+# This file contains non-sensitive configuration.
+# Secrets (API keys) are loaded from environment variables:
+#   - ANTHROPIC_API_KEY
+#   - OPENROUTER_API_KEY
+#   - DISCORD_BOT_TOKEN
+
+# Default model alias (must exist under [models])
+default_model = ""
+
+[models]
+# Example:
+# [models.example]
+# provider = "openrouter"
+# model = "your-model-id"
+
+[gateway]
+host = "127.0.0.1"
+port = 3000
+# ws_url = "ws://127.0.0.1:3000/ws"  # Computed from host:port if not set
+
+[discord]
+enabled = true
+
+[logging]
+level = "info"
+file_enabled = false
+# file_path = "/var/log/t-koma.log"
+
+[tools.web]
+enabled = true
+
+[tools.web.search]
+enabled = true
+provider = "brave"
+max_results = 5
+timeout_seconds = 30
+cache_ttl_minutes = 15
+min_interval_ms = 1000
+
+[tools.web.fetch]
+enabled = true
+provider = "http"
+mode = "markdown"
+max_chars = 20000
+timeout_seconds = 30
+cache_ttl_minutes = 15
+
+[tools.knowledge]
+embedding_url = "http://127.0.0.1:11434"
+embedding_model = "qwen3-embedding:8b"
+embedding_batch = 32
+reconcile_seconds = 300
+[tools.knowledge.search]
+rrf_k = 60
+max_results = 8
+graph_depth = 1
+graph_max = 20
+bm25_limit = 20
+dense_limit = 20
+"#;
 
 /// Settings loaded from TOML configuration file.
 ///
@@ -361,8 +428,6 @@ where
     serializer.serialize_str(provider.as_str())
 }
 
-
-
 /// Errors that can occur when loading settings
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
@@ -471,75 +536,6 @@ impl Settings {
         format!("{}:{}", self.gateway.host, self.gateway.port)
     }
 }
-
-/// Default TOML configuration file content
-const DEFAULT_CONFIG_TOML: &str = r#"# t-koma configuration file
-# Located at: ~/.config/t-koma/config.toml
-#
-# This file contains non-sensitive configuration.
-# Secrets (API keys) are loaded from environment variables:
-#   - ANTHROPIC_API_KEY
-#   - OPENROUTER_API_KEY
-#   - DISCORD_BOT_TOKEN
-
-# Default model alias (must exist under [models])
-default_model = ""
-
-[models]
-# Example:
-# [models.example]
-# provider = "openrouter"
-# model = "your-model-id"
-
-[openrouter]
-# http_referer = "https://your-site.com"
-# app_name = "Your App"
-
-[gateway]
-host = "127.0.0.1"
-port = 3000
-# ws_url = "ws://127.0.0.1:3000/ws"  # Computed from host:port if not set
-
-[discord]
-enabled = false
-
-[logging]
-level = "info"
-file_enabled = false
-# file_path = "/var/log/t-koma.log"
-
-[tools.web]
-enabled = false
-
-[tools.web.search]
-enabled = false
-provider = "brave"
-max_results = 5
-timeout_seconds = 30
-cache_ttl_minutes = 15
-min_interval_ms = 1000
-
-[tools.web.fetch]
-enabled = false
-provider = "http"
-mode = "markdown"
-max_chars = 20000
-timeout_seconds = 30
-cache_ttl_minutes = 15
-
-# [tools.knowledge]
-# embedding_url = "http://127.0.0.1:11434"
-# embedding_model = "qwen3-embedding:8b"
-# embedding_batch = 32
-# reconcile_seconds = 300
-# [tools.knowledge.search]
-# rrf_k = 60
-# max_results = 8
-# graph_depth = 1
-# graph_max = 20
-# bm25_limit = 20
-# dense_limit = 20
-"#;
 
 #[cfg(test)]
 mod tests {
