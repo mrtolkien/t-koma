@@ -302,8 +302,9 @@ Cross-scope rule: ghost notes can link to shared notes and reference topics via
 
 ### Tools
 
-All knowledge tools are always visible to the ghost. Tools associated with a
-skill mention in their description that the skill should be loaded first.
+All knowledge tools are always visible to the ghost. Basic reference usage
+guidance is in the system prompt (`reference_system.md`); the
+`reference-researcher` skill covers advanced import strategies.
 
 Query tools:
 
@@ -320,21 +321,19 @@ Memory write tools:
   NOT indexed. Requires `source` field for provenance tracking. Inbox items are
   processed during the reflection job.
 - `note_write`: Consolidated tool for note operations. Actions: `create`,
-  `update`, `validate`, `comment`, `delete`. Replaces the old
-  `memory_note_create/update/validate/comment` tools.
+  `update`, `validate`, `comment`, `delete`.
   (skill: `note-writer`)
 
 Reference write tools:
 
-- `reference_save`: Save content to a reference topic incrementally. Creates
-  topic and collection implicitly. No approval needed.
-- `reference_import`: Bulk import from git repos and web pages into a reference
-  topic. Sources can have a `role` (docs/code) to control search boost.
+- `reference_write`: Consolidated tool for reference operations. Actions:
+  `save` (file content or topic upsert), `update` (file status or topic
+  metadata), `delete` (file only). The `path` field determines scope: present =
+  file operation, absent = topic operation. No approval needed.
+- `reference_import`: Bulk import from git repos, web pages, and crawled doc
+  sites into a reference topic. Source types: `git`, `web`, `crawl` (BFS from
+  seed URL). Sources can have a `role` (docs/code) to control search boost.
   Requires operator approval. (skill: `reference-researcher`)
-- `reference_topic_update`: Update topic metadata (body, tags).
-  (skill: `reference-researcher`)
-- `reference_file_update`: Mark a reference file as active/problematic/obsolete.
-  (skill: `reference-researcher`)
 
 Other:
 

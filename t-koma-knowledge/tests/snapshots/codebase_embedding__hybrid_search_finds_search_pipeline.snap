@@ -8,8 +8,8 @@ top_results:
   - rank: 1
     file: knowledge_system.md
     note_type: ReferenceDocs
-    snippet: "You have access to a persistent knowledge base with hybrid search (BM25 +\nembeddings). Use it proactively.\n\n| Scope | Vi"
+    snippet: "[t-koma-knowledge source]\n\nYou have access to a persistent knowledge base with hybrid search (BM25 +\nembeddings). Use it"
   - rank: 2
     file: search.rs
     note_type: ReferenceCode
-    snippet: "pub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingClient,\n    pool: &SqlitePoo"
+    snippet: "[t-koma-knowledge source]\n\npub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingC"

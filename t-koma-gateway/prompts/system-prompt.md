@@ -9,4 +9,6 @@ id = "system-prompt"
 
 {{ include "../../t-koma-knowledge/knowledge/prompts/knowledge_system.md" }}
 
+{{ include "../../t-koma-knowledge/knowledge/prompts/reference_system.md" }}
+
 {{ include "ghost-context.md" }}

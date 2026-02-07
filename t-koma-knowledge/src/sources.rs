@@ -120,6 +120,14 @@ pub async fn build_approval_summary(sources: &[TopicSourceInput]) -> String {
             "web" => {
                 parts.push(format!("web: {}", source.url));
             }
+            "crawl" => {
+                let depth = source.max_depth.unwrap_or(1);
+                let pages = source.max_pages.unwrap_or(20);
+                parts.push(format!(
+                    "crawl: {} (depth {}, max {} pages)",
+                    source.url, depth, pages
+                ));
+            }
             other => {
                 parts.push(format!("unknown source type: {}", other));
             }
@@ -237,6 +245,52 @@ pub async fn fetch_web_source(
     })
 }
 
+/// Fetch a crawl source (multi-page BFS) and save pages as markdown files.
+pub async fn fetch_crawl_source(
+    source: &TopicSourceInput,
+    topic_dir: &Path,
+) -> KnowledgeResult<FetchedSource> {
+    let seed_url = url::Url::parse(&source.url)
+        .map_err(|e| KnowledgeError::SourceFetch(format!("invalid crawl URL: {}", e)))?;
+
+    let config = crate::crawl::CrawlConfig {
+        seed_url,
+        max_depth: source.max_depth.unwrap_or(1).min(3),
+        max_pages: source.max_pages.unwrap_or(20).min(100),
+    };
+
+    let pages = crate::crawl::crawl_domain(&config).await?;
+
+    let mut files = Vec::new();
+    for page in &pages {
+        let path = topic_dir.join(&page.filename);
+        tokio::fs::write(&path, &page.content)
+            .await
+            .map_err(|e| KnowledgeError::SourceFetch(format!("write {}: {}", path.display(), e)))?;
+        files.push(page.filename.clone());
+    }
+
+    info!(
+        "Crawled {}: {} pages (depth {}, limit {})",
+        source.url,
+        files.len(),
+        config.max_depth,
+        config.max_pages,
+    );
+
+    Ok(FetchedSource {
+        source: TopicSource {
+            source_type: "crawl".to_string(),
+            url: source.url.clone(),
+            ref_name: None,
+            commit: None,
+            paths: None,
+            role: source.role,
+        },
+        files,
+    })
+}
+
 /// Fetch all sources for a topic, collecting results.
 ///
 /// Non-fatal per source: logs warnings and continues. Fails only if ALL
@@ -252,6 +306,7 @@ pub async fn fetch_all_sources(
         let result = match source.source_type.as_str() {
             "git" => fetch_git_source(source, topic_dir).await,
             "web" => fetch_web_source(source, topic_dir).await,
+            "crawl" => fetch_crawl_source(source, topic_dir).await,
             other => {
                 warn!("Unknown source type: {}", other);
                 continue;
@@ -507,11 +562,14 @@ fn is_likely_binary(path: &str) -> bool {
 }
 
 /// Convert a URL to a safe filename for saving web pages.
-fn url_to_filename(url: &str) -> String {
+///
+/// Uses `_` for path separators so that URLs like `/docs/api-reference/overview`
+/// and `/docs/api/reference/overview` produce distinct filenames.
+pub(crate) fn url_to_filename(url: &str) -> String {
     let parsed = url::Url::parse(url).ok();
     let path_part = parsed
         .as_ref()
-        .map(|u| u.path().trim_matches('/').replace('/', "-"))
+        .map(|u| u.path().trim_matches('/').replace('/', "_"))
         .unwrap_or_default();
 
     let host = parsed
@@ -564,9 +622,16 @@ mod tests {
     fn test_url_to_filename() {
         assert_eq!(
             url_to_filename("https://dioxuslabs.com/learn/0.6/"),
-            "dioxuslabs-com-learn-0-6.md"
+            "dioxuslabs-com-learn_0-6.md"
         );
         assert_eq!(url_to_filename("https://example.com"), "example-com.md");
+    }
+
+    #[test]
+    fn test_url_to_filename_no_collision() {
+        let a = url_to_filename("https://example.com/docs/api-reference/overview");
+        let b = url_to_filename("https://example.com/docs/api/reference/overview");
+        assert_ne!(a, b, "different URL paths must produce different filenames");
     }
 
     #[test]

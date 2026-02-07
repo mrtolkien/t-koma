@@ -97,6 +97,8 @@ impl DioxusFixture {
                     ref_name: Some("main".to_string()),
                     paths: Some(vec!["README.md".to_string(), "examples/".to_string()]),
                     role: None, // inferred as "code" for git sources
+                    max_depth: None,
+                    max_pages: None,
                 },
                 TopicSourceInput {
                     source_type: "git".to_string(),
@@ -104,6 +106,8 @@ impl DioxusFixture {
                     ref_name: Some("main".to_string()),
                     paths: Some(vec!["docs-src/0.6/src/guide/".to_string()]),
                     role: Some(SourceRole::Docs),
+                    max_depth: None,
+                    max_pages: None,
                 },
                 TopicSourceInput {
                     source_type: "web".to_string(),
@@ -111,6 +115,8 @@ impl DioxusFixture {
                     ref_name: None,
                     paths: None,
                     role: None, // inferred as "docs" for web sources
+                    max_depth: None,
+                    max_pages: None,
                 },
             ],
             tags: Some(vec![
@@ -257,6 +263,8 @@ async fn dioxus_approval_summary() {
             ref_name: None,
             paths: None,
             role: None,
+            max_depth: None,
+            max_pages: None,
         }],
         tags: None,
         max_age_days: None,

@@ -55,7 +55,6 @@ async fn test_file_create_edit_delete_workflow() {
     let system_prompt = SystemPrompt::with_tools(
         &tools,
         &[
-            ("reference_topics", ""),
             ("ghost_identity", ""),
             ("ghost_diary", ""),
             ("ghost_projects", ""),
@@ -275,7 +274,6 @@ async fn test_replace_tool_exact_match_requirement() {
     let system_prompt = SystemPrompt::with_tools(
         &tools,
         &[
-            ("reference_topics", ""),
             ("ghost_identity", ""),
             ("ghost_diary", ""),
             ("ghost_projects", ""),

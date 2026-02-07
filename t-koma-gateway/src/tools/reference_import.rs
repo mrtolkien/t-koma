@@ -13,6 +13,8 @@ struct TopicSourceInput {
     ref_name: Option<String>,
     paths: Option<Vec<String>>,
     role: Option<String>,
+    max_depth: Option<u8>,
+    max_pages: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +36,7 @@ impl Tool for ReferenceImportTool {
     }
 
     fn description(&self) -> &str {
-        "Import external sources (git repos, web pages) into a reference topic, indexing with embeddings. Load the reference-researcher skill first for best results."
+        "Bulk import external sources (git repos, web pages) into a reference topic with embeddings. Requires operator approval."
     }
 
     fn input_schema(&self) -> Value {
@@ -56,8 +58,8 @@ impl Tool for ReferenceImportTool {
                         "properties": {
                             "type": {
                                 "type": "string",
-                                "enum": ["git", "web"],
-                                "description": "Source type."
+                                "enum": ["git", "web", "crawl"],
+                                "description": "Source type. 'crawl' does BFS from a seed URL, following same-host links."
                             },
                             "url": {
                                 "type": "string",
@@ -75,7 +77,19 @@ impl Tool for ReferenceImportTool {
                             "role": {
                                 "type": "string",
                                 "enum": ["docs", "code"],
-                                "description": "Role of the source content. 'docs' for documentation (boosted in search), 'code' for source code. Inferred from source type if omitted (web→docs, git→code)."
+                                "description": "Role of the source content. 'docs' for documentation (boosted in search), 'code' for source code. Inferred from source type if omitted (web/crawl→docs, git→code)."
+                            },
+                            "max_depth": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 3,
+                                "description": "Max link-hop depth for crawl sources. Default: 1, max: 3."
+                            },
+                            "max_pages": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 100,
+                                "description": "Max pages to fetch for crawl sources. Default: 20, max: 100."
                             }
                         },
                         "required": ["type", "url"],
@@ -105,20 +119,7 @@ impl Tool for ReferenceImportTool {
         })
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use reference_import to bulk-import external sources into a searchable reference topic.\n\
-            - Default to fetching the ENTIRE repo (source + docs). The embedding system handles large codebases well.\n\
-            - The operator will be asked to approve before the fetch begins.\n\
-            - If the operator denies (too large), retry with a paths filter: prioritize README.md, docs/, examples/.\n\
-            - Always write a meaningful body that summarizes the library's purpose and key concepts.\n\
-            - Always search for existing topics first (use knowledge_search with categories: [\"topics\"]).\n\
-            - Set `role: \"docs\"` for documentation sources and `role: \"code\"` for code repos. Web sources default to docs.\n\
-            - ALWAYS look for a separate documentation repo or docsite. Docs are boosted in search results.\n\
-            - For incremental saves (single files, web page dumps), use reference_save instead.\n\
-            - Use the `reference-researcher` skill for best practices on creating reference topics.",
-        )
-    }
+    // Guidance is in the system prompt (reference_system.md)
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: ImportInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
@@ -169,6 +170,8 @@ fn to_knowledge_request(input: &ImportInput) -> t_koma_knowledge::TopicCreateReq
                 ref_name: s.ref_name.clone(),
                 paths: s.paths.clone(),
                 role: s.role.as_deref().and_then(|r| r.parse().ok()),
+                max_depth: s.max_depth,
+                max_pages: s.max_pages,
             })
             .collect(),
         tags: input.tags.clone(),

@@ -160,6 +160,43 @@ enum TopicResolution {
     Created { id: String, title: String },
 }
 
+/// Find an existing reference topic by fuzzy matching.
+///
+/// Tries: exact match → case-insensitive → LIKE.
+/// Returns `(id, title)` if found, `None` otherwise.
+pub(crate) async fn find_existing_topic(
+    pool: &SqlitePool,
+    name: &str,
+) -> KnowledgeResult<Option<(String, String)>> {
+    let row = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, title FROM notes WHERE title = ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(found) = row {
+        return Ok(Some(found));
+    }
+
+    let row = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, title FROM notes WHERE LOWER(title) = LOWER(?) AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(found) = row {
+        return Ok(Some(found));
+    }
+
+    let row = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, title FROM notes WHERE title LIKE ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+    )
+    .bind(format!("%{}%", name))
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 /// Resolve topic by fuzzy matching, or create a new one.
 async fn resolve_or_create_topic(
     pool: &SqlitePool,
@@ -168,36 +205,7 @@ async fn resolve_or_create_topic(
     ghost_name: &str,
     request: &ReferenceSaveRequest,
 ) -> KnowledgeResult<TopicResolution> {
-    // Exact match
-    let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE title = ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
-    )
-    .bind(&request.topic)
-    .fetch_optional(pool)
-    .await?;
-    if let Some((id, title)) = row {
-        return Ok(TopicResolution::Existing { id, title });
-    }
-
-    // Case-insensitive match
-    let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE LOWER(title) = LOWER(?) AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
-    )
-    .bind(&request.topic)
-    .fetch_optional(pool)
-    .await?;
-    if let Some((id, title)) = row {
-        return Ok(TopicResolution::Existing { id, title });
-    }
-
-    // LIKE fuzzy match
-    let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE title LIKE ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
-    )
-    .bind(format!("%{}%", request.topic))
-    .fetch_optional(pool)
-    .await?;
-    if let Some((id, title)) = row {
+    if let Some((id, title)) = find_existing_topic(pool, &request.topic).await? {
         return Ok(TopicResolution::Existing { id, title });
     }
 

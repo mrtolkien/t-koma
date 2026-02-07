@@ -101,7 +101,7 @@ For advanced knowledge operations, load the dedicated skills with `load_skill`:
 - **`knowledge-writer`**: Curate inbox captures into structured knowledge during
   reflection. Covers Zettelkasten/PARA principles, diary conventions, and
   identity file editing.
-- **`reference-researcher`**: Research external sources and create searchable
-  reference topics from git repos and web pages.
+- **`reference-researcher`**: Advanced research strategies, import patterns,
+  crawl strategies, and staleness management for reference topics.
 - **`knowledge-organizer`**: Understand the physical file layout, formats, and
   indexing pipeline in detail.

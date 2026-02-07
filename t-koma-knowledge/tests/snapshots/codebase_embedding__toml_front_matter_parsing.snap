@@ -8,8 +8,8 @@ top_results:
   - rank: 1
     file: knowledge_system.md
     note_type: ReferenceDocs
-    snippet: "| Tool | When to use |\n|------|-------------|\n| `memory_search` | Find notes by keyword or concept across scopes |\n| `me"
+    snippet: "[t-koma-knowledge source]\n\n| Tool | When to use |\n|------|-------------|\n| `memory_search` | Find notes by keyword or co"
   - rank: 2
-    file: knowledge_system.md
-    note_type: ReferenceDocs
-    snippet: "1. **Start broad**: use `memory_search` with a conceptual query to find relevant\n   notes across all scopes.\n2. **Narrow"
+    file: models.rs
+    note_type: ReferenceCode
+    snippet: "[t-koma-knowledge source]\n\npub struct SearchOptions {\n    pub max_results: Option<usize>,\n    pub graph_depth: Option<u8"
