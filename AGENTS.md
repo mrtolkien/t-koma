@@ -290,7 +290,6 @@ Reference tools:
 - `reference_search`: Search within a reference topic's indexed files. Docs
   boosted over code.
 - `reference_topic_search`: Semantic search over existing reference topics.
-- `reference_topic_list`: List all topics with collection summaries.
 - `reference_save`: Save content to a reference topic incrementally. Creates
   topic and collection implicitly. No approval needed.
 - `reference_import`: Bulk import from git repos and web pages into a reference
@@ -311,10 +310,7 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 
 ### Topic Discovery
 
-- The 10 most recent reference topics are injected into the ghost's system
-  prompt via `build_ghost_context_vars()` in `session.rs`, rendered through
-  the `ghost-context.md` Jinja template.
-- For older topics, use `reference_topic_search` with a semantic query.
+- Use `reference_topic_search` with a semantic query to find reference topics.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
 - The `knowledge-organizer` skill explains the physical file layout and indexing
@@ -359,8 +355,8 @@ On approval, Phase 2 re-executes with `has_approval()` returning true. See
   `body` and optional `vars`/`title`. Use `{{var}}`.
 - Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
   and a `# loaded:` comment to know where they are used.
-- `ghost-context.md` uses Jinja template variables (`{{ reference_topics }}`,
-  `{{ ghost_identity }}`, etc.) rendered per-session with ghost-specific data.
+- `ghost-context.md` uses Jinja template variables (`{{ ghost_identity }}`,
+  `{{ ghost_diary }}`, etc.) rendered per-session with ghost-specific data.
   Template vars must be declared in front matter `vars = [...]`.
 - Update `t-koma-gateway/src/content/ids.rs` after changes.
 - Debug logging: set `dump_queries = true` in `[logging]` config to write raw
