@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::str::FromStr;
 
 use sqlx::SqlitePool;
 use walkdir::WalkDir;
@@ -71,9 +72,6 @@ async fn index_reference_topics(
         let raw = tokio::fs::read_to_string(path).await?;
         let topic = ingest_reference_topic(settings, path, &raw).await?;
 
-        // Build file → role map from parsed [[sources]] blocks
-        let file_roles = build_file_role_map(&topic.sources, &topic.files);
-
         let note = &topic.note;
         upsert_note(store, &note.note).await?;
         replace_tags(store, &note.note.id, &note.tags).await?;
@@ -90,25 +88,16 @@ async fn index_reference_topics(
 
         let topic_dir = path.parent().unwrap_or(&root);
 
-        if !topic.files.is_empty() {
-            let files_json = serde_json::to_string(&topic.files).unwrap_or_default();
-            sqlx::query("INSERT OR REPLACE INTO reference_topics (topic_id, files_json) VALUES (?, ?)")
-                .bind(&note.note.id)
-                .bind(files_json)
-                .execute(store)
-                .await?;
-        }
-
         // Index _index.md files in subdirectories as ReferenceCollection notes
         let collection_contexts = index_collections(
             settings, store, embedder, &note.note.id, &note.note.title, topic_dir,
         )
         .await?;
 
-        // Index reference files with context enrichment
+        // Walk filesystem for reference files and index them
         index_reference_files(
             settings, store, embedder, &note.note.id, &note.note.title,
-            topic_dir, &file_roles, &collection_contexts,
+            topic_dir, &collection_contexts,
         )
         .await?;
     }
@@ -208,8 +197,10 @@ async fn index_collections(
     Ok(contexts)
 }
 
-/// Index reference files with context enrichment from collections.
-#[allow(clippy::too_many_arguments)]
+/// Index reference files by walking the topic directory.
+///
+/// Discovers files on the filesystem (skipping `topic.md` and `_index.md`),
+/// looks up existing roles from the DB, and indexes with context enrichment.
 async fn index_reference_files(
     settings: &KnowledgeSettings,
     store: &SqlitePool,
@@ -217,29 +208,59 @@ async fn index_reference_files(
     topic_id: &str,
     topic_title: &str,
     topic_dir: &Path,
-    file_roles: &[(String, SourceRole)],
     collection_contexts: &[CollectionContext],
 ) -> KnowledgeResult<()> {
-    for (file, role) in file_roles {
-        let path = topic_dir.join(file);
-        if !path.exists() || !path.is_file() {
+    // Collect all content files under the topic dir (skip topic.md and _index.md)
+    let mut files: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for entry in WalkDir::new(topic_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
             continue;
         }
-        let raw = tokio::fs::read_to_string(&path).await?;
-        let note_id = format!("ref:{}:{}", topic_id, file);
-        let title = path.file_name().and_then(|v| v.to_str()).unwrap_or(file);
+        let filename = entry.file_name().to_str().unwrap_or("");
+        if filename == "topic.md" || filename == "_index.md" || filename.starts_with('.') {
+            continue;
+        }
+        if let Ok(rel) = entry.path().strip_prefix(topic_dir) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            files.push((rel_str, entry.path().to_path_buf()));
+        }
+    }
+
+    for (rel_path, abs_path) in &files {
+        let raw = match tokio::fs::read_to_string(abs_path).await {
+            Ok(c) => c,
+            Err(_) => continue, // skip binary/unreadable files
+        };
+
+        // Look up existing role from DB; default to Code for new files
+        let role = sqlx::query_as::<_, (String,)>(
+            "SELECT role FROM reference_files WHERE topic_id = ? AND path = ? LIMIT 1",
+        )
+        .bind(topic_id)
+        .bind(rel_path)
+        .fetch_optional(store)
+        .await?
+        .and_then(|(r,)| SourceRole::from_str(&r).ok())
+        .unwrap_or(SourceRole::Code);
+
+        let note_id = format!("ref:{}:{}", topic_id, rel_path);
+        let title = abs_path
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or(rel_path);
         let note_type = role.to_note_type();
 
-        // Determine context prefix: collection prefix if file is in a collection subdir,
-        // otherwise topic title
-        let context_prefix = determine_context_prefix(file, topic_title, collection_contexts);
+        let context_prefix = determine_context_prefix(rel_path, topic_title, collection_contexts);
 
         let ingested = ingest_reference_file_with_context(
-            settings, &path, &raw, &note_id, title, note_type, Some(&context_prefix),
+            settings, abs_path, &raw, &note_id, title, note_type, Some(&context_prefix),
         )
         .await?;
 
-        if is_unchanged(store, &path, &ingested.note.content_hash).await? {
+        if is_unchanged(store, abs_path, &ingested.note.content_hash).await? {
             continue;
         }
 
@@ -254,12 +275,14 @@ async fn index_reference_files(
         .await?;
         embed_chunks(settings, embedder, store, &ingested.chunks, &chunk_ids).await?;
 
+        // Upsert into reference_files (preserves existing metadata like source_url)
         sqlx::query(
-            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path, role) VALUES (?, ?, ?, ?)",
+            "INSERT INTO reference_files (topic_id, note_id, path, role) VALUES (?, ?, ?, ?) \
+             ON CONFLICT(topic_id, note_id) DO UPDATE SET path = excluded.path, role = excluded.role",
         )
         .bind(topic_id)
         .bind(&ingested.note.id)
-        .bind(file)
+        .bind(rel_path)
         .bind(role.as_str())
         .execute(store)
         .await?;
@@ -456,45 +479,3 @@ fn is_archived_path(path: &Path) -> bool {
         .any(|component| component.as_os_str() == ".archive")
 }
 
-/// Build a (file_name, role) mapping from parsed `[[sources]]` and the flat files list.
-///
-/// The `files` list in the front matter is flat (no role), but we can infer role
-/// from the `[[sources]]` blocks: each source has a list of `paths` (which correspond
-/// to fetched files) and an optional `role`. Files not matched to any source default
-/// to `SourceRole::Code`.
-fn build_file_role_map(
-    sources: &[crate::parser::TopicSource],
-    files: &[String],
-) -> Vec<(String, SourceRole)> {
-    // Build a mapping from source to its inferred role.
-    // A source's paths list contains path prefixes/patterns, so we check if a
-    // file starts with any of the source's paths. For web sources (which produce
-    // a single file), the file name typically matches the URL-derived filename.
-    let source_roles: Vec<(Option<&[String]>, SourceRole)> = sources
-        .iter()
-        .map(|src| {
-            let role = src
-                .role
-                .unwrap_or_else(|| SourceRole::infer(&src.source_type));
-            (src.paths.as_deref(), role)
-        })
-        .collect();
-
-    files
-        .iter()
-        .map(|file| {
-            // Try to match the file to a source via its paths filter
-            let role = source_roles
-                .iter()
-                .find(|(paths, _)| match paths {
-                    Some(path_list) => path_list
-                        .iter()
-                        .any(|p| file.starts_with(p.trim_end_matches('/'))),
-                    None => true, // source with no paths filter matches all files
-                })
-                .map(|(_, role)| *role)
-                .unwrap_or(SourceRole::Code);
-            (file.clone(), role)
-        })
-        .collect()
-}

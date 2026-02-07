@@ -20,11 +20,9 @@ pub struct IngestedNote {
     pub tags: Vec<String>,
 }
 
-/// Result of ingesting a reference topic, including its file list and source metadata.
+/// Result of ingesting a reference topic's `topic.md`.
 pub struct IngestedTopic {
     pub note: IngestedNote,
-    pub files: Vec<String>,
-    pub sources: Vec<crate::parser::TopicSource>,
 }
 
 pub async fn ingest_reference_topic(
@@ -73,8 +71,6 @@ pub async fn ingest_reference_topic(
         .map(|link| (link.target.clone(), link.alias.clone()))
         .collect();
     let tags = parsed.front.tags.clone().unwrap_or_default();
-    let files = parsed.front.files.clone().unwrap_or_default();
-    let sources = parsed.front.sources.clone().unwrap_or_default();
 
     Ok(IngestedTopic {
         note: IngestedNote {
@@ -83,8 +79,6 @@ pub async fn ingest_reference_topic(
             links,
             tags,
         },
-        files,
-        sources,
     })
 }
 

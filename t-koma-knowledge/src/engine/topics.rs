@@ -11,8 +11,7 @@ use crate::models::{
     CollectionSummary, KnowledgeScope, SourceRole, TopicCreateRequest, TopicCreateResult,
     TopicListEntry, TopicSearchResult, TopicUpdateRequest, generate_note_id,
 };
-use crate::parser::TopicSource;
-use crate::sources;
+use crate::sources::{self, TopicSource};
 
 use super::KnowledgeEngine;
 use super::notes::{rebuild_front_matter, sanitize_filename};

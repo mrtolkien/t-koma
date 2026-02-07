@@ -8,8 +8,28 @@ use std::path::Path;
 use tracing::{info, warn};
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
-use crate::models::TopicSourceInput;
-use crate::parser::TopicSource;
+use crate::models::{SourceRole, TopicSourceInput};
+
+/// Describes a fetched source with resolved metadata (commit SHA, etc.).
+///
+/// This is the *result* type produced after fetching — not a request type.
+/// Stored only in memory during the import pipeline; provenance metadata
+/// is persisted per-file in the `reference_files` DB table.
+#[derive(Debug, Clone)]
+pub struct TopicSource {
+    /// Source type: "git" or "web".
+    pub source_type: String,
+    /// URL of the source (git remote or web page).
+    pub url: String,
+    /// Git ref (branch/tag). Only for git sources.
+    pub ref_name: Option<String>,
+    /// Exact commit SHA recorded after fetch. Only for git sources.
+    pub commit: Option<String>,
+    /// Path filters within the repo. Only for git sources.
+    pub paths: Option<Vec<String>>,
+    /// Role of the content from this source (docs vs code).
+    pub role: Option<SourceRole>,
+}
 
 /// Metadata about a git repository, gathered before the actual clone.
 #[derive(Debug, Clone)]
