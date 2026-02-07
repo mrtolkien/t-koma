@@ -1,0 +1,880 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": "\n\nYou are a GHOST (ゴースト) operating inside T-KOMA (ティーコマ), a personal AI\nassistant platform.\n\n## Your Role\n\nYou help your OPERATOR（オペレーター）with a wide range of tasks, including:\n\n- Research, analysis, and summarizing information\n- Writing, drafting, and editing text\n- Software development: writing, reviewing, and debugging code\n- Problem-solving and brainstorming\n- Running commands and tools\n- Managing files and projects\n\n## Core Principles\n\n1. **Be helpful and accurate**: Provide correct, well-reasoned assistance.\n2. **Be concise**: Respect the operator's time. Avoid unnecessary verbosity.\n3. **Be proactive**: Anticipate needs and suggest improvements when appropriate.\n4. **Be honest**: Acknowledge uncertainty. Don't make up information.\n\n## Tool Use\n\nWhen you need to interact with the system:\n\n- Use the provided tools to execute commands, read files, etc.\n- Think step by step before taking action\n- Explain what you're doing and why\n- Report results clearly, including any errors\n\n## Communication\n\n- Use markdown for formatting\n- Show code in fenced blocks with language tags\n- Use examples to illustrate concepts\n- Ask clarifying questions when requirements are unclear\n\n## Coding Guidelines\n\nWhen working on code tasks:\n\n1. **Search knowledge first**: Use `knowledge_search` to find existing notes,\n   patterns, and documentation before planning changes\n2. **Read the code**: Understand the files, dependencies, and patterns before modifying\n3. **Plan before acting**: State your plan based on knowledge and code findings\n4. **Follow existing patterns**: Match the style and conventions of the codebase\n5. **Make minimal changes**: Only modify what's necessary to accomplish the goal\n6. **Test your changes**: Run tests and verify correctness after changes\n7. **Handle errors**: Include proper error handling and edge cases\n\n# Knowledge & Memory System\n\nYou have access to a persistent knowledge base with hybrid search (BM25 +\nembeddings). Use it proactively.\n\n## Storage Scopes\n\n| Scope                    | Visibility | Contents                                                                   |\n| ------------------------ | ---------- | -------------------------------------------------------------------------- |\n| **SharedNote**           | All ghosts | Cross-ghost knowledge, team documentation                                  |\n| **SharedReference**      | All ghosts | Ghost-curated reference corpus from external sources (git repos, web docs) |\n| **GhostNote (private)**  | You only   | Personal notes, identity files, inbox                                      |\n| **GhostNote (projects)** | You only   | Project-specific notes and research                                        |\n| **GhostDiary**           | You only   | Daily diary entries (plain markdown, YYYY-MM-DD.md)                        |\n\nCross-scope rule: your notes can link to shared notes and reference topics via\n`[[wiki links]]`, but shared notes never see your private data.\n\n## Querying Knowledge\n\n| Tool               | When to use                                            |\n| ------------------ | ------------------------------------------------------ |\n| `knowledge_search` | Find notes, diary entries, reference files, and topics |\n| `knowledge_get`    | Retrieve full content by ID or by topic + path         |\n\n### Search Strategy\n\n1. **Start broad**: use `knowledge_search` with a conceptual query — it searches\n   notes, diary, references, and topics all at once.\n2. **Focus by category**: use `categories` to limit results (e.g.\n   `[\"references\", \"topics\"]` to search only reference material).\n3. **Narrow to a topic**: set `topic` to search within a specific reference\n   topic's files (docs boosted over code).\n4. **Get full content**: use `knowledge_get` with the note/file ID to read the\n   complete content. For reference files, use `topic` + `path` instead.\n5. **Scope filtering**: use `scope` to limit to `\"shared\"` or `\"private\"` notes.\n   Diary is always private.\n\n## Saving to Inbox\n\nUse `memory_capture` to save raw information for later curation. **Save more\nthan you think necessary** — it's cheap to capture and expensive to lose\ninformation.\n\n### What to save\n\n- User preferences, corrections, and explicit instructions\n- Research findings, comparisons, and evaluations\n- Key decisions and their rationale\n- Useful web search results or fetched content\n- Conversation learnings that might be useful later\n- Error patterns and their solutions\n\n### Examples\n\n**Product comparison**: After researching two libraries, capture the comparison\nwith source URLs so you can reference it later without re-searching.\n\n**Conversation learning**: The operator corrects your understanding of their\ncodebase architecture — capture the correction immediately so you don't repeat\nthe mistake.\n\n**Web research**: After a web search yields useful results, capture the key\nfindings with source URLs before the conversation moves on.\n\n## Wiki Links\n\nNotes can reference any shared content by title using `[[Title]]` or\n`[[Title|alias]]` syntax. Links can target:\n\n- Other notes in the same or shared scopes\n- Reference topics by their title\n\nLinks are resolved at index time and stored as edges in the knowledge graph,\nenabling graph-depth traversal during search.\n\n## Skills\n\nFor advanced knowledge operations, use the dedicated skills:\n\n- **`note-writer`**: Create structured notes with front matter, update existing\n  notes, validate and comment on notes.\n- **`reference-researcher`**: Research external sources and create searchable\n  reference topics from git repos and web pages.\n- **`knowledge-organizer`**: Understand the physical file layout, formats, and\n  indexing pipeline in detail.\n\n\n# System Info\n- OS: CachyOS Linux Rolling Release\n- CPU Cores: 32\n- RAM: 31.2 GB\n- GPU: unknown\n\n\n\n\n\n## Running Shell Commands\n\nCommands run from the current working directory.\n\n**Guidelines:**\n1. Use `change_directory` to move around the filesystem, not this tool.\n2. Do not leave the ghost workspace without operator approval.\n\n\n## Changing Directories\n\nUse the `change_directory` tool to move around the filesystem.\n\n**Rules:**\n1. Paths can be absolute or relative to the current working directory.\n2. If you need to leave the ghost workspace, ask the operator for approval first.\n\n\n## File Editing\n\nYou have access to a `replace` tool for modifying files.\nWhen using this tool, you must follow these rules:\n\n1.  **Exact Match**: The `old_string` must match the file content exactly, character for character, including all whitespace, indentation, and newlines.\n    *   Do NOT use ellipses (...) to represent missing content.\n    *   Do NOT truncate the string.\n    *   Do NOT guess at the content. Use `read_file` if you are unsure.\n2.  **Uniqueness**: Provide enough context in `old_string` to ensure it matches only the intended location.\n    *   Include at least 2-3 lines of unchanged context before and after the change.\n    *   If the string matches multiple locations, the tool will fail unless you specify `expected_replacements`.\n3.  **Atomic Changes**:\n    *   To delete code: Set `new_string` to an empty string (or just the context you want to keep).\n    *   To insert code: Include the surrounding context in `old_string`, and the context + new code in `new_string`.\n    *   To move code: Perform a delete in one step and an insert in another.\n4.  **Formatting**: Ensure `new_string` maintains the correct indentation and code style of the file.\n\n### Example\n\nTo change `x = 1` to `x = 2` inside a function:\n\n**Good `old_string`:**\n```rust\n    fn calculate() {\n        let x = 1;\n        return x;\n    }\n```\n\n**Good `new_string`:**\n```rust\n    fn calculate() {\n        let x = 2;\n        return x;\n    }\n```\n\n**Bad `old_string` (Ambiguous/No Context):**\n```rust\nx = 1\n```\n\n\n## Reading Files\n\nYou have access to a `read_file` tool for reading file contents.\n\n**Guidelines:**\n1. Use absolute paths or paths relative to the current working directory\n2. For large files, use `offset` and `limit` to read specific sections\n3. If you need to see the full file structure first, use `list_dir` or `find_files`\n\n**When to use:**\n- Before editing a file (to see current content)\n- To understand code structure\n- To verify changes after using `replace` tool\n- To read configuration files, logs, or documentation\n\n**Best practices:**\n- Read files in chunks for large files (>1000 lines)\n- Use line numbers shown in output to calculate offsets for subsequent reads\n- If a file doesn't exist, the tool will return an error\n\n\n## Creating Files\n\nYou have access to a `create_file` tool for creating new files.\n\n**IMPORTANT:** This tool will FAIL if the file already exists. This prevents accidental overwrites.\n\n**Guidelines:**\n1. Use absolute paths or paths relative to the current working directory\n2. Ensure parent directories exist (create them with `run_shell_command` if needed)\n3. The tool will fail if the file already exists - use `read_file` first to check\n4. For editing existing files, use the `replace` tool instead\n\n**When to use:**\n- Creating new source code files\n- Creating configuration files\n- Creating documentation\n- Writing test files\n\n**Best practices:**\n- Always check if file exists first if unsure\n- Create parent directories before creating files in nested paths\n- Use appropriate file extensions\n\n\n## Searching Code\n\nYou have access to a `search` tool for finding patterns in files.\n\n**Features:**\n- Regex pattern support\n- Respects .gitignore (won't search ignored files)\n- Case-insensitive by default\n- Glob filtering for specific file types\n\n**When to use:**\n- Finding function definitions or usages\n- Searching for specific strings across the codebase\n- Finding where a variable or type is used\n- Locating configuration or documentation\n\n**Best practices:**\n- Use specific patterns to reduce noise\n- Use `glob` to filter by file type (e.g., \"*.rs\" for Rust files)\n- For case-sensitive searches (e.g., searching for TypeNames), set `case_sensitive: true`\n- Combine with `read_file` to examine found matches in detail\n\n**Example patterns:**\n- `\"fn my_function\"` - Find function definitions\n- `\"struct MyStruct\"` - Find struct definitions  \n- `\"impl.*Trait\"` - Find trait implementations (regex)\n- `\"todo!|FIXME\"` - Find TODO comments (regex)\n\n\n## Finding Files\n\nYou have access to a `find_files` tool for locating files by name pattern.\n\n**Features:**\n- Glob pattern support (e.g., \"*.rs\", \"**/*.toml\")\n- Respects .gitignore (won't return ignored files)\n- Recursive by default\n\n**When to use:**\n- Finding all files of a certain type (e.g., all Rust files)\n- Locating configuration files (e.g., \"Cargo.toml\", \"package.json\")\n- Finding test files (e.g., \"*_test.rs\")\n- Exploring project structure\n\n**Best practices:**\n- Use \"*.ext\" for all files with a specific extension in the current directory\n- Use \"**/*.ext\" for all files with a specific extension recursively\n- For exact file names, just use the filename (e.g., \"README.md\")\n- Combine with `read_file` to examine found files\n\n**Glob pattern examples:**\n- \"*.rs\" - All Rust files in current directory\n- \"**/*.rs\" - All Rust files recursively\n- \"**/Cargo.toml\" - All Cargo.toml files anywhere\n- \"src/**/*.rs\" - All Rust files under src/\n\n\n## Listing Directories\n\nYou have access to a `list_dir` tool for listing directory contents.\n\n**Features:**\n- Shows files and directories separately\n- Sorted alphabetically\n- Shows file sizes for files\n\n**When to use:**\n- Exploring project structure\n- Finding files when you don't know exact names\n- Understanding what's in a directory before taking action\n- Verifying file creation/deletion\n\n**Best practices:**\n- Use before `read_file` to know what files are available\n- Use after `create_file` to verify file was created\n- Use to find relevant files when exploring a new codebase\n- Combine with `find_files` for comprehensive exploration\n\n**Output format:**\n```\n[DIR]  src/\n[DIR]  tests/\n[FILE] Cargo.toml    (1024 bytes)\n[FILE] README.md     (2048 bytes)\n```\n\n\nUse web_search to look up current information on the web.\n- Only send concise queries.\n- Results are cached briefly and rate-limited (1 request/second).\n- Do not include secrets or private data in queries.\n\nUse web_fetch to retrieve the textual content of a URL.\n- Only http/https URLs are supported.\n- The result may be truncated to a safe length.\n- Do not fetch sensitive or private URLs.\n\nUse knowledge_search as your primary search tool across all knowledge.\n- Searches notes, diary, references, and topics by default.\n- Use `categories` to focus on specific subsystems (e.g. [\"references\", \"topics\"]).\n- Use `topic` to narrow reference search to a specific topic.\n- Use `scope` to filter by ownership: 'shared', 'private', or 'all' (default).\n- Diary is always private-only (scope 'shared' excludes diary).\n- Results are grouped by category with at least 1 result per active category.\n- Prefer concise, specific queries for better retrieval quality.\n\nUse knowledge_get to fetch the full content of a note, diary entry, or reference file.\n- Provide `id` to fetch by note ID (searches all scopes: shared, private, diary, references).\n- Provide `topic` + `path` to fetch a reference file by location.\n- Use `max_chars` to limit output for very large files.\n- Load note-writer or reference-researcher skills for write operations.\n\nUse memory_capture to store raw, unstructured info for later curation.\n- Default scope is 'ghost' (your private inbox).\n- Use 'shared' only for information that should be visible to all ghosts.\n- Always include a source when possible (URL, 'user stated', etc.).\n- Captured text is written as a timestamped inbox file.\n- Reconciliation will index it later; no immediate search results.\n\nUse reference_save to incrementally save content to reference topics.\n- ALWAYS call knowledge_search with categories: [\"topics\"] first to find existing topics and avoid duplicates.\n- Use subdirectory paths (e.g. 'bambulab-a1/specs.md') to organize into collections.\n- Provide collection_title and collection_description for new collections — this improves search quality.\n- Set role to 'docs' for documentation, 'code' for source code, 'data' for structured data.\n- Provide source_url when saving web content for provenance tracking.\n- Topic names are fuzzy-matched, so 'dioxus' will find an existing 'Dioxus' topic.\n\nUse reference_file_update to mark reference files as problematic or obsolete.\n- 'active': normal ranking (default). Use to restore a file.\n- 'problematic': file has some wrong info — still searchable but penalized (0.5x score).\n- 'obsolete': file is completely outdated — excluded from search entirely.\n- Always provide a reason when marking problematic or obsolete.\n- The reason is appended to the topic.md body as a warning for future reference.\n\nUse memory_note_create to create a structured knowledge note with validated front matter.\n- Default scope is 'private' (your own notes).\n- Use 'shared' to create notes visible to all ghosts.\n- The note ID is generated automatically.\n- Set parent to organize notes hierarchically.\n- Use tags for categorization and wiki links [[Note]] in the body for graph connections.\n\nUse memory_note_update to patch an existing note.\n- Only provide fields you want to change.\n- Version is auto-incremented on each update.\n- You can only update your own private notes or shared notes.\n\nUse memory_note_validate to record that you have reviewed a note.\n- Updates last_validated_at and last_validated_by with your ghost identity.\n- Optionally adjust trust_score to reflect your confidence in the note's accuracy.\n- Higher trust scores (8-10) boost the note in search results.\n\nUse memory_note_comment to add a timestamped comment to an existing note.\n- Comments are appended to the front matter and preserved across updates.\n- Use for review feedback, corrections, or additional context.\n- Your ghost identity and timestamp are recorded automatically.\n\nUse reference_import to bulk-import external sources into a searchable reference topic.\n- Default to fetching the ENTIRE repo (source + docs). The embedding system handles large codebases well.\n- The operator will be asked to approve before the fetch begins.\n- If the operator denies (too large), retry with a paths filter: prioritize README.md, docs/, examples/.\n- Always write a meaningful body that summarizes the library's purpose and key concepts.\n- Always search for existing topics first (use knowledge_search with categories: [\"topics\"]).\n- Set `role: \"docs\"` for documentation sources and `role: \"code\"` for code repos. Web sources default to docs.\n- ALWAYS look for a separate documentation repo or docsite. Docs are boosted in search results.\n- For incremental saves (single files, web page dumps), use reference_save instead.\n- Use the `reference-researcher` skill for best practices on creating reference topics.\n\nUse reference_topic_update to patch topic metadata without re-fetching sources.\n- Update the body to improve the topic description.\n- Update tags for better discoverability.",
+      "role": "system"
+    },
+    {
+      "content": "[2026-02-07T14:38:01Z] \nYou are a GHOST (ゴースト) operating under T-KOMA (ティーコマ).\n\n- The OPERATOR (オペレータ) will provide tasks.\n- Respond succinctly and precisely.\n- If unsure, ask clarifying questions.",
+      "role": "user"
+    },
+    {
+      "content": " Understood. Standing by for operator tasks.",
+      "role": "assistant"
+    },
+    {
+      "content": "[2026-02-07T14:38:16Z] Try to cd to the home on the machine",
+      "role": "user"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"path\":\"~\"}",
+            "name": "change_directory"
+          },
+          "id": "change_directory:0",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "Error: Failed to access '/home/tolki/.local/share/t-koma/ghosts/クランカ/~': No such file or directory (os error 2)",
+      "role": "tool",
+      "tool_call_id": "change_directory:0"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"path\":\"/home/tolki\"}",
+            "name": " change_directory"
+          },
+          "id": "change_directory:1",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "Error: Unknown tool:  change_directory",
+      "role": "tool",
+      "tool_call_id": "change_directory:1"
+    },
+    {
+      "content": " ",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"path\":\"/home/tolki\"}",
+            "name": "change_directory"
+          },
+          "id": "functions.change_directory:2",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "Changed working directory to '/home/tolki'.",
+      "role": "tool",
+      "tool_call_id": "functions.change_directory:2"
+    },
+    {
+      "content": "",
+      "role": "assistant"
+    },
+    {
+      "content": "[2026-02-07T14:40:46Z] Where are you now?",
+      "role": "user"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"path\":\".\"}",
+            "name": "list_dir"
+          },
+          "id": "functions.list_dir:3",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "Contents of '/home/tolki/.local/share/t-koma/ghosts/クランカ':\n\n[FILE] HEARTBEAT.md                   (34 bytes)\n[FILE] db.sqlite3                     (4.0 KB)\n[FILE] db.sqlite3-shm                 (32.0 KB)\n[FILE] db.sqlite3-wal                 (354.1 KB)\n\nTotal: 0 directories, 4 files\n",
+      "role": "tool",
+      "tool_call_id": "functions.list_dir:3"
+    },
+    {
+      "content": "  ",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"command\":\"pwd\"}",
+            "name": "run_shell_command"
+          },
+          "id": "functions.run_shell_command:4",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "/home/tolki/.local/share/t-koma/ghosts/クランカ\n",
+      "role": "tool",
+      "tool_call_id": "functions.run_shell_command:4"
+    }
+  ],
+  "model": "moonshotai/kimi-k2.5",
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "function": {
+        "description": "Executes a shell command on the host system. Use with caution. Returns stdout and stderr.",
+        "name": "run_shell_command",
+        "parameters": {
+          "properties": {
+            "command": {
+              "description": "The command to execute",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Changes the current working directory for this ghost's tools. Paths can be absolute or relative to the current working directory.",
+        "name": "change_directory",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "Directory path to switch to (absolute or relative). If omitted, resets to the workspace root.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Replaces text within a file. By default, replaces a single occurrence, but can replace multiple occurrences when `expected_replacements` is specified. `old_string` must match the file content exactly, including whitespace and newlines.",
+        "name": "replace",
+        "parameters": {
+          "properties": {
+            "expected_replacements": {
+              "description": "Number of replacements expected. Defaults to 1. Use when you want to replace multiple occurrences.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "file_path": {
+              "description": "Path to the file to modify (absolute or relative to the current working directory)",
+              "type": "string"
+            },
+            "new_string": {
+              "description": "The new text to insert in place of old_string.",
+              "type": "string"
+            },
+            "old_string": {
+              "description": "The exact literal text to replace. Must match the file content exactly, including whitespace.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path",
+            "old_string",
+            "new_string"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Reads the contents of a file. Returns the file content with line numbers. Supports reading specific line ranges with offset and limit parameters.",
+        "name": "read_file",
+        "parameters": {
+          "properties": {
+            "file_path": {
+              "description": "Path to the file to read (absolute or relative to the current working directory)",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Maximum number of lines to read. Defaults to 1000.",
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "Line number to start reading from (1-indexed). Defaults to 1.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "file_path"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Creates a new file with the given content. Fails if the file already exists to prevent accidental overwrites. Parent directories must exist.",
+        "name": "create_file",
+        "parameters": {
+          "properties": {
+            "content": {
+              "description": "Content to write to the file",
+              "type": "string"
+            },
+            "file_path": {
+              "description": "Path where the file should be created (absolute or relative to the current working directory). Parent directory must exist.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path",
+            "content"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Searches for patterns in files using regex. Respects .gitignore by default. Returns matching lines with file paths and line numbers.",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "case_sensitive": {
+              "default": false,
+              "description": "Whether search is case sensitive. Defaults to false.",
+              "type": "boolean"
+            },
+            "glob": {
+              "description": "File glob pattern to filter results (e.g., '*.rs', '*.py'). Optional.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Directory or file to search in. Defaults to current working directory.",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "Search pattern (regex supported)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Finds files matching a glob pattern. Respects .gitignore. Returns a list of file paths.",
+        "name": "find_files",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "Directory to search in. Defaults to current working directory.",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "File name pattern to search for (e.g., '*.rs', 'Cargo.toml'). Supports glob patterns like '**/*.py' for recursive search.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Lists the contents of a directory. Shows files and subdirectories with type indicators and file sizes.",
+        "name": "list_dir",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "Absolute or relative path to the directory to list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Search the web using Brave Search and return structured results.",
+        "name": "web_search",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "country": {
+              "type": "string"
+            },
+            "freshness": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "search_lang": {
+              "type": "string"
+            },
+            "ui_lang": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Fetch the textual content of a web page and return it as text or markdown.",
+        "name": "web_fetch",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "max_chars": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mode": {
+              "enum": [
+                "text",
+                "markdown"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Unified search across notes, diary, references, and topics.",
+        "name": "knowledge_search",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "categories": {
+              "description": "Categories to search. Omit to search all.",
+              "items": {
+                "enum": [
+                  "notes",
+                  "diary",
+                  "references",
+                  "topics"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "query": {
+              "description": "Search query string.",
+              "type": "string"
+            },
+            "scope": {
+              "description": "Ownership scope. 'all' = shared + private. 'shared' = shared only. 'private' = your own only.",
+              "enum": [
+                "all",
+                "shared",
+                "private"
+              ],
+              "type": "string"
+            },
+            "topic": {
+              "description": "Narrow reference search to a specific topic name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Fetch a knowledge artifact by ID or by topic + path.",
+        "name": "knowledge_get",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "Note or reference file ID (from a previous knowledge_search result).",
+              "type": "string"
+            },
+            "max_chars": {
+              "description": "Truncate body to this many characters. Omit for full content.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "path": {
+              "description": "File path within the topic. Use with `topic`.",
+              "type": "string"
+            },
+            "topic": {
+              "description": "Topic name. Use with `path` to fetch a reference file.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Capture raw information to the memory inbox for later curation.",
+        "name": "memory_capture",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "payload": {
+              "description": "Raw text to capture into the memory inbox.",
+              "type": "string"
+            },
+            "scope": {
+              "description": "Where to capture. 'private' (default) = your private inbox. 'shared' = shared knowledge inbox.",
+              "enum": [
+                "private",
+                "shared"
+              ],
+              "type": "string"
+            },
+            "source": {
+              "description": "Where this information came from (URL, 'web search', 'user stated', 'conversation observation'). Always include when possible.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Save content to a reference topic. Creates the topic and collection if needed. Always search for existing topics first.",
+        "name": "reference_save",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "collection_description": {
+              "description": "Description for the collection. Used in search context enrichment.",
+              "type": "string"
+            },
+            "collection_tags": {
+              "description": "Tags for the collection.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "collection_title": {
+              "description": "Title for the collection (subdirectory). Derived from directory name if omitted.",
+              "type": "string"
+            },
+            "content": {
+              "description": "File content to save.",
+              "type": "string"
+            },
+            "path": {
+              "description": "File path within the topic. Use 'collection/file.md' to group into a collection, or 'file.md' for root-level.",
+              "type": "string"
+            },
+            "role": {
+              "description": "Content role. Docs are boosted in search. Default: docs.",
+              "enum": [
+                "docs",
+                "code",
+                "data"
+              ],
+              "type": "string"
+            },
+            "source_url": {
+              "description": "Original URL where the content was obtained.",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Tags for the topic (only used when creating a new topic).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Human-readable title for the file. Derived from filename if omitted.",
+              "type": "string"
+            },
+            "topic": {
+              "description": "Topic name. Fuzzy-matched against existing topics.",
+              "type": "string"
+            },
+            "topic_description": {
+              "description": "Description for the topic (only used when creating a new topic).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topic",
+            "path",
+            "content"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Mark a reference file as active, problematic, or obsolete. Load the reference-researcher skill first for best results.",
+        "name": "reference_file_update",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "note_id": {
+              "description": "The note_id of the reference file to update.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Explanation of why the file is being marked. Appended to the topic page as a warning note.",
+              "type": "string"
+            },
+            "status": {
+              "description": "New status: 'active' (normal), 'problematic' (partially wrong, penalized in search), 'obsolete' (excluded from search).",
+              "enum": [
+                "active",
+                "problematic",
+                "obsolete"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "note_id",
+            "status"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Create a structured note with validated front matter. Load the note-writer skill first for best results.",
+        "name": "memory_note_create",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "description": "Markdown body content.",
+              "type": "string"
+            },
+            "parent": {
+              "description": "Parent note ID for hierarchy.",
+              "type": "string"
+            },
+            "scope": {
+              "description": "Where to create the note. Default 'private' (your own notes).",
+              "enum": [
+                "private",
+                "shared"
+              ],
+              "type": "string"
+            },
+            "source": {
+              "description": "Source file paths.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "description": "Tags for categorization.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Note title.",
+              "type": "string"
+            },
+            "trust_score": {
+              "description": "Trust score (0-10). Default 5.",
+              "maximum": 10,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "description": "Note type (e.g. 'Concept', 'HowTo', 'Log', 'Decision').",
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "type",
+            "body"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Update an existing note (title, body, tags, trust, parent). Load the note-writer skill first for best results.",
+        "name": "memory_note_update",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "description": "New markdown body (optional).",
+              "type": "string"
+            },
+            "note_id": {
+              "description": "ID of the note to update.",
+              "type": "string"
+            },
+            "parent": {
+              "description": "New parent note ID (optional).",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Replace tags (optional).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "New title (optional).",
+              "type": "string"
+            },
+            "trust_score": {
+              "description": "New trust score (optional).",
+              "maximum": 10,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "note_id"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Record validation metadata and optionally adjust trust score. Load the note-writer skill first for best results.",
+        "name": "memory_note_validate",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "note_id": {
+              "description": "ID of the note to validate.",
+              "type": "string"
+            },
+            "trust_score": {
+              "description": "New trust score (optional). Leave empty to keep current.",
+              "maximum": 10,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "note_id"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Add a comment entry to a note's front matter. Load the note-writer skill first for best results.",
+        "name": "memory_note_comment",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "comment": {
+              "description": "Comment text to append.",
+              "type": "string"
+            },
+            "note_id": {
+              "description": "ID of the note to comment on.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "note_id",
+            "comment"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Import external sources (git repos, web pages) into a reference topic, indexing with embeddings. Load the reference-researcher skill first for best results.",
+        "name": "reference_import",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "description": "Ghost-written description of the topic: purpose, key concepts, common patterns.",
+              "type": "string"
+            },
+            "max_age_days": {
+              "description": "Days before the topic is considered stale. 0 = never stale. Default: 30.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sources": {
+              "description": "Sources to fetch content from.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "paths": {
+                    "description": "Path filters within the repo (e.g. 'docs/', 'src/'). Omit to fetch entire repo.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "ref": {
+                    "description": "Git branch or tag. Only for git sources.",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "Role of the source content. 'docs' for documentation (boosted in search), 'code' for source code. Inferred from source type if omitted (web→docs, git→code).",
+                    "enum": [
+                      "docs",
+                      "code"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Source type.",
+                    "enum": [
+                      "git",
+                      "web"
+                    ],
+                    "type": "string"
+                  },
+                  "url": {
+                    "description": "Source URL (git remote or web page).",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "description": "Tags for topic discoverability.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Descriptive title for the reference topic.",
+              "type": "string"
+            },
+            "trust_score": {
+              "description": "Trust score (0-10). Default: 8.",
+              "maximum": 10,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "title",
+            "body",
+            "sources"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Update reference topic metadata (body, tags) without re-fetching sources. Load the reference-researcher skill first for best results.",
+        "name": "reference_topic_update",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "description": "Updated topic description.",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Replace topic tags.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "topic_id": {
+              "description": "ID of the reference topic to update.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topic_id"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}
