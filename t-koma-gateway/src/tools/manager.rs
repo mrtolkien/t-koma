@@ -2,19 +2,14 @@ use serde_json::Value;
 
 use super::{
     Tool, ToolContext, change_directory::ChangeDirectoryTool, create_file::CreateFileTool,
-    file_edit::FileEditTool, find_files::FindFilesTool, list_dir::ListDirTool,
-    memory_capture::MemoryCaptureTool, memory_get::MemoryGetTool,
+    file_edit::FileEditTool, find_files::FindFilesTool,
+    knowledge_get::KnowledgeGetTool, knowledge_search::KnowledgeSearchTool,
+    list_dir::ListDirTool, memory_capture::MemoryCaptureTool,
     memory_note_comment::MemoryNoteCommentTool, memory_note_create::MemoryNoteCreateTool,
     memory_note_update::MemoryNoteUpdateTool, memory_note_validate::MemoryNoteValidateTool,
-    memory_search::MemorySearchTool, read_file::ReadFileTool,
-    reference_file_update::ReferenceFileUpdateTool,
-    reference_get::ReferenceGetTool,
-    reference_save::ReferenceSaveTool,
-    reference_search::ReferenceSearchTool,
-    reference_import::ReferenceImportTool,
-    reference_topic_search::ReferenceTopicSearchTool,
-    reference_topic_update::ReferenceTopicUpdateTool,
-    search::SearchTool, search_diary::SearchDiaryTool, shell::ShellTool,
+    read_file::ReadFileTool, reference_file_update::ReferenceFileUpdateTool,
+    reference_import::ReferenceImportTool, reference_save::ReferenceSaveTool,
+    reference_topic_update::ReferenceTopicUpdateTool, search::SearchTool, shell::ShellTool,
     web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
@@ -41,11 +36,9 @@ impl ToolManager {
             Box::new(ListDirTool),
             Box::new(WebSearchTool),
             Box::new(WebFetchTool),
-            Box::new(MemorySearchTool),
-            Box::new(MemoryGetTool),
+            Box::new(KnowledgeSearchTool),
+            Box::new(KnowledgeGetTool),
             Box::new(MemoryCaptureTool),
-            Box::new(ReferenceSearchTool),
-            Box::new(ReferenceGetTool),
             Box::new(ReferenceSaveTool),
             Box::new(ReferenceFileUpdateTool),
             Box::new(MemoryNoteCreateTool),
@@ -53,8 +46,6 @@ impl ToolManager {
             Box::new(MemoryNoteValidateTool),
             Box::new(MemoryNoteCommentTool),
             Box::new(ReferenceImportTool),
-            Box::new(SearchDiaryTool),
-            Box::new(ReferenceTopicSearchTool),
             Box::new(ReferenceTopicUpdateTool),
         ];
         Self { tools }
@@ -118,7 +109,8 @@ mod tests {
         assert!(tool_names.contains(&"list_dir"));
         assert!(tool_names.contains(&"web_search"));
         assert!(tool_names.contains(&"web_fetch"));
-        assert!(tool_names.contains(&"search_diary"));
+        assert!(tool_names.contains(&"knowledge_search"));
+        assert!(tool_names.contains(&"knowledge_get"));
     }
 
     #[tokio::test]
