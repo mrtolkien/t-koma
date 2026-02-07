@@ -265,10 +265,12 @@ impl AppState {
         models: HashMap<String, ModelEntry>,
         koma_db: t_koma_db::KomaDbPool,
         knowledge_engine: Arc<t_koma_knowledge::KnowledgeEngine>,
+        skill_paths: Vec<std::path::PathBuf>,
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
         let _ = GLOBAL_LOG_TX.set(log_tx.clone());
-        let session_chat = SessionChat::new(Some(Arc::clone(&knowledge_engine)));
+        let session_chat =
+            SessionChat::new(Some(Arc::clone(&knowledge_engine)), skill_paths);
 
         Self {
             default_model_alias,

@@ -126,11 +126,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .expect("failed to open knowledge store"),
     );
+    // Build skill search paths from SkillRegistry (user config first, then project defaults)
+    let skill_registry = t_koma_core::skill_registry::SkillRegistry::new()
+        .unwrap_or_else(|_| t_koma_core::skill_registry::SkillRegistry::empty());
+    let mut skill_paths = Vec::new();
+    if let Some(config_path) = skill_registry.config_path() {
+        skill_paths.push(config_path.to_path_buf());
+    }
+    if let Some(project_path) = skill_registry.project_path() {
+        skill_paths.push(project_path.to_path_buf());
+    }
+
     let state = Arc::new(AppState::new(
         default_model_alias,
         models,
         koma_db,
         knowledge_engine,
+        skill_paths,
     ));
     state.start_shared_knowledge_watcher().await;
     let heartbeat_model_alias = config

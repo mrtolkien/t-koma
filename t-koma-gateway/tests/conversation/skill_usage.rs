@@ -62,7 +62,7 @@ You: "Successfully loaded and using the test-echo skill!"
     let client = AnthropicClient::new(api_key, "claude-sonnet-4-5-20250929");
 
     // Set up tools
-    let load_skill_tool = LoadSkillTool::new(skills_dir.clone());
+    let load_skill_tool = LoadSkillTool::new(vec![skills_dir.clone()]);
     let mut context = ToolContext::new_for_tests(temp_dir.path());
     let tools: Vec<&dyn Tool> = vec![&load_skill_tool];
 
