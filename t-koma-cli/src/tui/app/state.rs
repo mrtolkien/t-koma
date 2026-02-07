@@ -46,3 +46,10 @@ pub(super) struct Metrics {
     pub(super) ghost_count: usize,
     pub(super) recent_message_count: i64,
 }
+
+#[derive(Debug, Clone)]
+pub(super) struct GhostRow {
+    pub(super) ghost: Ghost,
+    pub(super) heartbeat: Option<String>,
+}
+use t_koma_db::Ghost;

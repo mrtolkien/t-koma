@@ -13,6 +13,7 @@ use tracing::info;
 
 use crate::content::{self, ids};
 use crate::providers::provider::Provider;
+use crate::scheduler::{JobKind, SchedulerState};
 #[cfg(feature = "live-tests")]
 use crate::providers::provider::{ProviderResponse, extract_all_text};
 use crate::session::{
@@ -33,6 +34,12 @@ struct PendingInterface {
 struct OperatorRateLimitState {
     last_5m: VecDeque<i64>,
     last_1h: VecDeque<i64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct HeartbeatOverride {
+    pub next_due: i64,
+    pub last_seen_updated_at: i64,
 }
 
 #[derive(Debug)]
@@ -73,6 +80,12 @@ pub enum LogEntry {
     GhostMessage {
         ghost_name: String,
         content: String,
+    },
+    /// Heartbeat runner status
+    Heartbeat {
+        ghost_name: String,
+        session_id: String,
+        status: String,
     },
     /// Routing decision for operator -> ghost/session
     Routing {
@@ -139,6 +152,15 @@ impl std::fmt::Display for LogEntry {
                 ghost_name,
                 content,
             } => write!(f, "[{}] [GHOST] {} -> operator: {}", timestamp, ghost_name, content),
+            LogEntry::Heartbeat {
+                ghost_name,
+                session_id,
+                status,
+            } => write!(
+                f,
+                "[{}] [HEARTBEAT] {} ({}) {}",
+                timestamp, ghost_name, session_id, status
+            ),
             LogEntry::Routing {
                 platform,
                 operator_id,
@@ -216,6 +238,15 @@ pub struct AppState {
 
     /// Ghost knowledge watcher handles by ghost name
     ghost_knowledge_watchers: RwLock<HashMap<String, JoinHandle<()>>>,
+
+    /// Heartbeat runner handle
+    heartbeat_runner: RwLock<Option<JoinHandle<()>>>,
+
+    /// Heartbeat override schedule per session (chat_key)
+    heartbeat_overrides: RwLock<HashMap<String, HeartbeatOverride>>,
+
+    /// Scheduler state for background jobs (heartbeat now, cron later)
+    scheduler: RwLock<SchedulerState>,
 }
 
 /// Model entry tracked by the gateway
@@ -255,7 +286,62 @@ impl AppState {
             knowledge_engine,
             shared_knowledge_watcher: RwLock::new(None),
             ghost_knowledge_watchers: RwLock::new(HashMap::new()),
+            heartbeat_runner: RwLock::new(None),
+            heartbeat_overrides: RwLock::new(HashMap::new()),
+            scheduler: RwLock::new(SchedulerState::new()),
         }
+    }
+
+    pub async fn set_heartbeat_override(
+        &self,
+        key: &str,
+        next_due: i64,
+        last_seen_updated_at: i64,
+    ) {
+        let mut guard = self.heartbeat_overrides.write().await;
+        guard.insert(
+            key.to_string(),
+            HeartbeatOverride {
+                next_due,
+                last_seen_updated_at,
+            },
+        );
+    }
+
+    pub async fn clear_heartbeat_override(&self, key: &str) {
+        let mut guard = self.heartbeat_overrides.write().await;
+        guard.remove(key);
+    }
+
+    pub async fn get_heartbeat_override(&self, key: &str) -> Option<HeartbeatOverride> {
+        let guard = self.heartbeat_overrides.read().await;
+        guard.get(key).copied()
+    }
+
+    pub async fn set_heartbeat_due(&self, key: &str, next_due: Option<i64>) {
+        let mut guard = self.scheduler.write().await;
+        guard.set_due(JobKind::Heartbeat, key, next_due);
+    }
+
+    pub async fn get_heartbeat_due(&self, key: &str) -> Option<i64> {
+        let guard = self.scheduler.read().await;
+        guard.get_due(JobKind::Heartbeat, key)
+    }
+
+    /// Start the heartbeat runner if it isn't already running.
+    pub async fn start_heartbeat_runner(
+        self: &Arc<Self>,
+        heartbeat_model_alias: Option<String>,
+    ) {
+        let mut guard = self.heartbeat_runner.write().await;
+        if let Some(handle) = guard.as_ref()
+            && !handle.is_finished()
+        {
+            return;
+        }
+
+        let handle = crate::heartbeat::start_heartbeat_runner(Arc::clone(self), heartbeat_model_alias);
+        *guard = Some(handle);
     }
 
     /// Access the knowledge settings (from the engine).
@@ -486,7 +572,15 @@ impl AppState {
             if let Some(db) = guard.get(ghost_name) {
                 self.ensure_ghost_watcher(ghost_name)
                     .await;
-                return Ok(db.clone());
+                let db = db.clone();
+                if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
+                    tracing::warn!(
+                        "Failed to ensure HEARTBEAT.md for ghost {}: {}",
+                        ghost_name,
+                        err
+                    );
+                }
+                return Ok(db);
             }
         }
 
@@ -495,6 +589,13 @@ impl AppState {
         guard.insert(ghost_name.to_string(), db.clone());
         self.ensure_ghost_watcher(ghost_name)
             .await;
+        if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
+            tracing::warn!(
+                "Failed to ensure HEARTBEAT.md for ghost {}: {}",
+                ghost_name,
+                err
+            );
+        }
         Ok(db)
     }
 

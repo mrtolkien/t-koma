@@ -25,6 +25,8 @@ const DEFAULT_CONFIG_TOML: &str = r#"# t-koma configuration file
 
 # Default model alias (must exist under [models])
 default_model = ""
+# Optional heartbeat model alias (falls back to default_model when unset)
+# heartbeat_model = ""
 
 [models]
 # Example:
@@ -92,6 +94,10 @@ pub struct Settings {
     /// Default model alias (must exist in `models`)
     #[serde(default)]
     pub default_model: String,
+
+    /// Optional model alias for heartbeat runs (falls back to default_model)
+    #[serde(default)]
+    pub heartbeat_model: Option<String>,
 
     /// Gateway server configuration
     #[serde(default)]
@@ -548,6 +554,7 @@ mod tests {
 
         assert!(settings.models.is_empty());
         assert!(settings.default_model.is_empty());
+        assert!(settings.heartbeat_model.is_none());
 
         assert_eq!(settings.gateway.host, "127.0.0.1");
         assert_eq!(settings.gateway.port, 3000);
@@ -594,6 +601,7 @@ mod tests {
     fn test_from_toml() {
         let toml = r#"
 default_model = "kimi25"
+heartbeat_model = "alpha"
 
 [models]
 [models.kimi25]
@@ -641,6 +649,7 @@ cache_ttl_minutes = 2
         let settings = Settings::from_toml(toml).unwrap();
 
         assert_eq!(settings.default_model, "kimi25");
+        assert_eq!(settings.heartbeat_model.as_deref(), Some("alpha"));
         assert_eq!(
             settings.models.get("kimi25").unwrap().model,
             "moonshotai/kimi-k2.5"

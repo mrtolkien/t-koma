@@ -132,6 +132,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         knowledge_engine,
     ));
     state.start_shared_knowledge_watcher().await;
+    let heartbeat_model_alias = config
+        .settings
+        .heartbeat_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|alias| !alias.is_empty())
+        .map(|alias| alias.to_string());
+    state.start_heartbeat_runner(heartbeat_model_alias).await;
 
     // Get Discord token from secrets
     let discord_token = config.discord_bot_token().map(|s| s.to_string());
