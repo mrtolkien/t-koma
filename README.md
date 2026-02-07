@@ -98,6 +98,7 @@ Configuration is loaded from a TOML file and environment variables:
 
 ```toml
 default_model = "primary"
+heartbeat_model = "fallback"
 
 [models]
 [models.primary]

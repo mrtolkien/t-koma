@@ -195,7 +195,11 @@ impl TuiApp {
                 0 => self.refresh_ghosts().await,
                 1 => self.begin_prompt(PromptKind::NewGhost, None, None),
                 2 => {
-                    if let Some(name) = self.ghosts.get(self.content_idx).map(|g| g.name.clone()) {
+                    if let Some(name) = self
+                        .ghosts
+                        .get(self.content_idx)
+                        .map(|g| g.ghost.name.clone())
+                    {
                         self.begin_prompt(PromptKind::DeleteGhostConfirmOne, Some(name), None);
                     } else {
                         self.status = "No ghost selected".to_string();

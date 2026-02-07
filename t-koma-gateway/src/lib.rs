@@ -1,9 +1,11 @@
 pub mod chat;
 pub mod content;
 pub mod discord;
+pub mod heartbeat;
 pub mod log_bridge;
 pub mod providers;
 pub mod prompt;
+pub mod scheduler;
 pub mod server;
 pub mod session;
 pub mod state;

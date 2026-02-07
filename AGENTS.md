@@ -25,6 +25,10 @@ important information in vibe/knowledge.
 - GHOST (ゴースト): Agent with its own DB and workspace (same folder as ghost
   DB).
 - SESSION: A chat thread between an operator and a ghost (stored in ghost DB).
+- HEARTBEAT: Background session check triggered after 15 minutes of inactivity
+  when the last message is not `HEARTBEAT_OK`. Uses `HEARTBEAT.md` in the ghost
+  workspace as instructions (auto-created on first use). `HEARTBEAT_CONTINUE`
+  suppresses output and reschedules in ~30 minutes.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -63,6 +67,8 @@ Make extensive use of MCPs available to you:
   types (with concrete defaults) live in dedicated files like `knowledge.rs`.
 - New config should be editable via the TUI (already supported via "Edit in
   Editor").
+- Heartbeat uses the optional `heartbeat_model` alias in config; when unset it
+  falls back to `default_model`.
 
 ### Locality of Concern
 
@@ -123,6 +129,14 @@ neutral model internally.
 ## Architecture Guardrails
 
 These are hard rules to preserve code quality and discoverability.
+
+### Scheduler (Background Jobs)
+
+Background jobs use `t-koma-gateway/src/scheduler.rs` as the single scheduling
+state. Heartbeat is the first job (`JobKind::Heartbeat`); future cron jobs must
+reuse this scheduler instead of creating bespoke timers or per-module maps. The
+only valid place to persist “next due” times in memory is the scheduler state
+owned by `AppState`.
 
 ### Gateway module ownership
 
