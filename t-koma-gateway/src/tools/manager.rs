@@ -8,8 +8,7 @@ use super::{
     knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool,
     load_skill::LoadSkillTool, memory_capture::MemoryCaptureTool,
     note_write::NoteWriteTool, read_file::ReadFileTool,
-    reference_file_update::ReferenceFileUpdateTool, reference_import::ReferenceImportTool,
-    reference_save::ReferenceSaveTool, reference_topic_update::ReferenceTopicUpdateTool,
+    reference_import::ReferenceImportTool, reference_write::ReferenceWriteTool,
     search::SearchTool, shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
@@ -43,10 +42,8 @@ impl ToolManager {
             Box::new(KnowledgeGetTool),
             Box::new(MemoryCaptureTool),
             Box::new(NoteWriteTool),
-            Box::new(ReferenceSaveTool),
-            Box::new(ReferenceFileUpdateTool),
+            Box::new(ReferenceWriteTool),
             Box::new(ReferenceImportTool),
-            Box::new(ReferenceTopicUpdateTool),
             Box::new(LoadSkillTool::new(skill_paths)),
         ];
         Self { tools }

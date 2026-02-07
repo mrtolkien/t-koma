@@ -4,6 +4,10 @@ use tree_sitter::{Language, Parser};
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
 
+/// Max characters per chunk. ~1500 tokens — well within the 8K context of
+/// `qwen3-embedding:8b` and produces better embedding quality than huge chunks.
+const MAX_CHUNK_CHARS: usize = 6000;
+
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub title: String,
@@ -58,7 +62,8 @@ pub fn chunk_markdown(input: &str) -> Vec<Chunk> {
         }
     }
 
-    merge_small_chunks(chunks, 200)
+    let merged = merge_small_chunks(chunks, 200);
+    split_large_chunks(merged)
 }
 
 fn parse_heading(line: &str) -> Option<String> {
@@ -99,6 +104,66 @@ fn merge_small_chunks(chunks: Vec<Chunk>, min_chars: usize) -> Vec<Chunk> {
     }
 
     merged
+}
+
+/// Split any chunk exceeding `MAX_CHUNK_CHARS` on paragraph boundaries.
+fn split_large_chunks(chunks: Vec<Chunk>) -> Vec<Chunk> {
+    let mut result = Vec::new();
+    for chunk in chunks {
+        if chunk.content.len() <= MAX_CHUNK_CHARS {
+            result.push(Chunk {
+                index: result.len(),
+                ..chunk
+            });
+            continue;
+        }
+
+        let parts = split_on_paragraphs(&chunk.content, MAX_CHUNK_CHARS);
+        for (i, part) in parts.into_iter().enumerate() {
+            let title = if i == 0 {
+                chunk.title.clone()
+            } else {
+                format!("{} (cont.)", chunk.title)
+            };
+            result.push(Chunk {
+                title,
+                content: part,
+                index: result.len(),
+            });
+        }
+    }
+    result
+}
+
+/// Split text into parts of at most `max_chars`, preferring `\n\n` boundaries.
+fn split_on_paragraphs(text: &str, max_chars: usize) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut remaining = text;
+
+    while remaining.len() > max_chars {
+        // Snap to a char boundary so we never split inside a multi-byte char
+        let boundary = remaining.floor_char_boundary(max_chars);
+        let search_region = &remaining[..boundary];
+        let split_at = search_region
+            .rfind("\n\n")
+            .or_else(|| search_region.rfind('\n'))
+            .unwrap_or(boundary);
+
+        let split_at = split_at.max(1); // avoid zero-length splits
+        let (left, right) = remaining.split_at(split_at);
+        let trimmed = left.trim();
+        if !trimmed.is_empty() {
+            parts.push(trimmed.to_string());
+        }
+        remaining = right.trim_start();
+    }
+
+    let trimmed = remaining.trim();
+    if !trimmed.is_empty() {
+        parts.push(trimmed.to_string());
+    }
+
+    parts
 }
 
 pub fn chunk_code(source: &str, path: &Path) -> KnowledgeResult<Vec<Chunk>> {

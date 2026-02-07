@@ -1,6 +1,7 @@
 //! Knowledge & memory subsystem for T-KOMA.
 
 pub mod chunker;
+pub mod crawl;
 pub mod embeddings;
 pub mod engine;
 pub mod errors;

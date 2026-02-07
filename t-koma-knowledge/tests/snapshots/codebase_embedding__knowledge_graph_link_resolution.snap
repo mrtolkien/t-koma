@@ -11,11 +11,11 @@ top_results:
     tag_count: 0
     links_out: 0
     links_in: 0
-    snippet: "Notes can reference any shared content by title using `[[Title]]` or\n`[[Title|alias]]` syntax. Links can target:\n\n- Othe"
+    snippet: "[t-koma-knowledge source]\n\nNotes can reference any shared content by title using `[[Title]]` or\n`[[Title|alias]]` syntax"
   - rank: 2
-    file: knowledge_system.md
+    file: graph.rs
     has_parents: true
     tag_count: 0
     links_out: 0
     links_in: 0
-    snippet: "You have access to a persistent knowledge base with hybrid search (BM25 +\nembeddings). Use it proactively.\n\n| Scope | Vi"
+    snippet: "[t-koma-knowledge source]\n\npub async fn expand_links_in(\n    pool: &SqlitePool,\n    root_id: &str,\n    depth: u8,\n    li"

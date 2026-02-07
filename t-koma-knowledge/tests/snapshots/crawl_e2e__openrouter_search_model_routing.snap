@@ -1,0 +1,20 @@
+---
+source: t-koma-knowledge/tests/crawl_e2e.rs
+expression: "build_search_snapshot(question, &search_result.results, 3)"
+---
+query: model selection routing provider preferences
+total_hits: 8
+unique_files: 4
+top_results:
+  - rank: 1
+    title: openrouter-ai-docs_guides_routing_provider-selection.md
+    note_type: ReferenceCode
+    snippet_preview: "[OpenRouter API]\n\nAs described above, OpenRouter load balances based on price, while taking uptime\ninto account.\n\nIf you instead want to *explicitly* "
+  - rank: 2
+    title: openrouter-ai-docs_guides_routing_provider-selection.md
+    note_type: ReferenceCode
+    snippet_preview: "[OpenRouter API]\n\nFor each model in your request, OpenRouter’s default behavior is to load balance\nrequests across providers, prioritizing price.\n\nIf "
+  - rank: 3
+    title: openrouter-ai-docs_guides_routing_provider-selection.md
+    note_type: ReferenceCode
+    snippet_preview: "[OpenRouter API]\n\nAccess free models with the :free variant\n\nNext][100][Built with][101]\n[[Logo][Logo]][102]\n[Models][103][Chat][104][Rankings][105][D"
