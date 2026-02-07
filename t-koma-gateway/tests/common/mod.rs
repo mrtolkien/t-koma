@@ -84,6 +84,7 @@ pub async fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
         models,
         db,
         knowledge_engine,
+        vec![],
     ))
 }
 

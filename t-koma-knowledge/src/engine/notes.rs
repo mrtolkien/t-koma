@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use sqlx;
 
 use crate::KnowledgeSettings;
 use crate::errors::{KnowledgeError, KnowledgeResult};
@@ -389,6 +390,66 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
         }
     }
     lines.join("\n")
+}
+
+pub(crate) async fn note_delete(
+    engine: &KnowledgeEngine,
+    ghost_name: &str,
+    note_id: &str,
+) -> KnowledgeResult<()> {
+    let doc = engine
+        .memory_get(ghost_name, note_id, OwnershipScope::All)
+        .await?;
+    verify_write_access(ghost_name, &doc)?;
+
+    // Delete file from disk
+    if doc.path.exists() {
+        tokio::fs::remove_file(&doc.path).await?;
+    }
+
+    // Delete from DB: chunks (FTS + vec), tags, links, then the note itself
+    let pool = engine.pool();
+    let existing_chunk_ids: Vec<(i64,)> =
+        sqlx::query_as("SELECT id FROM chunks WHERE note_id = ?")
+            .bind(note_id)
+            .fetch_all(pool)
+            .await?;
+
+    sqlx::query("DELETE FROM chunks WHERE note_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM chunk_fts WHERE note_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    if !existing_chunk_ids.is_empty() {
+        let placeholders = existing_chunk_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("DELETE FROM chunk_vec WHERE rowid IN ({})", placeholders);
+        let mut q = sqlx::query(&sql);
+        for (chunk_id,) in &existing_chunk_ids {
+            q = q.bind(chunk_id);
+        }
+        q.execute(pool).await?;
+    }
+    sqlx::query("DELETE FROM note_tags WHERE note_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM note_links WHERE source_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM notes WHERE id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
 }
 
 /// Sanitize a title for use as a filename.

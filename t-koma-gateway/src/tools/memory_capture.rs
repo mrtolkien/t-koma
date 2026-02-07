@@ -6,43 +6,10 @@ use crate::tools::{Tool, ToolContext};
 #[derive(Debug, Deserialize)]
 struct MemoryCaptureInput {
     payload: String,
-    scope: Option<String>,
-    source: Option<String>,
+    source: String,
 }
 
 pub struct MemoryCaptureTool;
-
-impl MemoryCaptureTool {
-    fn schema() -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "payload": {
-                    "type": "string",
-                    "description": "Raw text to capture into the memory inbox."
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["private", "shared"],
-                    "description": "Where to capture. 'private' (default) = your private inbox. 'shared' = shared knowledge inbox."
-                },
-                "source": {
-                    "type": "string",
-                    "description": "Where this information came from (URL, 'web search', 'user stated', 'conversation observation'). Always include when possible."
-                }
-            },
-            "required": ["payload"],
-            "additionalProperties": false
-        })
-    }
-
-    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::WriteScope {
-        match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::WriteScope::SharedNote,
-            _ => t_koma_knowledge::models::WriteScope::GhostNote,
-        }
-    }
-}
 
 #[async_trait::async_trait]
 impl Tool for MemoryCaptureTool {
@@ -51,21 +18,34 @@ impl Tool for MemoryCaptureTool {
     }
 
     fn description(&self) -> &str {
-        "Capture raw information to the memory inbox for later curation."
+        "Capture raw information to your private inbox for later curation during reflection."
     }
 
     fn input_schema(&self) -> Value {
-        Self::schema()
+        json!({
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "type": "string",
+                    "description": "Raw text to capture into the memory inbox."
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Where this information came from (URL, 'web search', 'user stated', 'conversation observation')."
+                }
+            },
+            "required": ["payload", "source"],
+            "additionalProperties": false
+        })
     }
 
     fn prompt(&self) -> Option<&'static str> {
         Some(
             "Use memory_capture to store raw, unstructured info for later curation.\n\
-            - Default scope is 'ghost' (your private inbox).\n\
-            - Use 'shared' only for information that should be visible to all ghosts.\n\
-            - Always include a source when possible (URL, 'user stated', etc.).\n\
+            - Writes to your private inbox only.\n\
+            - Always include the source (URL, 'user stated', etc.).\n\
             - Captured text is written as a timestamped inbox file.\n\
-            - Reconciliation will index it later; no immediate search results.",
+            - Reflection will process it into structured notes later.",
         )
     }
 
@@ -75,14 +55,13 @@ impl Tool for MemoryCaptureTool {
         let engine = context
             .knowledge_engine()
             .ok_or("knowledge engine not available")?;
-        let scope = Self::parse_scope(input.scope);
 
         let path = engine
             .memory_capture(
                 context.ghost_name(),
                 &input.payload,
-                scope,
-                input.source.as_deref(),
+                t_koma_knowledge::models::WriteScope::GhostNote,
+                Some(&input.source),
             )
             .await
             .map_err(|e| e.to_string())?;

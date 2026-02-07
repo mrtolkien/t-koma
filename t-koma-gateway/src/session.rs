@@ -143,10 +143,17 @@ async fn load_recent_active_diary_entries(
 }
 
 impl SessionChat {
-    /// Create a new SessionChat instance
-    pub fn new(knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>) -> Self {
+    /// Create a new SessionChat instance.
+    ///
+    /// `skill_paths` are directories to search for skills, in priority order
+    /// (first match wins). Typically: user config skills, project defaults.
+    /// Ghost workspace skills are prepended automatically at execution time.
+    pub fn new(
+        knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
+        skill_paths: Vec<std::path::PathBuf>,
+    ) -> Self {
         Self {
-            tool_manager: ToolManager::new(),
+            tool_manager: ToolManager::new(skill_paths),
             knowledge_engine,
             system_info: system_info::build_system_info(),
         }
@@ -793,7 +800,7 @@ impl SessionChat {
 
 impl Default for SessionChat {
     fn default() -> Self {
-        Self::new(None)
+        Self::new(None, vec![])
     }
 }
 

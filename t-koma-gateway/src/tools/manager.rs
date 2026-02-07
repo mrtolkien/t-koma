@@ -1,12 +1,13 @@
+use std::path::PathBuf;
+
 use serde_json::Value;
 
 use super::{
     Tool, ToolContext, change_directory::ChangeDirectoryTool, create_file::CreateFileTool,
     file_edit::FileEditTool, find_files::FindFilesTool, knowledge_get::KnowledgeGetTool,
     knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool,
-    memory_capture::MemoryCaptureTool, memory_note_comment::MemoryNoteCommentTool,
-    memory_note_create::MemoryNoteCreateTool, memory_note_update::MemoryNoteUpdateTool,
-    memory_note_validate::MemoryNoteValidateTool, read_file::ReadFileTool,
+    load_skill::LoadSkillTool, memory_capture::MemoryCaptureTool,
+    note_write::NoteWriteTool, read_file::ReadFileTool,
     reference_file_update::ReferenceFileUpdateTool, reference_import::ReferenceImportTool,
     reference_save::ReferenceSaveTool, reference_topic_update::ReferenceTopicUpdateTool,
     search::SearchTool, shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
@@ -22,8 +23,11 @@ pub struct ToolManager {
 }
 
 impl ToolManager {
-    /// Create a new ToolManager with all available tools registered
-    pub fn new() -> Self {
+    /// Create a new ToolManager with all available tools registered.
+    ///
+    /// `skill_paths` are directories to search for skills, in priority order
+    /// (first match wins). Typically: ghost workspace skills, user config, project defaults.
+    pub fn new(skill_paths: Vec<PathBuf>) -> Self {
         let tools: Vec<Box<dyn Tool>> = vec![
             Box::new(ShellTool),
             Box::new(ChangeDirectoryTool),
@@ -38,14 +42,12 @@ impl ToolManager {
             Box::new(KnowledgeSearchTool),
             Box::new(KnowledgeGetTool),
             Box::new(MemoryCaptureTool),
+            Box::new(NoteWriteTool),
             Box::new(ReferenceSaveTool),
             Box::new(ReferenceFileUpdateTool),
-            Box::new(MemoryNoteCreateTool),
-            Box::new(MemoryNoteUpdateTool),
-            Box::new(MemoryNoteValidateTool),
-            Box::new(MemoryNoteCommentTool),
             Box::new(ReferenceImportTool),
             Box::new(ReferenceTopicUpdateTool),
+            Box::new(LoadSkillTool::new(skill_paths)),
         ];
         Self { tools }
     }
@@ -79,12 +81,6 @@ impl ToolManager {
     }
 }
 
-impl Default for ToolManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_tool_manager_new() {
-        let manager = ToolManager::new();
+        let manager = ToolManager::new(vec![]);
         let tools = manager.get_tools();
         assert!(!tools.is_empty());
 
@@ -110,11 +106,13 @@ mod tests {
         assert!(tool_names.contains(&"web_fetch"));
         assert!(tool_names.contains(&"knowledge_search"));
         assert!(tool_names.contains(&"knowledge_get"));
+        assert!(tool_names.contains(&"note_write"));
+        assert!(tool_names.contains(&"load_skill"));
     }
 
     #[tokio::test]
     async fn test_tool_manager_execute_shell() {
-        let manager = ToolManager::new();
+        let manager = ToolManager::new(vec![]);
         let temp_dir = tempfile::TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
         let input = json!({ "command": "echo 'hello from tool manager'" });
@@ -128,7 +126,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_manager_execute_unknown() {
-        let manager = ToolManager::new();
+        let manager = ToolManager::new(vec![]);
         let temp_dir = tempfile::TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
         let input = json!({});
@@ -142,7 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_manager_execute_read_file() {
-        let manager = ToolManager::new();
+        let manager = ToolManager::new(vec![]);
         let temp_dir = tempfile::TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
         let file_path = temp_dir.path().join("sample.txt");

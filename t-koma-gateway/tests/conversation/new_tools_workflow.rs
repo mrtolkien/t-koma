@@ -136,7 +136,7 @@ async fn test_comprehensive_coding_workflow() {
     println!("Created session: {}", session.id);
 
     // Set up system prompt with all tools
-    let tool_manager = ToolManager::new();
+    let tool_manager = ToolManager::new(vec![]);
     let tools = tool_manager.get_tools();
     let system_prompt = SystemPrompt::with_tools(
         &tools,
