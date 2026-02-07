@@ -30,9 +30,7 @@ Do NOT create a reference topic for:
 
 ## Before Creating: Always Search First
 
-1. **Check the system prompt** for "Available Reference Topics" — the 10 most
-   recent topics are listed there.
-2. **Use `knowledge_search`** with a topic query. Different models may have used
+1. **Use `knowledge_search`** with a topic query. Different models may have used
    different names for the same concept, so search broadly:
    ```
    knowledge_search(query="Rust GUI framework with React-like syntax", categories=["topics"])

@@ -141,7 +141,6 @@ async fn test_comprehensive_coding_workflow() {
     let system_prompt = SystemPrompt::with_tools(
         &tools,
         &[
-            ("reference_topics", ""),
             ("ghost_identity", ""),
             ("ghost_diary", ""),
             ("ghost_projects", ""),
