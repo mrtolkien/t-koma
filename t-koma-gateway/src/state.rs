@@ -13,6 +13,7 @@ use tracing::info;
 
 use crate::content::{self, ids};
 use crate::providers::provider::Provider;
+use crate::scheduler::{JobKind, SchedulerState};
 #[cfg(feature = "live-tests")]
 use crate::providers::provider::{ProviderResponse, extract_all_text};
 use crate::session::{
@@ -243,6 +244,9 @@ pub struct AppState {
 
     /// Heartbeat override schedule per session (chat_key)
     heartbeat_overrides: RwLock<HashMap<String, HeartbeatOverride>>,
+
+    /// Scheduler state for background jobs (heartbeat now, cron later)
+    scheduler: RwLock<SchedulerState>,
 }
 
 /// Model entry tracked by the gateway
@@ -284,6 +288,7 @@ impl AppState {
             ghost_knowledge_watchers: RwLock::new(HashMap::new()),
             heartbeat_runner: RwLock::new(None),
             heartbeat_overrides: RwLock::new(HashMap::new()),
+            scheduler: RwLock::new(SchedulerState::new()),
         }
     }
 
@@ -311,6 +316,16 @@ impl AppState {
     pub async fn get_heartbeat_override(&self, key: &str) -> Option<HeartbeatOverride> {
         let guard = self.heartbeat_overrides.read().await;
         guard.get(key).copied()
+    }
+
+    pub async fn set_heartbeat_due(&self, key: &str, next_due: Option<i64>) {
+        let mut guard = self.scheduler.write().await;
+        guard.set_due(JobKind::Heartbeat, key, next_due);
+    }
+
+    pub async fn get_heartbeat_due(&self, key: &str) -> Option<i64> {
+        let guard = self.scheduler.read().await;
+        guard.get_due(JobKind::Heartbeat, key)
     }
 
     /// Start the heartbeat runner if it isn't already running.
@@ -557,7 +572,15 @@ impl AppState {
             if let Some(db) = guard.get(ghost_name) {
                 self.ensure_ghost_watcher(ghost_name)
                     .await;
-                return Ok(db.clone());
+                let db = db.clone();
+                if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
+                    tracing::warn!(
+                        "Failed to ensure HEARTBEAT.md for ghost {}: {}",
+                        ghost_name,
+                        err
+                    );
+                }
+                return Ok(db);
             }
         }
 
@@ -566,6 +589,13 @@ impl AppState {
         guard.insert(ghost_name.to_string(), db.clone());
         self.ensure_ghost_watcher(ghost_name)
             .await;
+        if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
+            tracing::warn!(
+                "Failed to ensure HEARTBEAT.md for ghost {}: {}",
+                ghost_name,
+                err
+            );
+        }
         Ok(db)
     }
 

@@ -98,11 +98,20 @@ impl TuiApp {
             .iter()
             .enumerate()
             .map(|(idx, ghost)| {
+                let heartbeat = ghost
+                    .heartbeat
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string());
                 let mut item = ListItem::new(format!(
-                    "{} | owner={} | cwd={}",
-                    ghost.name,
-                    ghost.owner_operator_id,
-                    ghost.cwd.clone().unwrap_or_else(|| "-".to_string())
+                    "{} | owner={} | heartbeat={} | cwd={}",
+                    ghost.ghost.name,
+                    ghost.ghost.owner_operator_id,
+                    heartbeat,
+                    ghost
+                        .ghost
+                        .cwd
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string())
                 ));
                 if idx == self.content_idx && self.focus == FocusPane::Content {
                     item = item.style(theme::selected());

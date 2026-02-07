@@ -8,7 +8,7 @@ use tokio::time::{Instant, interval_at};
 use tracing::{info, warn};
 
 use crate::session::ChatError;
-use crate::state::{AppState, LogEntry};
+use crate::state::{AppState, HeartbeatOverride, LogEntry};
 use t_koma_db::{ContentBlock, GhostRepository, Message, Session, SessionRepository};
 
 const HEARTBEAT_TOKEN: &str = "HEARTBEAT_OK";
@@ -17,10 +17,11 @@ const HEARTBEAT_IDLE_MINUTES: i64 = 15;
 const HEARTBEAT_CHECK_SECONDS: u64 = 60;
 const DEFAULT_HEARTBEAT_ACK_MAX_CHARS: usize = 300;
 
-const DEFAULT_HEARTBEAT_PROMPT: &str =
-    "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. \
+const DEFAULT_HEARTBEAT_PROMPT: &str = "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. \
 Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. \
 Also review the inbox and promote items into notes.";
+
+const HEARTBEAT_TEMPLATE: &str = include_str!("../prompts/heartbeat-template.md");
 
 struct StripResult {
     should_skip: bool,
@@ -117,6 +118,32 @@ fn strip_heartbeat_token(raw: &str, max_ack_chars: usize) -> StripResult {
     StripResult { should_skip: false }
 }
 
+fn strip_front_matter(raw: &str) -> &str {
+    if !raw.starts_with("---") {
+        return raw;
+    }
+    if let Some(end) = raw.find("\n---") {
+        let start = end + "\n---".len();
+        return raw[start..].trim_start();
+    }
+    raw
+}
+
+pub fn ensure_heartbeat_file(workspace_path: &Path) -> std::io::Result<()> {
+    let path = workspace_path.join("HEARTBEAT.md");
+    if path.exists() {
+        return Ok(());
+    }
+    let content = strip_front_matter(HEARTBEAT_TEMPLATE);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    use std::io::Write;
+    file.write_all(content.as_bytes())?;
+    Ok(())
+}
+
 fn is_heartbeat_continue(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -170,6 +197,22 @@ fn last_message_is_heartbeat_ok(message: &Message) -> bool {
     stripped.should_skip
 }
 
+pub fn next_heartbeat_due_for_session(
+    session_updated_at: i64,
+    last_message: Option<&Message>,
+    override_entry: Option<HeartbeatOverride>,
+) -> Option<i64> {
+    if let Some(override_entry) = override_entry {
+        return Some(override_entry.next_due);
+    }
+    if let Some(message) = last_message
+        && last_message_is_heartbeat_ok(message)
+    {
+        return None;
+    }
+    Some(session_updated_at + HEARTBEAT_IDLE_MINUTES * 60)
+}
+
 fn is_heartbeat_content_effectively_empty(content: &str) -> bool {
     for line in content.lines() {
         let trimmed = line.trim();
@@ -210,7 +253,9 @@ async fn run_heartbeat_for_session(
     let prompt = DEFAULT_HEARTBEAT_PROMPT;
 
     let model = if let Some(alias) = heartbeat_model_alias {
-        state.get_model_by_alias(alias).unwrap_or_else(|| state.default_model())
+        state
+            .get_model_by_alias(alias)
+            .unwrap_or_else(|| state.default_model())
     } else {
         state.default_model()
     };
@@ -259,7 +304,10 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
         let sessions = match SessionRepository::list_active(ghost_db.pool()).await {
             Ok(list) => list,
             Err(err) => {
-                warn!("heartbeat: failed to list sessions for {}: {err}", ghost.name);
+                warn!(
+                    "heartbeat: failed to list sessions for {}: {err}",
+                    ghost.name
+                );
                 continue;
             }
         };
@@ -270,30 +318,44 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 continue;
             }
 
-            if let Some(override_entry) = state.get_heartbeat_override(&chat_key).await {
-                if session.updated_at > override_entry.last_seen_updated_at {
-                    state.clear_heartbeat_override(&chat_key).await;
-                } else if now_ts < override_entry.next_due {
-                    continue;
-                }
-            } else if session.updated_at > threshold_ts {
+            let mut override_entry = state.get_heartbeat_override(&chat_key).await;
+            if let Some(entry) = override_entry
+                && session.updated_at > entry.last_seen_updated_at
+            {
+                state.clear_heartbeat_override(&chat_key).await;
+                override_entry = None;
+            }
+
+            let last_message =
+                match SessionRepository::get_last_message(ghost_db.pool(), &session.id).await {
+                    Ok(msg) => msg,
+                    Err(err) => {
+                        warn!(
+                            "heartbeat: failed to load last message for {}:{}: {err}",
+                            ghost.name, session.id
+                        );
+                        continue;
+                    }
+                };
+
+            let next_due = next_heartbeat_due_for_session(
+                session.updated_at,
+                last_message.as_ref(),
+                override_entry,
+            );
+            state.set_heartbeat_due(&chat_key, next_due).await;
+
+            if let Some(entry) = override_entry
+                && now_ts < entry.next_due
+            {
                 continue;
             }
 
-            let last_message = match SessionRepository::get_last_message(ghost_db.pool(), &session.id)
-                .await
-            {
-                Ok(msg) => msg,
-                Err(err) => {
-                    warn!(
-                        "heartbeat: failed to load last message for {}:{}: {err}",
-                        ghost.name, session.id
-                    );
-                    continue;
-                }
-            };
+            if override_entry.is_none() && session.updated_at > threshold_ts {
+                continue;
+            }
 
-            if state.get_heartbeat_override(&chat_key).await.is_none()
+            if override_entry.is_none()
                 && let Some(message) = &last_message
                 && last_message_is_heartbeat_ok(message)
             {
@@ -376,7 +438,10 @@ pub fn start_heartbeat_runner(
         }
     });
 
-    info!("heartbeat runner started (idle_minutes={}, check_seconds={})", HEARTBEAT_IDLE_MINUTES, HEARTBEAT_CHECK_SECONDS);
+    info!(
+        "heartbeat runner started (idle_minutes={}, check_seconds={})",
+        HEARTBEAT_IDLE_MINUTES, HEARTBEAT_CHECK_SECONDS
+    );
     handle
 }
 

@@ -12,11 +12,11 @@ use ratatui::prelude::*;
 use tokio::sync::mpsc;
 
 use t_koma_core::Settings;
-use t_koma_db::{Ghost, KomaDbPool, Operator};
+use t_koma_db::{KomaDbPool, Operator};
 
 use crate::tui::state::{Category, FocusPane, GateFilter};
 
-use self::state::{GateEvent, Metrics, OperatorView, PromptState};
+use self::state::{GateEvent, GhostRow, Metrics, OperatorView, PromptState};
 
 pub struct TuiApp {
     focus: FocusPane,
@@ -34,7 +34,7 @@ pub struct TuiApp {
 
     db: Option<KomaDbPool>,
     operators: Vec<Operator>,
-    ghosts: Vec<Ghost>,
+    ghosts: Vec<GhostRow>,
     operator_view: OperatorView,
     config_scroll: u16,
 

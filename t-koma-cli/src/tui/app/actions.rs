@@ -16,17 +16,75 @@ use tempfile::NamedTempFile;
 
 use t_koma_core::{ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
 use t_koma_db::{
-    GhostDbPool, GhostRepository, OperatorAccessLevel, OperatorRepository, OperatorStatus,
-    Platform, SessionRepository,
+    ContentBlock, Ghost, GhostDbPool, GhostRepository, Message, OperatorAccessLevel,
+    OperatorRepository, OperatorStatus, Platform, SessionRepository,
 };
 
 use crate::client::WsClient;
 
 use super::{
-    state::{Metrics, OperatorView},
+    state::{GhostRow, Metrics, OperatorView},
     util::{load_disk_config, shell_quote, ws_url_for_cli},
     TuiApp,
 };
+
+const HEARTBEAT_IDLE_SECONDS: i64 = 15 * 60;
+const HEARTBEAT_OK_TOKEN: &str = "HEARTBEAT_OK";
+
+fn extract_message_text(message: &Message) -> String {
+    let mut parts = Vec::new();
+    for block in &message.content {
+        if let ContentBlock::Text { text } = block
+            && !text.trim().is_empty()
+        {
+            parts.push(text.trim());
+        }
+    }
+    parts.join("\n")
+}
+
+fn strip_markup(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_tag = false;
+    for ch in text.chars() {
+        if ch == '<' {
+            in_tag = true;
+            out.push(' ');
+            continue;
+        }
+        if ch == '>' {
+            in_tag = false;
+            out.push(' ');
+            continue;
+        }
+        if !in_tag {
+            out.push(ch);
+        }
+    }
+    out = out.replace("&nbsp;", " ");
+    out.trim_matches(|c: char| "*`~_".contains(c))
+        .trim()
+        .to_string()
+}
+
+fn is_heartbeat_ok(message: &Message) -> bool {
+    let text = extract_message_text(message);
+    if text.trim().is_empty() {
+        return false;
+    }
+    let normalized = strip_markup(text.trim());
+    normalized == HEARTBEAT_OK_TOKEN
+}
+
+fn format_heartbeat_status(next_due: Option<i64>) -> Option<String> {
+    let now = Utc::now().timestamp();
+    let due = next_due?;
+    if due <= now {
+        return Some("HEARTBEAT DUE".to_string());
+    }
+    let remaining = (due - now + 59) / 60;
+    Some(format!("HEARTBEAT IN {}m", remaining))
+}
 
 impl TuiApp {
     pub(super) async fn refresh_metrics(&mut self) {
@@ -94,13 +152,48 @@ impl TuiApp {
 
         match GhostRepository::list_all(db.pool()).await {
             Ok(list) => {
-                self.ghosts = list;
+                let mut rows = Vec::with_capacity(list.len());
+                for ghost in list {
+                    let heartbeat = self.compute_ghost_heartbeat_status(&ghost).await;
+                    rows.push(GhostRow { ghost, heartbeat });
+                }
+                self.ghosts = rows;
                 if self.content_idx >= self.ghosts.len() {
                     self.content_idx = self.ghosts.len().saturating_sub(1);
                 }
             }
             Err(e) => self.status = format!("Ghost refresh failed: {}", e),
         }
+    }
+
+    async fn compute_ghost_heartbeat_status(&self, ghost: &Ghost) -> Option<String> {
+        let ghost_db = GhostDbPool::new(&ghost.name).await.ok()?;
+        let sessions = SessionRepository::list(ghost_db.pool(), &ghost.owner_operator_id)
+            .await
+            .ok()?;
+
+        let mut next_due: Option<i64> = None;
+        for session in sessions {
+            if !session.is_active {
+                continue;
+            }
+            let last_message = SessionRepository::get_last_message(ghost_db.pool(), &session.id)
+                .await
+                .ok()
+                .flatten();
+            if let Some(message) = &last_message
+                && is_heartbeat_ok(message)
+            {
+                continue;
+            }
+            let due = session.updated_at + HEARTBEAT_IDLE_SECONDS;
+            next_due = Some(match next_due {
+                Some(current) => current.min(due),
+                None => due,
+            });
+        }
+
+        format_heartbeat_status(next_due)
     }
 
     pub(super) async fn add_operator(&mut self, input: &str) {

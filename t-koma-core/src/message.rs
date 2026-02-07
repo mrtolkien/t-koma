@@ -113,6 +113,9 @@ pub struct SessionInfo {
     pub created_at: DateTime<Utc>,
     #[serde(with = "chrono::serde::ts_milliseconds")]
     pub updated_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds_option")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_heartbeat_due: Option<DateTime<Utc>>,
     pub message_count: i64,
     pub is_active: bool,
 }

@@ -1195,28 +1195,52 @@ async fn handle_websocket(
                             match t_koma_db::SessionRepository::list(ghost_db.pool(), &op_id).await
                             {
                                 Ok(sessions) => {
-                                    let session_infos: Vec<t_koma_core::message::SessionInfo> =
-                                        sessions
-                                            .into_iter()
-                                            .map(|s| t_koma_core::message::SessionInfo {
-                                                id: s.id,
-                                                title: s.title,
-                                                created_at: Utc
-                                                    .timestamp_opt(s.created_at, 0)
-                                                    .single()
-                                                    .unwrap_or_else(|| {
-                                                        Utc.timestamp_opt(0, 0).unwrap()
-                                                    }),
-                                                updated_at: Utc
-                                                    .timestamp_opt(s.updated_at, 0)
-                                                    .single()
-                                                    .unwrap_or_else(|| {
-                                                        Utc.timestamp_opt(0, 0).unwrap()
-                                                    }),
-                                                message_count: s.message_count,
-                                                is_active: s.is_active,
-                                            })
-                                            .collect();
+                                    let mut session_infos = Vec::with_capacity(sessions.len());
+                                    for s in sessions {
+                                        let chat_key =
+                                            format!("{}:{}:{}", op_id, ghost_name, s.id);
+                                        let next_due = match state.get_heartbeat_due(&chat_key).await {
+                                            Some(ts) => Utc.timestamp_opt(ts, 0).single(),
+                                            None => {
+                                                let last_message =
+                                                    t_koma_db::SessionRepository::get_last_message(
+                                                        ghost_db.pool(),
+                                                        &s.id,
+                                                    )
+                                                    .await
+                                                    .ok()
+                                                    .flatten();
+                                                let override_entry =
+                                                    state.get_heartbeat_override(&chat_key).await;
+                                                crate::heartbeat::next_heartbeat_due_for_session(
+                                                    s.updated_at,
+                                                    last_message.as_ref(),
+                                                    override_entry,
+                                                )
+                                                .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+                                            }
+                                        };
+
+                                        session_infos.push(t_koma_core::message::SessionInfo {
+                                            id: s.id,
+                                            title: s.title,
+                                            created_at: Utc
+                                                .timestamp_opt(s.created_at, 0)
+                                                .single()
+                                                .unwrap_or_else(|| {
+                                                    Utc.timestamp_opt(0, 0).unwrap()
+                                                }),
+                                            updated_at: Utc
+                                                .timestamp_opt(s.updated_at, 0)
+                                                .single()
+                                                .unwrap_or_else(|| {
+                                                    Utc.timestamp_opt(0, 0).unwrap()
+                                                }),
+                                            next_heartbeat_due: next_due,
+                                            message_count: s.message_count,
+                                            is_active: s.is_active,
+                                        });
+                                    }
                                     let response = WsResponse::SessionList {
                                         sessions: session_infos,
                                     };
