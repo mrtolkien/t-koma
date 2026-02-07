@@ -13,6 +13,8 @@ struct TopicSourceInput {
     ref_name: Option<String>,
     paths: Option<Vec<String>>,
     role: Option<String>,
+    max_depth: Option<u8>,
+    max_pages: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,8 +58,8 @@ impl Tool for ReferenceImportTool {
                         "properties": {
                             "type": {
                                 "type": "string",
-                                "enum": ["git", "web"],
-                                "description": "Source type."
+                                "enum": ["git", "web", "crawl"],
+                                "description": "Source type. 'crawl' does BFS from a seed URL, following same-host links."
                             },
                             "url": {
                                 "type": "string",
@@ -75,7 +77,19 @@ impl Tool for ReferenceImportTool {
                             "role": {
                                 "type": "string",
                                 "enum": ["docs", "code"],
-                                "description": "Role of the source content. 'docs' for documentation (boosted in search), 'code' for source code. Inferred from source type if omitted (web→docs, git→code)."
+                                "description": "Role of the source content. 'docs' for documentation (boosted in search), 'code' for source code. Inferred from source type if omitted (web/crawl→docs, git→code)."
+                            },
+                            "max_depth": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 3,
+                                "description": "Max link-hop depth for crawl sources. Default: 1, max: 3."
+                            },
+                            "max_pages": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 100,
+                                "description": "Max pages to fetch for crawl sources. Default: 20, max: 100."
                             }
                         },
                         "required": ["type", "url"],
@@ -156,6 +170,8 @@ fn to_knowledge_request(input: &ImportInput) -> t_koma_knowledge::TopicCreateReq
                 ref_name: s.ref_name.clone(),
                 paths: s.paths.clone(),
                 role: s.role.as_deref().and_then(|r| r.parse().ok()),
+                max_depth: s.max_depth,
+                max_pages: s.max_pages,
             })
             .collect(),
         tags: input.tags.clone(),

@@ -53,8 +53,10 @@ reference_write(action="save", topic="dioxus", path="guide/state-management.md",
 
 ### `reference_import` Tool
 
-Bulk import from git repos and web pages. Requires operator approval.
-Use for large-scale imports; use `reference_write` for individual files.
+Bulk import from git repos, web pages, and crawled doc sites. Requires operator
+approval. Source types: `git` (clone repo), `web` (single page), `crawl` (BFS
+from seed URL, follows same-host links). Use for large-scale imports; use
+`reference_write` for individual files.
 
 ### Always Search First
 
