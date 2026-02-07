@@ -74,7 +74,6 @@ async fn test_multi_turn_story_conversation() {
 
     // Set up system prompt and tools
     let system_prompt = SystemPrompt::new(&[
-        ("reference_topics", ""),
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
@@ -299,7 +298,6 @@ async fn test_multi_turn_with_tool_use() {
 
     // Set up system prompt and tools
     let system_prompt = SystemPrompt::new(&[
-        ("reference_topics", ""),
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),

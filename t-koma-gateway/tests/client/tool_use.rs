@@ -54,7 +54,6 @@ async fn test_pwd_tool_execution() {
 
     // Build system prompt with tool instructions
     let system_prompt = t_koma_gateway::prompt::SystemPrompt::new(&[
-        ("reference_topics", ""),
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
