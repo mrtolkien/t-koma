@@ -104,6 +104,123 @@ pub struct UsageInfo {
     pub cache_creation_tokens: Option<u32>,
 }
 
+/// Semantic gateway message kind, rendered per interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayMessageKind {
+    AssistantText,
+    Info,
+    Warning,
+    Error,
+    ApprovalRequest,
+    ChoicePrompt,
+}
+
+/// Text blocks carried by a semantic gateway message.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GatewayMessageText {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
+/// A semantic action attached to a gateway message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GatewayAction {
+    pub id: String,
+    pub label: String,
+    pub intent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<GatewayActionStyle>,
+}
+
+/// Visual style hint for actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayActionStyle {
+    Primary,
+    Secondary,
+    Success,
+    Danger,
+}
+
+/// Choice option for interfaces with select controls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GatewayChoice {
+    pub id: String,
+    pub label: String,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Input request for interfaces that support form controls (e.g. Discord modals).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GatewayInputRequest {
+    pub id: String,
+    pub label: String,
+    pub kind: GatewayInputKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u16>,
+    #[serde(default = "default_required_input")]
+    pub required: bool,
+}
+
+fn default_required_input() -> bool {
+    true
+}
+
+/// Input control type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayInputKind {
+    ShortText,
+    Paragraph,
+    Integer,
+}
+
+/// Interface-agnostic semantic payload for gateway responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GatewayMessage {
+    pub id: String,
+    pub kind: GatewayMessageKind,
+    pub text: GatewayMessageText,
+    #[serde(default)]
+    pub actions: Vec<GatewayAction>,
+    #[serde(default)]
+    pub choices: Vec<GatewayChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_request: Option<GatewayInputRequest>,
+    pub text_fallback: String,
+}
+
+impl GatewayMessage {
+    pub fn text_only(
+        id: impl Into<String>,
+        kind: GatewayMessageKind,
+        text: impl Into<String>,
+    ) -> Self {
+        let body = text.into();
+        Self {
+            id: id.into(),
+            kind,
+            text: GatewayMessageText {
+                title: None,
+                body: Some(body.clone()),
+            },
+            actions: Vec::new(),
+            choices: Vec::new(),
+            input_request: None,
+            text_fallback: body,
+        }
+    }
+}
+
 /// Session information for listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
@@ -168,6 +285,8 @@ pub enum WsMessage {
     ListAvailableModels { provider: ProviderType },
     /// Request gateway restart
     RestartGateway,
+    /// Approve an operator (CLI/admin flow handled by gateway)
+    ApproveOperator { operator_id: String },
     /// Ping to keep connection alive
     Ping,
 }
@@ -175,11 +294,12 @@ pub enum WsMessage {
 /// WebSocket response from T-KOMA to client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum WsResponse {
-    /// AI response text
+    /// AI response message
     Response {
         id: String,
-        content: String,
+        message: GatewayMessage,
         done: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<UsageInfo>,
@@ -209,6 +329,11 @@ pub enum WsResponse {
     GatewayRestarting,
     /// Gateway restart flow completed
     GatewayRestarted,
+    /// Operator approved successfully (gateway may also have dispatched follow-up prompts)
+    OperatorApproved {
+        operator_id: String,
+        discord_notified: bool,
+    },
     /// Error response
     Error { message: String },
     /// Pong response to ping
@@ -288,7 +413,11 @@ mod tests {
     fn test_ws_response_serialization() {
         let resp = WsResponse::Response {
             id: "msg_001".to_string(),
-            content: "Hello back".to_string(),
+            message: GatewayMessage::text_only(
+                "msg_001",
+                GatewayMessageKind::AssistantText,
+                "Hello back",
+            ),
             done: true,
             usage: Some(UsageInfo {
                 input_tokens: 100,
@@ -302,6 +431,8 @@ mod tests {
         assert!(json.contains("\"done\":true"));
         assert!(json.contains("\"usage\""));
         assert!(json.contains("\"cache_read_tokens\":1000"));
+        assert!(json.contains("\"message\""));
+        assert!(json.contains("\"text_fallback\":\"Hello back\""));
     }
 
     #[test]

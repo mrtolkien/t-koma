@@ -6,6 +6,7 @@ use crate::content::message::{MessageEntryRaw, MessageTemplate};
 use crate::content::prompt::{PromptFrontMatter, PromptTemplate};
 use crate::content::template::vars_from_pairs;
 use crate::content::{ContentError, ContentScope};
+use t_koma_core::GatewayMessage;
 
 #[derive(Debug, Default)]
 pub struct ContentRegistry {
@@ -48,6 +49,17 @@ impl ContentRegistry {
         let template = self.message_template(id, interface)?;
         let vars = vars_from_pairs(vars);
         template.render_plain(&vars)
+    }
+
+    pub fn gateway_message(
+        &self,
+        id: &str,
+        interface: Option<&str>,
+        vars: &[(&str, &str)],
+    ) -> Result<GatewayMessage, ContentError> {
+        let template = self.message_template(id, interface)?;
+        let vars = vars_from_pairs(vars);
+        template.render_gateway(&vars)
     }
 
     pub fn prompt_text(
