@@ -112,7 +112,7 @@ impl Tool for ReferenceImportTool {
             - The operator will be asked to approve before the fetch begins.\n\
             - If the operator denies (too large), retry with a paths filter: prioritize README.md, docs/, examples/.\n\
             - Always write a meaningful body that summarizes the library's purpose and key concepts.\n\
-            - Always search for existing topics first (check system prompt + reference_topic_search).\n\
+            - Always search for existing topics first (use knowledge_search with categories: [\"topics\"]).\n\
             - Set `role: \"docs\"` for documentation sources and `role: \"code\"` for code repos. Web sources default to docs.\n\
             - ALWAYS look for a separate documentation repo or docsite. Docs are boosted in search results.\n\
             - For incremental saves (single files, web page dumps), use reference_save instead.\n\

@@ -90,7 +90,7 @@ impl Tool for ReferenceSaveTool {
     fn prompt(&self) -> Option<&'static str> {
         Some(
             "Use reference_save to incrementally save content to reference topics.\n\
-            - ALWAYS call reference_topic_search first to find existing topics and avoid duplicates.\n\
+            - ALWAYS call knowledge_search with categories: [\"topics\"] first to find existing topics and avoid duplicates.\n\
             - Use subdirectory paths (e.g. 'bambulab-a1/specs.md') to organize into collections.\n\
             - Provide collection_title and collection_description for new collections — this improves search quality.\n\
             - Set role to 'docs' for documentation, 'code' for source code, 'data' for structured data.\n\
