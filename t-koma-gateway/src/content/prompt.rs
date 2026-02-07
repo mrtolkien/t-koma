@@ -47,10 +47,6 @@ impl PromptTemplate {
     }
 
     pub fn render(&self, vars: &TemplateVars) -> Result<String, ContentError> {
-        crate::content::template::render_template_with_includes(
-            &self.body,
-            vars,
-            &self.source_path,
-        )
+        crate::content::template::render_template_with_includes(&self.body, vars, &self.source_path)
     }
 }

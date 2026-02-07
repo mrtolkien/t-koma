@@ -1,16 +1,19 @@
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
-    Frame,
 };
 
-use crate::tui::{state::{Category, FocusPane}, theme};
+use crate::tui::{
+    state::{Category, FocusPane},
+    theme,
+};
 
 use super::super::{
-    util::{border_glow, highlight_toml_with_diff},
     TuiApp,
+    util::{border_glow, highlight_toml_with_diff},
 };
 
 impl TuiApp {
@@ -18,7 +21,10 @@ impl TuiApp {
         let block = Block::default()
             .title("Content")
             .borders(Borders::ALL)
-            .border_style(border_glow(self.focus == FocusPane::Content, self.anim_tick));
+            .border_style(border_glow(
+                self.focus == FocusPane::Content,
+                self.anim_tick,
+            ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -35,11 +41,16 @@ impl TuiApp {
         if self.settings_dirty {
             lines.push(Line::from(Span::styled(
                 "Unsaved changes. Use option: Save (required after changes).",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )));
         }
 
-        lines.extend(highlight_toml_with_diff(&self.settings_toml, &self.disk_toml));
+        lines.extend(highlight_toml_with_diff(
+            &self.settings_toml,
+            &self.disk_toml,
+        ));
 
         let text = Text::from(lines);
         let p = Paragraph::new(text)
@@ -98,20 +109,13 @@ impl TuiApp {
             .iter()
             .enumerate()
             .map(|(idx, ghost)| {
-                let heartbeat = ghost
-                    .heartbeat
-                    .clone()
-                    .unwrap_or_else(|| "-".to_string());
+                let heartbeat = ghost.heartbeat.clone().unwrap_or_else(|| "-".to_string());
                 let mut item = ListItem::new(format!(
                     "{} | owner={} | heartbeat={} | cwd={}",
                     ghost.ghost.name,
                     ghost.ghost.owner_operator_id,
                     heartbeat,
-                    ghost
-                        .ghost
-                        .cwd
-                        .clone()
-                        .unwrap_or_else(|| "-".to_string())
+                    ghost.ghost.cwd.clone().unwrap_or_else(|| "-".to_string())
                 ));
                 if idx == self.content_idx && self.focus == FocusPane::Content {
                     item = item.style(theme::selected());

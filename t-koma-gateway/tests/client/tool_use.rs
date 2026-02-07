@@ -53,13 +53,13 @@ async fn test_pwd_tool_execution() {
     let client = default_model.client;
 
     // Build system prompt with tool instructions
-        let system_prompt = t_koma_gateway::prompt::SystemPrompt::new(&[
-            ("reference_topics", ""),
-            ("ghost_identity", ""),
-            ("ghost_diary", ""),
-            ("ghost_projects", ""),
-            ("system_info", ""),
-        ]);
+    let system_prompt = t_koma_gateway::prompt::SystemPrompt::new(&[
+        ("reference_topics", ""),
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+        ("system_info", ""),
+    ]);
     let system_blocks = t_koma_gateway::prompt::render::build_system_prompt(&system_prompt);
 
     let shell_tool = ShellTool;
@@ -109,41 +109,38 @@ async fn test_pwd_tool_execution() {
     let mut messages = vec![];
     messages.push(t_koma_gateway::chat::history::ChatMessage {
         role: t_koma_gateway::chat::history::ChatRole::User,
-        content: vec![
-            t_koma_gateway::chat::history::ChatContentBlock::Text {
-                text: "Run the pwd command and tell me what directory you're in.".to_string(),
-                cache_control: None,
-            },
-        ],
+        content: vec![t_koma_gateway::chat::history::ChatContentBlock::Text {
+            text: "Run the pwd command and tell me what directory you're in.".to_string(),
+            cache_control: None,
+        }],
     });
 
     // Add assistant's response with tool_use
-    let assistant_content: Vec<t_koma_gateway::chat::history::ChatContentBlock> =
-        response
-            .content
-            .iter()
-            .map(|b| match b {
-                ProviderContentBlock::Text { text } => {
-                    t_koma_gateway::chat::history::ChatContentBlock::Text {
-                        text: text.clone(),
-                        cache_control: None,
-                    }
+    let assistant_content: Vec<t_koma_gateway::chat::history::ChatContentBlock> = response
+        .content
+        .iter()
+        .map(|b| match b {
+            ProviderContentBlock::Text { text } => {
+                t_koma_gateway::chat::history::ChatContentBlock::Text {
+                    text: text.clone(),
+                    cache_control: None,
                 }
-                ProviderContentBlock::ToolUse { id, name, input } => {
-                    t_koma_gateway::chat::history::ChatContentBlock::ToolUse {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input: input.clone(),
-                    }
+            }
+            ProviderContentBlock::ToolUse { id, name, input } => {
+                t_koma_gateway::chat::history::ChatContentBlock::ToolUse {
+                    id: id.clone(),
+                    name: name.clone(),
+                    input: input.clone(),
                 }
-                ProviderContentBlock::ToolResult { .. } => {
-                    t_koma_gateway::chat::history::ChatContentBlock::Text {
-                        text: String::new(),
-                        cache_control: None,
-                    }
+            }
+            ProviderContentBlock::ToolResult { .. } => {
+                t_koma_gateway::chat::history::ChatContentBlock::Text {
+                    text: String::new(),
+                    cache_control: None,
                 }
-            })
-            .collect();
+            }
+        })
+        .collect();
 
     messages.push(t_koma_gateway::chat::history::ChatMessage {
         role: t_koma_gateway::chat::history::ChatRole::Assistant,
@@ -176,8 +173,9 @@ async fn test_pwd_tool_execution() {
     }
 
     // Add tool result message
-    messages
-        .push(t_koma_gateway::chat::history::build_tool_result_message(tool_results));
+    messages.push(t_koma_gateway::chat::history::build_tool_result_message(
+        tool_results,
+    ));
 
     // Get final response from the model
     let final_response = client

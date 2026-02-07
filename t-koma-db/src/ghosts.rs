@@ -65,11 +65,7 @@ pub struct GhostRepository;
 
 impl GhostRepository {
     /// Create a new ghost for an operator
-    pub async fn create(
-        pool: &SqlitePool,
-        owner_operator_id: &str,
-        name: &str,
-    ) -> DbResult<Ghost> {
+    pub async fn create(pool: &SqlitePool, owner_operator_id: &str, name: &str) -> DbResult<Ghost> {
         let name = validate_ghost_name(name)?;
         let default_cwd = crate::ghost_db::GhostDbPool::workspace_path_for(&name)?;
         let default_cwd = default_cwd.to_string_lossy().to_string();
@@ -93,7 +89,10 @@ impl GhostRepository {
         .execute(pool)
         .await?;
 
-        info!("Created ghost: {} for operator: {}", name, owner_operator_id);
+        info!(
+            "Created ghost: {} for operator: {}",
+            name, owner_operator_id
+        );
 
         Self::get_by_id(pool, &id)
             .await?
@@ -160,10 +159,7 @@ impl GhostRepository {
     }
 
     /// Get tool state (cwd + allow flag) for a ghost by name
-    pub async fn get_tool_state_by_name(
-        pool: &SqlitePool,
-        name: &str,
-    ) -> DbResult<GhostToolState> {
+    pub async fn get_tool_state_by_name(pool: &SqlitePool, name: &str) -> DbResult<GhostToolState> {
         let row = sqlx::query_as::<_, GhostToolStateRow>(
             "SELECT cwd
              FROM ghosts
@@ -250,7 +246,7 @@ impl From<GhostRow> for Ghost {
 mod tests {
     use super::*;
     use crate::{
-        test_helpers::create_test_koma_pool, OperatorAccessLevel, OperatorRepository, Platform,
+        OperatorAccessLevel, OperatorRepository, Platform, test_helpers::create_test_koma_pool,
     };
 
     #[tokio::test]
@@ -313,7 +309,9 @@ mod tests {
         let all = GhostRepository::list_all(pool).await.unwrap();
         assert_eq!(all.len(), 2);
 
-        GhostRepository::delete_by_name(pool, "Alpha").await.unwrap();
+        GhostRepository::delete_by_name(pool, "Alpha")
+            .await
+            .unwrap();
         let remaining = GhostRepository::list_all(pool).await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].name, "Beta");

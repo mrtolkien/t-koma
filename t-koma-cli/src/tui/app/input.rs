@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::tui::state::{Category, FocusPane, GateFilter};
 
-use super::{state::PromptKind, TuiApp};
+use super::{TuiApp, state::PromptKind};
 
 impl TuiApp {
     pub(super) async fn handle_key(&mut self, key: KeyEvent) {
@@ -174,17 +174,15 @@ impl TuiApp {
                 }
                 6 => {
                     if let Some(op) = self.operators.get(self.content_idx) {
-                        if op.access_level
-                            == t_koma_db::OperatorAccessLevel::PuppetMaster
-                        {
-                            self.status =
-                                "Puppet Master is always allowed to escape the workspace"
-                                    .to_string();
+                        if op.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster {
+                            self.status = "Puppet Master is always allowed to escape the workspace"
+                                .to_string();
                             return;
                         }
                         let operator_id = op.id.clone();
                         let allow = !op.allow_workspace_escape;
-                        self.set_operator_workspace_escape(&operator_id, allow).await;
+                        self.set_operator_workspace_escape(&operator_id, allow)
+                            .await;
                     } else {
                         self.status = "No operator selected".to_string();
                     }
@@ -291,11 +289,7 @@ impl TuiApp {
                     Some(PromptKind::NewGhost) => self.add_ghost(&input).await,
                     Some(PromptKind::DeleteGhostConfirmOne) => {
                         if input == "DELETE" {
-                            self.begin_prompt(
-                                PromptKind::DeleteGhostConfirmTwo,
-                                target,
-                                None,
-                            );
+                            self.begin_prompt(PromptKind::DeleteGhostConfirmTwo, target, None);
                         } else {
                             self.status = "Delete aborted".to_string();
                         }

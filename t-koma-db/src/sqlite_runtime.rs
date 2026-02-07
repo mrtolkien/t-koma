@@ -3,11 +3,11 @@
 use std::{path::Path, sync::OnceLock};
 
 use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_api_routines, sqlite3_auto_extension};
+use sqlite_vec::sqlite3_vec_init;
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
-use sqlite_vec::sqlite3_vec_init;
 
 use crate::error::{DbError, DbResult};
 
@@ -15,16 +15,12 @@ static SQLITE_VEC_INIT_RC: OnceLock<i32> = OnceLock::new();
 
 pub(crate) fn init_sqlite_vec_once() -> DbResult<()> {
     let rc = *SQLITE_VEC_INIT_RC.get_or_init(|| unsafe {
-        type SqliteVecInitFn = unsafe extern "C" fn(
-            *mut sqlite3,
-            *mut *const i8,
-            *const sqlite3_api_routines,
-        ) -> i32;
+        type SqliteVecInitFn =
+            unsafe extern "C" fn(*mut sqlite3, *mut *const i8, *const sqlite3_api_routines) -> i32;
 
-        sqlite3_auto_extension(Some(std::mem::transmute::<
-            *const (),
-            SqliteVecInitFn,
-        >(sqlite3_vec_init as *const ())))
+        sqlite3_auto_extension(Some(std::mem::transmute::<*const (), SqliteVecInitFn>(
+            sqlite3_vec_init as *const (),
+        )))
     });
 
     if rc == SQLITE_OK {

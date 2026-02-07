@@ -42,17 +42,34 @@ pub(crate) async fn search_store(
     let mut results = Vec::new();
     for summary in summaries {
         let parents = if options.graph_depth > 1 {
-            crate::graph::expand_parents(pool, &summary.id, options.graph_depth, scope, ghost_name).await?
+            crate::graph::expand_parents(pool, &summary.id, options.graph_depth, scope, ghost_name)
+                .await?
         } else {
             load_parent(pool, &summary.id, scope, ghost_name).await?
         };
         let links_out = if options.graph_depth > 1 {
-            crate::graph::expand_links_out(pool, &summary.id, options.graph_depth, options.graph_max, scope, ghost_name).await?
+            crate::graph::expand_links_out(
+                pool,
+                &summary.id,
+                options.graph_depth,
+                options.graph_max,
+                scope,
+                ghost_name,
+            )
+            .await?
         } else {
             load_links_out(pool, &summary.id, options.graph_max, scope, ghost_name).await?
         };
         let links_in = if options.graph_depth > 1 {
-            crate::graph::expand_links_in(pool, &summary.id, options.graph_depth, options.graph_max, scope, ghost_name).await?
+            crate::graph::expand_links_in(
+                pool,
+                &summary.id,
+                options.graph_depth,
+                options.graph_max,
+                scope,
+                ghost_name,
+            )
+            .await?
         } else {
             load_links_in(pool, &summary.id, options.graph_max, scope, ghost_name).await?
         };
@@ -183,9 +200,8 @@ pub(crate) async fn dense_search(
     if embeddings.is_empty() {
         return Ok(Vec::new());
     }
-    let payload = serde_json::to_string(&embeddings[0]).map_err(|e| {
-        KnowledgeError::Embedding(format!("embedding serialize failed: {e}"))
-    })?;
+    let payload = serde_json::to_string(&embeddings[0])
+        .map_err(|e| KnowledgeError::Embedding(format!("embedding serialize failed: {e}")))?;
 
     // KNN must run in a CTE with `k = ?` because vec0 cannot see LIMIT
     // through JOINs. We overfetch in the CTE, then filter+limit in the outer query.
@@ -383,14 +399,14 @@ pub(crate) fn resolve_scopes(scope: &OwnershipScope) -> Vec<KnowledgeScope> {
             KnowledgeScope::GhostDiary,
         ],
         OwnershipScope::Shared => vec![KnowledgeScope::SharedNote],
-        OwnershipScope::Private => vec![
-            KnowledgeScope::GhostNote,
-            KnowledgeScope::GhostDiary,
-        ],
+        OwnershipScope::Private => vec![KnowledgeScope::GhostNote, KnowledgeScope::GhostDiary],
     }
 }
 
-pub(crate) fn merge_options(settings: &KnowledgeSettings, overrides: &SearchOptions) -> ResolvedSearchOptions {
+pub(crate) fn merge_options(
+    settings: &KnowledgeSettings,
+    overrides: &SearchOptions,
+) -> ResolvedSearchOptions {
     ResolvedSearchOptions {
         max_results: overrides.max_results.unwrap_or(settings.search.max_results),
         graph_depth: overrides.graph_depth.unwrap_or(settings.search.graph_depth),

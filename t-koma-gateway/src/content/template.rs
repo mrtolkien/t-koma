@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use super::ContentError;
 
@@ -46,26 +46,25 @@ fn render_template_inner(
         let (prefix, after_start) = rest.split_at(start);
         out.push_str(prefix);
         let Some(end) = after_start.find("}}") else {
-            return Err(ContentError::TemplateParse("Unclosed {{ in template".to_string()));
+            return Err(ContentError::TemplateParse(
+                "Unclosed {{ in template".to_string(),
+            ));
         };
         let var = after_start[2..end].trim();
         if var.is_empty() {
-            return Err(ContentError::TemplateParse("Empty {{}} in template".to_string()));
+            return Err(ContentError::TemplateParse(
+                "Empty {{}} in template".to_string(),
+            ));
         }
         if let Some(path) = parse_include(var) {
             let base = base_dir.ok_or_else(|| {
                 ContentError::TemplateParse("Include is not allowed here".to_string())
             })?;
             let resolved = resolve_include_path(base, &path);
-            let raw = fs::read_to_string(&resolved)
-                .map_err(|e| ContentError::Io(resolved.clone(), e))?;
+            let raw =
+                fs::read_to_string(&resolved).map_err(|e| ContentError::Io(resolved.clone(), e))?;
             let body = strip_front_matter(&raw);
-            let rendered = render_template_inner(
-                &body,
-                vars,
-                resolved.parent(),
-                depth + 1,
-            )?;
+            let rendered = render_template_inner(&body, vars, resolved.parent(), depth + 1)?;
             out.push_str(&rendered);
         } else {
             let value = vars

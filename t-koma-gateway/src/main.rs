@@ -119,7 +119,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create shared application state
-    let knowledge_settings = t_koma_knowledge::KnowledgeSettings::from(&config.settings.tools.knowledge);
+    let knowledge_settings =
+        t_koma_knowledge::KnowledgeSettings::from(&config.settings.tools.knowledge);
     let knowledge_engine = Arc::new(
         t_koma_knowledge::KnowledgeEngine::open(knowledge_settings)
             .await

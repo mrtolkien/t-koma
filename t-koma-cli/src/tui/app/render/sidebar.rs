@@ -1,13 +1,19 @@
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     widgets::{Block, Borders, List, ListItem},
-    Frame,
 };
 
-use crate::tui::{state::{Category, FocusPane}, theme};
+use crate::tui::{
+    state::{Category, FocusPane},
+    theme,
+};
 
-use super::super::{util::{border_glow, glow_color}, TuiApp};
+use super::super::{
+    TuiApp,
+    util::{border_glow, glow_color},
+};
 
 impl TuiApp {
     pub(super) fn draw_categories(&self, frame: &mut Frame, area: Rect) {
@@ -30,7 +36,10 @@ impl TuiApp {
         let block = Block::default()
             .title("Categories")
             .borders(Borders::ALL)
-            .border_style(border_glow(self.focus == FocusPane::Categories, self.anim_tick));
+            .border_style(border_glow(
+                self.focus == FocusPane::Categories,
+                self.anim_tick,
+            ));
         frame.render_widget(List::new(items).block(block), area);
     }
 
@@ -51,7 +60,10 @@ impl TuiApp {
         let block = Block::default()
             .title("Options")
             .borders(Borders::ALL)
-            .border_style(border_glow(self.focus == FocusPane::Options, self.anim_tick));
+            .border_style(border_glow(
+                self.focus == FocusPane::Options,
+                self.anim_tick,
+            ));
         frame.render_widget(List::new(items).block(block), area);
     }
 }

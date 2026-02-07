@@ -1,8 +1,8 @@
+pub mod ids;
 mod message;
 mod prompt;
 mod registry;
 mod template;
-pub mod ids;
 
 use std::sync::OnceLock;
 
@@ -11,7 +11,7 @@ use thiserror::Error;
 pub use message::{MessageContent, MessageTemplate};
 pub use prompt::{PromptFrontMatter, PromptTemplate};
 pub use registry::ContentRegistry;
-pub use template::{render_template, vars_from_pairs, TemplateVars};
+pub use template::{TemplateVars, render_template, vars_from_pairs};
 
 #[derive(Debug, Clone)]
 pub enum ContentScope {
@@ -31,10 +31,7 @@ impl ContentScope {
                 if let Some(rest) = value.strip_prefix("provider:") {
                     return Ok(Self::Provider(rest.to_string()));
                 }
-                Err(ContentError::Parse(format!(
-                    "Invalid scope: {}",
-                    value
-                )))
+                Err(ContentError::Parse(format!("Invalid scope: {}", value)))
             }
         }
     }
@@ -63,9 +60,8 @@ pub enum ContentError {
 static REGISTRY: OnceLock<ContentRegistry> = OnceLock::new();
 
 pub fn registry() -> &'static ContentRegistry {
-    REGISTRY.get_or_init(|| {
-        ContentRegistry::load().expect("Failed to load gateway content registry")
-    })
+    REGISTRY
+        .get_or_init(|| ContentRegistry::load().expect("Failed to load gateway content registry"))
 }
 
 pub fn message_text(

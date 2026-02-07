@@ -10,10 +10,7 @@ pub enum ApprovalReason {
     /// Tool wants to access a path outside the ghost workspace.
     WorkspaceEscape(String),
     /// Tool wants to import external sources into a reference topic (potentially large fetch).
-    ReferenceImport {
-        title: String,
-        summary: String,
-    },
+    ReferenceImport { title: String, summary: String },
 }
 
 impl ApprovalReason {
@@ -35,8 +32,16 @@ impl ApprovalReason {
         {
             return match reason_type {
                 "reference_import" => Some(ApprovalReason::ReferenceImport {
-                    title: value.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    summary: value.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    title: value
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    summary: value
+                        .get("summary")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 }),
                 _ => None,
             };
@@ -140,10 +145,7 @@ impl ToolContext {
         self.operator_access_level
     }
 
-    pub fn set_operator_access_level(
-        &mut self,
-        level: t_koma_db::OperatorAccessLevel,
-    ) {
+    pub fn set_operator_access_level(&mut self, level: t_koma_db::OperatorAccessLevel) {
         self.operator_access_level = level;
     }
 

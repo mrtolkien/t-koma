@@ -141,17 +141,29 @@ pub enum WsMessage {
     /// List all sessions for the operator and ghost
     ListSessions { ghost_name: String },
     /// Create a new session for a ghost
-    CreateSession { ghost_name: String, title: Option<String> },
+    CreateSession {
+        ghost_name: String,
+        title: Option<String>,
+    },
     /// Switch to a different session for a ghost
-    SwitchSession { ghost_name: String, session_id: String },
+    SwitchSession {
+        ghost_name: String,
+        session_id: String,
+    },
     /// Delete a session for a ghost
-    DeleteSession { ghost_name: String, session_id: String },
+    DeleteSession {
+        ghost_name: String,
+        session_id: String,
+    },
     /// Select active ghost for the connection
     SelectGhost { ghost_name: String },
     /// List available ghosts for the operator
     ListGhosts,
     /// Select provider and model for the session
-    SelectProvider { provider: ProviderType, model: String },
+    SelectProvider {
+        provider: ProviderType,
+        model: String,
+    },
     /// Request available models from a provider
     ListAvailableModels { provider: ProviderType },
     /// Request gateway restart
@@ -189,7 +201,10 @@ pub enum WsResponse {
     /// Provider selection confirmation
     ProviderSelected { provider: String, model: String },
     /// Available models list
-    AvailableModels { provider: String, models: Vec<ModelInfo> },
+    AvailableModels {
+        provider: String,
+        models: Vec<ModelInfo>,
+    },
     /// Gateway is beginning restart flow
     GatewayRestarting,
     /// Gateway restart flow completed
@@ -298,6 +313,4 @@ mod tests {
         let decoded: WsResponse = serde_json::from_str(&json).unwrap();
         assert!(matches!(decoded, WsResponse::GatewayRestarting));
     }
-
-
 }

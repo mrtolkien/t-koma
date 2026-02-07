@@ -23,7 +23,15 @@ pub async fn reconcile_shared(
     embedder: &EmbeddingClient,
 ) -> KnowledgeResult<()> {
     let root = shared_notes_root(settings)?;
-    index_markdown_tree(settings, store, embedder, &root, KnowledgeScope::SharedNote, None).await?;
+    index_markdown_tree(
+        settings,
+        store,
+        embedder,
+        &root,
+        KnowledgeScope::SharedNote,
+        None,
+    )
+    .await?;
     index_reference_topics(settings, store, embedder).await?;
     Ok(())
 }
@@ -38,7 +46,15 @@ pub async fn reconcile_ghost(
     let diary_root = ghost_diary_root(settings, ghost_name)?;
     let owner = Some(ghost_name.to_string());
 
-    index_markdown_tree(settings, store, embedder, &notes_root, KnowledgeScope::GhostNote, owner).await?;
+    index_markdown_tree(
+        settings,
+        store,
+        embedder,
+        &notes_root,
+        KnowledgeScope::GhostNote,
+        owner,
+    )
+    .await?;
     index_diary_tree(settings, store, embedder, &diary_root, ghost_name).await?;
 
     // TODO: ghost reference indexing — GhostReference scope exists in the enum
@@ -58,7 +74,10 @@ async fn index_reference_topics(
         return Ok(());
     }
 
-    for entry in WalkDir::new(&root).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in WalkDir::new(&root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -90,14 +109,24 @@ async fn index_reference_topics(
 
         // Index _index.md files in subdirectories as ReferenceCollection notes
         let collection_contexts = index_collections(
-            settings, store, embedder, &note.note.id, &note.note.title, topic_dir,
+            settings,
+            store,
+            embedder,
+            &note.note.id,
+            &note.note.title,
+            topic_dir,
         )
         .await?;
 
         // Walk filesystem for reference files and index them
         index_reference_files(
-            settings, store, embedder, &note.note.id, &note.note.title,
-            topic_dir, &collection_contexts,
+            settings,
+            store,
+            embedder,
+            &note.note.id,
+            &note.note.title,
+            topic_dir,
+            &collection_contexts,
         )
         .await?;
     }
@@ -173,11 +202,7 @@ async fn index_collections(
 
         // Extract description from the parsed body (first ~200 chars)
         let description = {
-            let body = raw
-                .split("\n+++\n")
-                .nth(1)
-                .unwrap_or("")
-                .trim();
+            let body = raw.split("\n+++\n").nth(1).unwrap_or("").trim();
             if body.is_empty() {
                 String::new()
             } else {
@@ -212,10 +237,7 @@ async fn index_reference_files(
 ) -> KnowledgeResult<()> {
     // Collect all content files under the topic dir (skip topic.md and _index.md)
     let mut files: Vec<(String, std::path::PathBuf)> = Vec::new();
-    for entry in WalkDir::new(topic_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(topic_dir).into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -256,7 +278,13 @@ async fn index_reference_files(
         let context_prefix = determine_context_prefix(rel_path, topic_title, collection_contexts);
 
         let ingested = ingest_reference_file_with_context(
-            settings, abs_path, &raw, &note_id, title, note_type, Some(&context_prefix),
+            settings,
+            abs_path,
+            &raw,
+            &note_id,
+            title,
+            note_type,
+            Some(&context_prefix),
         )
         .await?;
 
@@ -326,7 +354,10 @@ async fn index_diary_tree(
 
     let date_re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
 
-    for entry in WalkDir::new(root).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -375,7 +406,10 @@ async fn index_markdown_tree(
         return Ok(());
     }
 
-    for entry in WalkDir::new(root).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -396,7 +430,13 @@ async fn index_markdown_tree(
 
         upsert_note(store, &ingested.note).await?;
         replace_tags(store, &ingested.note.id, &ingested.tags).await?;
-        replace_links(store, &ingested.note.id, owner_ghost.as_deref(), &ingested.links).await?;
+        replace_links(
+            store,
+            &ingested.note.id,
+            owner_ghost.as_deref(),
+            &ingested.links,
+        )
+        .await?;
         let chunk_ids = replace_chunks(
             store,
             &ingested.note.id,
@@ -462,12 +502,11 @@ pub async fn embed_chunks(
 }
 
 async fn is_unchanged(pool: &SqlitePool, path: &Path, content_hash: &str) -> KnowledgeResult<bool> {
-    let existing: Option<(String,)> = sqlx::query_as(
-        "SELECT content_hash FROM notes WHERE path = ? LIMIT 1",
-    )
-    .bind(path.to_string_lossy().to_string())
-    .fetch_optional(pool)
-    .await?;
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT content_hash FROM notes WHERE path = ? LIMIT 1")
+            .bind(path.to_string_lossy().to_string())
+            .fetch_optional(pool)
+            .await?;
 
     Ok(existing
         .map(|(hash,)| hash == content_hash)
@@ -478,4 +517,3 @@ fn is_archived_path(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == ".archive")
 }
-

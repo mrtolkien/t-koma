@@ -10,9 +10,9 @@ use tokio_tungstenite::connect_async;
 use crate::tui::state::GateFilter;
 
 use super::{
+    TuiApp,
     state::{GateEvent, GateRow},
     util::{markdown_to_lines, truncate_for_cell, truncate_for_message},
-    TuiApp,
 };
 
 impl TuiApp {
@@ -102,13 +102,18 @@ impl TuiApp {
             };
             let level_style = match row.level.as_str() {
                 "ERROR" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                "WARN" => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                "WARN" => Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
                 "INFO" => Style::default().fg(Color::Green),
                 _ => Style::default().fg(Color::DarkGray),
             };
 
             lines.push(Line::from(vec![
-                Span::styled(format!("{} ", row.time), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{} ", row.time),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(format!("{:>5} ", row.level), level_style),
                 Span::styled(format!("{:>9} ", row.source), source_style),
                 Span::styled(
@@ -183,18 +188,12 @@ fn parse_gate_row(text: &str) -> Option<GateRow> {
                     .get("channel")
                     .and_then(|v| v.as_str())
                     .unwrap_or("channel");
-                let content = entry
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 (format!("@{} #{}", user, channel), content.to_string())
             }
             "discord_response" => {
                 let user = entry.get("user").and_then(|v| v.as_str()).unwrap_or("user");
-                let content = entry
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 (format!("to @{}", user), content.to_string())
             }
             "operator_message" => {
@@ -202,10 +201,7 @@ fn parse_gate_row(text: &str) -> Option<GateRow> {
                     .get("ghost_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                let content = entry
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 (format!("to @{}", ghost_name), content.to_string())
             }
             "ghost_message" => {
@@ -213,14 +209,14 @@ fn parse_gate_row(text: &str) -> Option<GateRow> {
                     .get("ghost_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("ghost");
-                let content = entry
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 (format!("from {}", ghost_name), content.to_string())
             }
             "web_socket" => {
-                let event = entry.get("event").and_then(|v| v.as_str()).unwrap_or("event");
+                let event = entry
+                    .get("event")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("event");
                 let client = entry
                     .get("client_id")
                     .and_then(|v| v.as_str())

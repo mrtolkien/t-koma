@@ -7,8 +7,8 @@ use crossterm::{
 use ratatui::prelude::*;
 use tracing::{error, info, warn};
 
-mod tui;
 mod client;
+mod tui;
 
 use tui::app::TuiApp;
 

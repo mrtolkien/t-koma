@@ -13,9 +13,9 @@ use tracing::info;
 
 use crate::content::{self, ids};
 use crate::providers::provider::Provider;
-use crate::scheduler::{JobKind, SchedulerState};
 #[cfg(feature = "live-tests")]
 use crate::providers::provider::{ProviderResponse, extract_all_text};
+use crate::scheduler::{JobKind, SchedulerState};
 use crate::session::{
     ChatError, DEFAULT_TOOL_LOOP_EXTRA, PendingToolApproval, PendingToolContinuation, SessionChat,
     ToolApprovalDecision,
@@ -77,10 +77,7 @@ pub enum LogEntry {
         content: String,
     },
     /// Ghost response sent back to operator
-    GhostMessage {
-        ghost_name: String,
-        content: String,
-    },
+    GhostMessage { ghost_name: String, content: String },
     /// Heartbeat runner status
     Heartbeat {
         ghost_name: String,
@@ -151,7 +148,11 @@ impl std::fmt::Display for LogEntry {
             LogEntry::GhostMessage {
                 ghost_name,
                 content,
-            } => write!(f, "[{}] [GHOST] {} -> operator: {}", timestamp, ghost_name, content),
+            } => write!(
+                f,
+                "[{}] [GHOST] {} -> operator: {}",
+                timestamp, ghost_name, content
+            ),
             LogEntry::Heartbeat {
                 ghost_name,
                 session_id,
@@ -329,10 +330,7 @@ impl AppState {
     }
 
     /// Start the heartbeat runner if it isn't already running.
-    pub async fn start_heartbeat_runner(
-        self: &Arc<Self>,
-        heartbeat_model_alias: Option<String>,
-    ) {
+    pub async fn start_heartbeat_runner(self: &Arc<Self>, heartbeat_model_alias: Option<String>) {
         let mut guard = self.heartbeat_runner.write().await;
         if let Some(handle) = guard.as_ref()
             && !handle.is_finished()
@@ -340,7 +338,8 @@ impl AppState {
             return;
         }
 
-        let handle = crate::heartbeat::start_heartbeat_runner(Arc::clone(self), heartbeat_model_alias);
+        let handle =
+            crate::heartbeat::start_heartbeat_runner(Arc::clone(self), heartbeat_model_alias);
         *guard = Some(handle);
     }
 
@@ -570,8 +569,7 @@ impl AppState {
         {
             let guard = self.ghost_dbs.read().await;
             if let Some(db) = guard.get(ghost_name) {
-                self.ensure_ghost_watcher(ghost_name)
-                    .await;
+                self.ensure_ghost_watcher(ghost_name).await;
                 let db = db.clone();
                 if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
                     tracing::warn!(
@@ -587,8 +585,7 @@ impl AppState {
         let db = t_koma_db::GhostDbPool::new(ghost_name).await?;
         let mut guard = self.ghost_dbs.write().await;
         guard.insert(ghost_name.to_string(), db.clone());
-        self.ensure_ghost_watcher(ghost_name)
-            .await;
+        self.ensure_ghost_watcher(ghost_name).await;
         if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
             tracing::warn!(
                 "Failed to ensure HEARTBEAT.md for ghost {}: {}",
@@ -612,8 +609,7 @@ impl AppState {
         let handle = tokio::spawn(async move {
             let mut backoff = 2u64;
             loop {
-                let result =
-                    t_koma_knowledge::watcher::run_shared_watcher(settings.clone()).await;
+                let result = t_koma_knowledge::watcher::run_shared_watcher(settings.clone()).await;
                 if let Err(err) = result {
                     error!("shared knowledge watcher crashed: {err}");
                 }
@@ -646,7 +642,10 @@ impl AppState {
                 )
                 .await;
                 if let Err(err) = result {
-                    error!("ghost knowledge watcher crashed ({}): {err}", ghost_name_log);
+                    error!(
+                        "ghost knowledge watcher crashed ({}): {err}",
+                        ghost_name_log
+                    );
                 }
                 tokio::time::sleep(Duration::from_secs(backoff)).await;
                 backoff = (backoff * 2).min(60);
@@ -1123,7 +1122,8 @@ impl AppState {
         let mut tool_results = Vec::new();
 
         for block in &response.content {
-            let crate::providers::provider::ProviderContentBlock::ToolUse { id, name, input } = block
+            let crate::providers::provider::ProviderContentBlock::ToolUse { id, name, input } =
+                block
             else {
                 continue;
             };

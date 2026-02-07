@@ -4,7 +4,10 @@ use t_koma_db::{GhostRepository, OperatorAccessLevel, OperatorRepository, Platfo
 #[tokio::test]
 async fn ghost_repository_list_all_and_delete_roundtrip() {
     let pool = SqlitePool::connect(":memory:").await.unwrap();
-    sqlx::migrate!("./migrations/koma").run(&pool).await.unwrap();
+    sqlx::migrate!("./migrations/koma")
+        .run(&pool)
+        .await
+        .unwrap();
 
     let operator = OperatorRepository::create_new(
         &pool,
@@ -12,8 +15,8 @@ async fn ghost_repository_list_all_and_delete_roundtrip() {
         Platform::Api,
         OperatorAccessLevel::Standard,
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     GhostRepository::create(&pool, &operator.id, "IntegrationAlpha")
         .await

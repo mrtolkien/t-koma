@@ -124,32 +124,33 @@ Skill directory: {:?}
     messages.push(t_koma_gateway::chat::history::ChatMessage {
         role: t_koma_gateway::chat::history::ChatRole::User,
         content: vec![t_koma_gateway::chat::history::ChatContentBlock::Text {
-            text: "I have the test-echo skill available. Please use it to demonstrate skill loading.".to_string(),
+            text:
+                "I have the test-echo skill available. Please use it to demonstrate skill loading."
+                    .to_string(),
             cache_control: None,
         }],
     });
 
     // Add assistant's response with tool_use
-    let assistant_content: Vec<t_koma_gateway::chat::history::ChatContentBlock> =
-        response
-            .content
-            .iter()
-            .map(|b| match b {
-                t_koma_gateway::providers::anthropic::ContentBlock::Text { text } => {
-                    t_koma_gateway::chat::history::ChatContentBlock::Text {
-                        text: text.clone(),
-                        cache_control: None,
-                    }
+    let assistant_content: Vec<t_koma_gateway::chat::history::ChatContentBlock> = response
+        .content
+        .iter()
+        .map(|b| match b {
+            t_koma_gateway::providers::anthropic::ContentBlock::Text { text } => {
+                t_koma_gateway::chat::history::ChatContentBlock::Text {
+                    text: text.clone(),
+                    cache_control: None,
                 }
-                t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { id, name, input } => {
-                    t_koma_gateway::chat::history::ChatContentBlock::ToolUse {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input: input.clone(),
-                    }
+            }
+            t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { id, name, input } => {
+                t_koma_gateway::chat::history::ChatContentBlock::ToolUse {
+                    id: id.clone(),
+                    name: name.clone(),
+                    input: input.clone(),
                 }
-            })
-            .collect();
+            }
+        })
+        .collect();
 
     messages.push(t_koma_gateway::chat::history::ChatMessage {
         role: t_koma_gateway::chat::history::ChatRole::Assistant,
@@ -161,7 +162,8 @@ Skill directory: {:?}
         .content
         .iter()
         .filter_map(|b| {
-            if let t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { id, name, input } = b
+            if let t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { id, name, input } =
+                b
             {
                 Some((id.clone(), name.clone(), input.clone()))
             } else {
@@ -185,8 +187,9 @@ Skill directory: {:?}
 
     // Add tool result message
     assert!(!tool_results.is_empty(), "Should have tool results");
-    messages
-        .push(t_koma_gateway::chat::history::build_tool_result_message(tool_results));
+    messages.push(t_koma_gateway::chat::history::build_tool_result_message(
+        tool_results,
+    ));
 
     // Get final response from the model
     let final_response = client

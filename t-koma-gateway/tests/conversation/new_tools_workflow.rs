@@ -14,8 +14,8 @@
 use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
-    chat::history::build_history_messages, prompt::render::build_system_prompt,
-    prompt::SystemPrompt, tools::manager::ToolManager,
+    chat::history::build_history_messages, prompt::SystemPrompt,
+    prompt::render::build_system_prompt, tools::manager::ToolManager,
 };
 #[cfg(feature = "live-tests")]
 use uuid::Uuid;
@@ -138,13 +138,16 @@ async fn test_comprehensive_coding_workflow() {
     // Set up system prompt with all tools
     let tool_manager = ToolManager::new();
     let tools = tool_manager.get_tools();
-    let system_prompt = SystemPrompt::with_tools(&tools, &[
-        ("reference_topics", ""),
-        ("ghost_identity", ""),
-        ("ghost_diary", ""),
-        ("ghost_projects", ""),
-        ("system_info", ""),
-    ]);
+    let system_prompt = SystemPrompt::with_tools(
+        &tools,
+        &[
+            ("reference_topics", ""),
+            ("ghost_identity", ""),
+            ("ghost_diary", ""),
+            ("ghost_projects", ""),
+            ("system_info", ""),
+        ],
+    );
     let system_blocks = build_system_prompt(&system_prompt);
     let model = default_model.model.as_str();
 

@@ -95,19 +95,14 @@ impl DioxusFixture {
                     source_type: "git".to_string(),
                     url: "https://github.com/DioxusLabs/dioxus".to_string(),
                     ref_name: Some("main".to_string()),
-                    paths: Some(vec![
-                        "README.md".to_string(),
-                        "examples/".to_string(),
-                    ]),
+                    paths: Some(vec!["README.md".to_string(), "examples/".to_string()]),
                     role: None, // inferred as "code" for git sources
                 },
                 TopicSourceInput {
                     source_type: "git".to_string(),
                     url: "https://github.com/DioxusLabs/docsite".to_string(),
                     ref_name: Some("main".to_string()),
-                    paths: Some(vec![
-                        "docs-src/0.6/src/guide/".to_string(),
-                    ]),
+                    paths: Some(vec!["docs-src/0.6/src/guide/".to_string()]),
                     role: Some(SourceRole::Docs),
                 },
                 TopicSourceInput {
@@ -150,8 +145,7 @@ impl DioxusFixture {
         );
 
         // Query per-file chunk counts from the DB to validate every file was indexed
-        let per_file_chunks =
-            query_per_file_chunks(engine.pool(), &result.topic_id).await;
+        let per_file_chunks = query_per_file_chunks(engine.pool(), &result.topic_id).await;
 
         // CRITICAL: every file in reference_files must have at least 1 chunk
         for info in &per_file_chunks {
@@ -226,15 +220,9 @@ struct SearchHit {
     snippet_preview: String,
 }
 
-fn build_search_snapshot(
-    query: &str,
-    results: &[NoteResult],
-    n: usize,
-) -> SearchResultSnapshot {
-    let unique_files: std::collections::HashSet<&str> = results
-        .iter()
-        .map(|r| r.summary.title.as_str())
-        .collect();
+fn build_search_snapshot(query: &str, results: &[NoteResult], n: usize) -> SearchResultSnapshot {
+    let unique_files: std::collections::HashSet<&str> =
+        results.iter().map(|r| r.summary.title.as_str()).collect();
 
     SearchResultSnapshot {
         query: query.to_string(),
@@ -289,20 +277,20 @@ async fn dioxus_approval_summary() {
     let engine = KnowledgeEngine::open(settings).await.unwrap();
     let summary = engine.topic_approval_summary(&request).await.unwrap();
 
-    assert!(
-        !summary.is_empty(),
-        "approval summary should not be empty"
-    );
+    assert!(!summary.is_empty(), "approval summary should not be empty");
     assert!(
         summary.contains("dioxus") || summary.contains("Dioxus") || summary.contains("DioxusLabs"),
         "summary should mention the repo: {summary}"
     );
 
-    assert_yaml_snapshot!("dioxus_approval_summary", serde_json::json!({
-        "summary_length": summary.len(),
-        "contains_repo_name": summary.contains("dioxus") || summary.contains("Dioxus"),
-        "summary_preview": summary.chars().take(200).collect::<String>(),
-    }));
+    assert_yaml_snapshot!(
+        "dioxus_approval_summary",
+        serde_json::json!({
+            "summary_length": summary.len(),
+            "contains_repo_name": summary.contains("dioxus") || summary.contains("Dioxus"),
+            "summary_preview": summary.chars().take(200).collect::<String>(),
+        })
+    );
 }
 
 /// Full pipeline test: single setup, all assertions share the same indexed data.
@@ -362,12 +350,15 @@ async fn dioxus_full_pipeline() {
         files_without_embeddings,
     );
 
-    assert_yaml_snapshot!("dioxus_per_file_indexing", serde_json::json!({
-        "source_count": f.source_count,
-        "file_count": f.file_count,
-        "chunk_count": f.chunk_count,
-        "per_file_chunks": f.per_file_chunks,
-    }));
+    assert_yaml_snapshot!(
+        "dioxus_per_file_indexing",
+        serde_json::json!({
+            "source_count": f.source_count,
+            "file_count": f.file_count,
+            "chunk_count": f.chunk_count,
+            "per_file_chunks": f.per_file_chunks,
+        })
+    );
 
     // -- Reference search: component lifecycle -------------------------------
 
@@ -385,8 +376,14 @@ async fn dioxus_full_pipeline() {
         .await
         .expect("reference_search should succeed");
 
-    assert!(!search_result.results.is_empty(), "should find results for component lifecycle query");
-    assert!(!search_result.topic_body.is_empty(), "should return topic body");
+    assert!(
+        !search_result.results.is_empty(),
+        "should find results for component lifecycle query"
+    );
+    assert!(
+        !search_result.topic_body.is_empty(),
+        "should return topic body"
+    );
     assert!(!search_result.topic_id.is_empty(), "should return topic_id");
 
     assert_yaml_snapshot!(
@@ -410,7 +407,10 @@ async fn dioxus_full_pipeline() {
         .await
         .expect("reference_search should succeed");
 
-    assert!(!search_result.results.is_empty(), "should find results for RSX syntax query");
+    assert!(
+        !search_result.results.is_empty(),
+        "should find results for RSX syntax query"
+    );
 
     assert_yaml_snapshot!(
         "dioxus_reference_search_rsx_syntax",
@@ -433,7 +433,10 @@ async fn dioxus_full_pipeline() {
         .await
         .expect("reference_search should succeed");
 
-    assert!(!search_result.results.is_empty(), "should find results for state management query");
+    assert!(
+        !search_result.results.is_empty(),
+        "should find results for state management query"
+    );
 
     assert_yaml_snapshot!(
         "dioxus_reference_search_state_management",
@@ -453,14 +456,17 @@ async fn dioxus_full_pipeline() {
     let dioxus_found = results.iter().any(|r| r.title.contains("Dioxus"));
     assert!(dioxus_found, "Dioxus topic should appear in search results");
 
-    assert_yaml_snapshot!("dioxus_topic_search_by_description", serde_json::json!({
-        "total_results": results.len(),
-        "top_result": {
-            "topic_id": &results[0].topic_id,
-            "title": &results[0].title,
-            "tags": &results[0].tags,
-        },
-    }));
+    assert_yaml_snapshot!(
+        "dioxus_topic_search_by_description",
+        serde_json::json!({
+            "total_results": results.len(),
+            "top_result": {
+                "topic_id": &results[0].topic_id,
+                "title": &results[0].title,
+                "tags": &results[0].tags,
+            },
+        })
+    );
 
     // -- Topic list and recent topics ----------------------------------------
 
@@ -483,23 +489,26 @@ async fn dioxus_full_pipeline() {
         "tags should include 'dioxus'"
     );
 
-    assert_yaml_snapshot!("dioxus_topic_list_and_recent", serde_json::json!({
-        "topic_list": {
-            "count": list.len(),
-            "title": &list[0].title,
-            "file_count": list[0].file_count,
-            "collections": list[0].collections,
-            "tags": &list[0].tags,
-        },
-        "recent_topics": {
-            "count": recent.len(),
-            "title": &recent[0].1,
-            "tag_count": recent[0].2.len(),
-        },
-        "topic_create_stats": {
-            "source_count": f.source_count,
-            "file_count": f.file_count,
-            "chunk_count": f.chunk_count,
-        },
-    }));
+    assert_yaml_snapshot!(
+        "dioxus_topic_list_and_recent",
+        serde_json::json!({
+            "topic_list": {
+                "count": list.len(),
+                "title": &list[0].title,
+                "file_count": list[0].file_count,
+                "collections": list[0].collections,
+                "tags": &list[0].tags,
+            },
+            "recent_topics": {
+                "count": recent.len(),
+                "title": &recent[0].1,
+                "tag_count": recent[0].2.len(),
+            },
+            "topic_create_stats": {
+                "source_count": f.source_count,
+                "file_count": f.file_count,
+                "chunk_count": f.chunk_count,
+            },
+        })
+    );
 }

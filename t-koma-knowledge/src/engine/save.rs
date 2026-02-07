@@ -30,21 +30,14 @@ pub(crate) async fn reference_save(
     let mut created_collection = false;
 
     // 1. Resolve or create topic
-    let (topic_id, topic_title) = match resolve_or_create_topic(
-        pool,
-        settings,
-        embedder,
-        ghost_name,
-        &request,
-    )
-    .await?
-    {
-        TopicResolution::Existing { id, title } => (id, title),
-        TopicResolution::Created { id, title } => {
-            created_topic = true;
-            (id, title)
-        }
-    };
+    let (topic_id, topic_title) =
+        match resolve_or_create_topic(pool, settings, embedder, ghost_name, &request).await? {
+            TopicResolution::Existing { id, title } => (id, title),
+            TopicResolution::Created { id, title } => {
+                created_topic = true;
+                (id, title)
+            }
+        };
 
     // 2. Determine filesystem paths
     let reference_root = crate::paths::shared_references_root(settings)?;
@@ -113,10 +106,12 @@ pub(crate) async fn reference_save(
     let role = request.role.unwrap_or(SourceRole::Docs);
     let note_type = role.to_note_type();
     let file_note_id = generate_note_id();
-    let title = request
-        .title
-        .as_deref()
-        .unwrap_or_else(|| file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file"));
+    let title = request.title.as_deref().unwrap_or_else(|| {
+        file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+    });
 
     let ingested = crate::ingest::ingest_reference_file_with_context(
         settings,
@@ -130,14 +125,9 @@ pub(crate) async fn reference_save(
     .await?;
 
     crate::storage::upsert_note(pool, &ingested.note).await?;
-    let chunk_ids = crate::storage::replace_chunks(
-        pool,
-        &file_note_id,
-        title,
-        note_type,
-        &ingested.chunks,
-    )
-    .await?;
+    let chunk_ids =
+        crate::storage::replace_chunks(pool, &file_note_id, title, note_type, &ingested.chunks)
+            .await?;
     crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
     // 6. Insert into reference_files with provenance metadata
@@ -250,17 +240,15 @@ async fn resolve_or_create_topic(
     crate::storage::upsert_note(pool, &ingested.note).await?;
     crate::storage::replace_tags(pool, &topic_id, &ingested.tags).await?;
     crate::storage::replace_links(pool, &topic_id, None, &ingested.links).await?;
-    let chunk_ids = crate::storage::replace_chunks(
-        pool,
-        &topic_id,
-        &title,
-        "ReferenceTopic",
-        &ingested.chunks,
-    )
-    .await?;
+    let chunk_ids =
+        crate::storage::replace_chunks(pool, &topic_id, &title, "ReferenceTopic", &ingested.chunks)
+            .await?;
     crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
-    Ok(TopicResolution::Created { id: topic_id, title })
+    Ok(TopicResolution::Created {
+        id: topic_id,
+        title,
+    })
 }
 
 /// Create a `_index.md` for a new collection.
@@ -307,7 +295,8 @@ async fn create_collection_index(
     tokio::fs::rename(&tmp_path, index_path).await?;
 
     // Index the collection note
-    let ingested = crate::ingest::ingest_reference_collection(settings, index_path, &content).await?;
+    let ingested =
+        crate::ingest::ingest_reference_collection(settings, index_path, &content).await?;
     let mut note = ingested.note.clone();
     note.parent_id = Some(topic_id.to_string());
     crate::storage::upsert_note(pool, &note).await?;

@@ -4,14 +4,17 @@ mod prompt;
 mod sidebar;
 
 use ratatui::{
+    Frame,
     style::{Modifier, Style},
     widgets::{Block, Borders},
-    Frame,
 };
 
-use crate::tui::{layout::{content_layout, main_layout, sidebar_layout}, state::Category};
+use crate::tui::{
+    layout::{content_layout, main_layout, sidebar_layout},
+    state::Category,
+};
 
-use super::{util::glow_color, TuiApp};
+use super::{TuiApp, util::glow_color};
 
 impl TuiApp {
     pub(super) fn draw(&self, frame: &mut Frame) {

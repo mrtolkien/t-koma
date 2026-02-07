@@ -71,11 +71,7 @@ pub fn parse_note(raw: &str) -> KnowledgeResult<ParsedNote> {
 
     let links = extract_links(&body);
 
-    Ok(ParsedNote {
-        front,
-        body,
-        links,
-    })
+    Ok(ParsedNote { front, body, links })
 }
 
 fn split_front_matter(raw: &str) -> KnowledgeResult<(String, String)> {
@@ -114,7 +110,10 @@ pub(crate) fn extract_links(body: &str) -> Vec<WikiLink> {
     pattern
         .captures_iter(body)
         .map(|cap| WikiLink {
-            target: cap.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default(),
+            target: cap
+                .get(1)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default(),
             alias: cap.get(2).map(|m| m.as_str().trim().to_string()),
         })
         .filter(|link| !link.target.is_empty())

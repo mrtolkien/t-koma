@@ -2,9 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
-use crate::models::{
-    KnowledgeScope, NoteDocument, OwnershipScope, WriteScope,
-};
+use crate::models::{KnowledgeScope, NoteDocument, OwnershipScope, WriteScope};
 use crate::paths::ghost_inbox_path;
 
 use super::KnowledgeEngine;

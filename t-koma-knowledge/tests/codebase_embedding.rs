@@ -16,8 +16,7 @@ use serde::Serialize;
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    NoteCreateRequest, NoteQuery, NoteResult, OwnershipScope, ReferenceQuery,
-    WriteScope,
+    NoteCreateRequest, NoteQuery, NoteResult, OwnershipScope, ReferenceQuery, WriteScope,
 };
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
@@ -34,10 +33,7 @@ const CODE_FILES: &[&str] = &[
 ];
 
 /// Documentation files to index as docs (boosted in search).
-const DOC_FILES: &[&str] = &[
-    "knowledge_system.md",
-    "testing.md",
-];
+const DOC_FILES: &[&str] = &["knowledge_system.md", "testing.md"];
 
 /// Build a fully functional engine with real embeddings,
 /// a reference topic pointing to actual source files and documentation,
@@ -71,16 +67,14 @@ impl CodebaseFixture {
                 crate_root.join("src").join(file_name)
             };
             let dst = topic_dir.join(file_name);
-            tokio::fs::copy(&src, &dst)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "failed to copy {} -> {}: {}",
-                        src.display(),
-                        dst.display(),
-                        e
-                    )
-                });
+            tokio::fs::copy(&src, &dst).await.unwrap_or_else(|e| {
+                panic!(
+                    "failed to copy {} -> {}: {}",
+                    src.display(),
+                    dst.display(),
+                    e
+                )
+            });
         }
 
         // Copy real doc files into the topic directory
@@ -92,16 +86,14 @@ impl CodebaseFixture {
                 crate_root.join("../vibe/knowledge").join(file_name)
             };
             let dst = topic_dir.join(file_name);
-            tokio::fs::copy(&src, &dst)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "failed to copy {} -> {}: {}",
-                        src.display(),
-                        dst.display(),
-                        e
-                    )
-                });
+            tokio::fs::copy(&src, &dst).await.unwrap_or_else(|e| {
+                panic!(
+                    "failed to copy {} -> {}: {}",
+                    src.display(),
+                    dst.display(),
+                    e
+                )
+            });
         }
 
         // Build the combined files list
@@ -248,9 +240,7 @@ async fn hybrid_search_finds_search_pipeline() {
     let results = &search_result.results;
     assert!(!results.is_empty(), "should find at least one result");
 
-    let has_search_file = results
-        .iter()
-        .any(|r| r.summary.title.contains("search"));
+    let has_search_file = results.iter().any(|r| r.summary.title.contains("search"));
     assert!(
         has_search_file,
         "search.rs should appear in results for BM25+embeddings query"

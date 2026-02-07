@@ -4,13 +4,13 @@ use std::path::Path;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 
-use crate::chunker::{chunk_code, chunk_markdown, Chunk};
+use crate::KnowledgeSettings;
+use crate::chunker::{Chunk, chunk_code, chunk_markdown};
 use crate::errors::KnowledgeResult;
 use crate::models::KnowledgeScope;
-use crate::parser::{extract_links, parse_note, ParsedNote};
+use crate::parser::{ParsedNote, extract_links, parse_note};
 use crate::paths::types_allowlist_path;
 use crate::storage::{ChunkRecord, NoteRecord};
-use crate::KnowledgeSettings;
 
 #[derive(Debug, Clone)]
 pub struct IngestedNote {
@@ -58,9 +58,11 @@ pub async fn ingest_reference_topic(
             .map(|entry| entry.model.clone()),
         version: parsed.front.version,
         parent_id: parsed.front.parent.clone(),
-        comments_json: parsed.front.comments.as_ref().map(|value| {
-            serde_json::to_string(value).unwrap_or_default()
-        }),
+        comments_json: parsed
+            .front
+            .comments
+            .as_ref()
+            .map(|value| serde_json::to_string(value).unwrap_or_default()),
         content_hash: hash,
     };
 
@@ -123,9 +125,11 @@ pub async fn ingest_markdown(
             .map(|entry| entry.model.clone()),
         version: parsed.front.version,
         parent_id: parsed.front.parent.clone(),
-        comments_json: parsed.front.comments.as_ref().map(|value| {
-            serde_json::to_string(value).unwrap_or_default()
-        }),
+        comments_json: parsed
+            .front
+            .comments
+            .as_ref()
+            .map(|value| serde_json::to_string(value).unwrap_or_default()),
         content_hash: hash,
     };
 
@@ -271,9 +275,11 @@ pub async fn ingest_reference_collection(
             .map(|entry| entry.model.clone()),
         version: parsed.front.version,
         parent_id: parsed.front.parent.clone(),
-        comments_json: parsed.front.comments.as_ref().map(|value| {
-            serde_json::to_string(value).unwrap_or_default()
-        }),
+        comments_json: parsed
+            .front
+            .comments
+            .as_ref()
+            .map(|value| serde_json::to_string(value).unwrap_or_default()),
         content_hash: hash,
     };
 
@@ -303,18 +309,18 @@ pub async fn ingest_diary_entry(
     path: &Path,
     raw: &str,
 ) -> KnowledgeResult<IngestedNote> {
-    let date = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| crate::errors::KnowledgeError::InvalidFrontMatter(
-            format!("diary file has no stem: {}", path.display()),
-        ))?;
+    let date = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+        crate::errors::KnowledgeError::InvalidFrontMatter(format!(
+            "diary file has no stem: {}",
+            path.display()
+        ))
+    })?;
 
     // Validate YYYY-MM-DD format
     if chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err() {
-        return Err(crate::errors::KnowledgeError::InvalidFrontMatter(
-            format!("diary filename is not YYYY-MM-DD: {date}"),
-        ));
+        return Err(crate::errors::KnowledgeError::InvalidFrontMatter(format!(
+            "diary filename is not YYYY-MM-DD: {date}"
+        )));
     }
 
     let id = format!("diary:{owner_ghost}:{date}");
@@ -395,7 +401,9 @@ fn compute_hash(input: &str) -> String {
     hex::encode(digest)
 }
 
-async fn load_type_allowlist(settings: &KnowledgeSettings) -> KnowledgeResult<Option<HashSet<String>>> {
+async fn load_type_allowlist(
+    settings: &KnowledgeSettings,
+) -> KnowledgeResult<Option<HashSet<String>>> {
     let path = types_allowlist_path(settings)?;
     if !path.exists() {
         return Ok(None);
@@ -404,7 +412,6 @@ async fn load_type_allowlist(settings: &KnowledgeSettings) -> KnowledgeResult<Op
     let value: TypeAllowList = toml::from_str(&raw)?;
     Ok(Some(value.types.into_iter().collect()))
 }
-
 
 #[derive(Debug, serde::Deserialize)]
 struct TypeAllowList {

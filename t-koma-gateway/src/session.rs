@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::NaiveDate;
 use tracing::info;
 
 use crate::chat::history::{ChatMessage, build_history_messages};
@@ -96,6 +96,50 @@ pub struct SessionChat {
     pub(crate) tool_manager: ToolManager,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
     system_info: String,
+}
+
+async fn load_recent_active_diary_entries(
+    diary_root: &std::path::Path,
+    limit: usize,
+) -> Vec<(NaiveDate, String)> {
+    let mut entries = match tokio::fs::read_dir(diary_root).await {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut diary_files = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|v| v.to_str()) != Some("md") {
+            continue;
+        }
+
+        let Some(stem) = path.file_stem().and_then(|v| v.to_str()) else {
+            continue;
+        };
+        let Ok(date) = NaiveDate::parse_from_str(stem, "%Y-%m-%d") else {
+            continue;
+        };
+        diary_files.push((date, path));
+    }
+
+    diary_files.sort_by(|(a, _), (b, _)| b.cmp(a));
+
+    let mut out = Vec::new();
+    for (date, path) in diary_files {
+        if out.len() >= limit {
+            break;
+        }
+
+        if let Ok(content) = tokio::fs::read_to_string(path).await {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                out.push((date, trimmed.to_string()));
+            }
+        }
+    }
+
+    out
 }
 
 impl SessionChat {
@@ -629,7 +673,11 @@ impl SessionChat {
     ) -> Result<GhostContextVars, ChatError> {
         // Ghost identity (BOOT.md + SOUL.md + USER.md)
         let mut identity_parts = Vec::new();
-        for (label, filename) in [("BOOT.md", "BOOT.md"), ("SOUL.md", "SOUL.md"), ("USER.md", "USER.md")] {
+        for (label, filename) in [
+            ("BOOT.md", "BOOT.md"),
+            ("SOUL.md", "SOUL.md"),
+            ("USER.md", "USER.md"),
+        ] {
             let path = workspace_root.join(filename);
             if let Ok(content) = tokio::fs::read_to_string(&path).await
                 && !content.trim().is_empty()
@@ -639,21 +687,12 @@ impl SessionChat {
         }
         let ghost_identity = identity_parts.join("\n\n");
 
-        // Diary entries (today + yesterday)
+        // Diary entries (two most recent active days)
         let diary_root = workspace_root.join("diary");
-        let today = Utc::now().date_naive();
         let mut diary_parts = Vec::new();
-        for day in [today, today - ChronoDuration::days(1)] {
-            let path = diary_root.join(format!("{}.md", day));
-            if let Ok(content) = tokio::fs::read_to_string(&path).await
-                && !content.trim().is_empty()
-            {
-                diary_parts.push(format!(
-                    "# Diary {}\n\n{}",
-                    day.format("%Y-%m-%d"),
-                    content.trim()
-                ));
-            }
+        let diary_entries = load_recent_active_diary_entries(&diary_root, 2).await;
+        for (day, content) in diary_entries {
+            diary_parts.push(format!("# Diary {}\n\n{}", day.format("%Y-%m-%d"), content));
         }
         let ghost_diary = diary_parts.join("\n\n");
 
@@ -681,10 +720,7 @@ impl SessionChat {
                             .file_name()
                             .and_then(|v| v.to_str())
                             .unwrap_or("project");
-                        project_parts.push(format!(
-                            "# Ongoing Projects {}\n\n{}",
-                            name, paragraph
-                        ));
+                        project_parts.push(format!("# Ongoing Projects {}\n\n{}", name, paragraph));
                     }
                 }
             }

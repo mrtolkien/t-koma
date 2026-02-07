@@ -23,9 +23,9 @@ use t_koma_db::{
 use crate::client::WsClient;
 
 use super::{
+    TuiApp,
     state::{GhostRow, Metrics, OperatorView},
     util::{load_disk_config, shell_quote, ws_url_for_cli},
-    TuiApp,
 };
 
 const HEARTBEAT_IDLE_SECONDS: i64 = 15 * 60;
@@ -100,14 +100,17 @@ impl TuiApp {
             .map(|list| list.len())
             .unwrap_or(0);
 
-        let ghosts = GhostRepository::list_all(db.pool()).await.unwrap_or_default();
+        let ghosts = GhostRepository::list_all(db.pool())
+            .await
+            .unwrap_or_default();
         let ghost_count = ghosts.len();
 
         let mut recent_message_count = 0;
         let since = Utc::now().timestamp() - 300;
         for ghost in &ghosts {
             if let Ok(ghost_db) = GhostDbPool::new(&ghost.name).await
-                && let Ok(count) = SessionRepository::count_messages_since(ghost_db.pool(), since).await
+                && let Ok(count) =
+                    SessionRepository::count_messages_since(ghost_db.pool(), since).await
             {
                 recent_message_count += count;
             }
@@ -260,11 +263,7 @@ impl TuiApp {
         self.refresh_operators().await;
     }
 
-    pub(super) async fn set_operator_access_level(
-        &mut self,
-        operator_id: &str,
-        input: &str,
-    ) {
+    pub(super) async fn set_operator_access_level(&mut self, operator_id: &str, input: &str) {
         let level = match input.trim().to_lowercase().as_str() {
             "puppet_master" | "puppet" | "pm" | "admin" => OperatorAccessLevel::PuppetMaster,
             "standard" | "std" => OperatorAccessLevel::Standard,
@@ -293,11 +292,7 @@ impl TuiApp {
         self.refresh_operators().await;
     }
 
-    pub(super) async fn set_operator_rate_limits(
-        &mut self,
-        operator_id: &str,
-        input: &str,
-    ) {
+    pub(super) async fn set_operator_rate_limits(&mut self, operator_id: &str, input: &str) {
         let trimmed = input.trim().to_lowercase();
         let (rate_5m, rate_1h) = if trimmed == "none" || trimmed == "off" {
             (None, None)
@@ -353,11 +348,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) async fn set_operator_workspace_escape(
-        &mut self,
-        operator_id: &str,
-        allow: bool,
-    ) {
+    pub(super) async fn set_operator_workspace_escape(&mut self, operator_id: &str, allow: bool) {
         let Some(db) = &self.db else {
             self.status = "DB unavailable".to_string();
             return;
@@ -587,7 +578,8 @@ impl TuiApp {
                     .unwrap_or_else(|| std::path::Path::new("."))
                     .join(backup_name);
                 if config_path.exists() {
-                    fs::copy(&config_path, &backup_path).map_err(|copy_err| copy_err.to_string())?;
+                    fs::copy(&config_path, &backup_path)
+                        .map_err(|copy_err| copy_err.to_string())?;
                     self.backup_path = Some(backup_path.clone());
                     self.status = format!(
                         "Invalid TOML rejected. Backup saved at {}",

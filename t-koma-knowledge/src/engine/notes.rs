@@ -1,12 +1,12 @@
 use chrono::{DateTime, Utc};
 
+use crate::KnowledgeSettings;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeScope, NoteCreateRequest, NoteDocument,
-    NoteUpdateRequest, NoteWriteResult, OwnershipScope, WriteScope, generate_note_id,
+    KnowledgeScope, NoteCreateRequest, NoteDocument, NoteUpdateRequest, NoteWriteResult,
+    OwnershipScope, WriteScope, generate_note_id,
 };
 use crate::parser::CommentEntry;
-use crate::KnowledgeSettings;
 use crate::paths::{ghost_notes_root, shared_notes_root};
 
 use super::KnowledgeEngine;
@@ -45,14 +45,9 @@ pub(crate) async fn note_create(
     tokio::fs::rename(&tmp_path, &path).await?;
 
     // Index inline
-    let ingested = crate::ingest::ingest_markdown(
-        engine.settings(),
-        scope,
-        owner_ghost,
-        &path,
-        &content,
-    )
-    .await?;
+    let ingested =
+        crate::ingest::ingest_markdown(engine.settings(), scope, owner_ghost, &path, &content)
+            .await?;
     let pool = engine.pool();
     crate::storage::upsert_note(pool, &ingested.note).await?;
     crate::storage::replace_tags(pool, &note_id, &ingested.tags).await?;
@@ -130,14 +125,9 @@ pub(crate) async fn note_update(
     } else {
         Some(ghost_name.to_string())
     };
-    let ingested = crate::ingest::ingest_markdown(
-        engine.settings(),
-        scope,
-        owner_ghost,
-        &doc.path,
-        &content,
-    )
-    .await?;
+    let ingested =
+        crate::ingest::ingest_markdown(engine.settings(), scope, owner_ghost, &doc.path, &content)
+            .await?;
     let pool = engine.pool();
     crate::storage::upsert_note(pool, &ingested.note).await?;
     crate::storage::replace_tags(pool, &request.note_id, &ingested.tags).await?;
@@ -210,14 +200,9 @@ pub(crate) async fn note_validate(
     } else {
         Some(ghost_name.to_string())
     };
-    let ingested = crate::ingest::ingest_markdown(
-        engine.settings(),
-        scope,
-        owner_ghost,
-        &doc.path,
-        &content,
-    )
-    .await?;
+    let ingested =
+        crate::ingest::ingest_markdown(engine.settings(), scope, owner_ghost, &doc.path, &content)
+            .await?;
     crate::storage::upsert_note(engine.pool(), &ingested.note).await?;
 
     Ok(NoteWriteResult {
@@ -264,14 +249,9 @@ pub(crate) async fn note_comment(
     } else {
         Some(ghost_name.to_string())
     };
-    let ingested = crate::ingest::ingest_markdown(
-        engine.settings(),
-        scope,
-        owner_ghost,
-        &doc.path,
-        &content,
-    )
-    .await?;
+    let ingested =
+        crate::ingest::ingest_markdown(engine.settings(), scope, owner_ghost, &doc.path, &content)
+            .await?;
     crate::storage::upsert_note(engine.pool(), &ingested.note).await?;
 
     Ok(NoteWriteResult {
@@ -293,20 +273,13 @@ pub(crate) fn resolve_write_target(
         }
         WriteScope::GhostNote => {
             let dir = ghost_notes_root(settings, ghost_name)?;
-            Ok((
-                dir,
-                KnowledgeScope::GhostNote,
-                Some(ghost_name.to_string()),
-            ))
+            Ok((dir, KnowledgeScope::GhostNote, Some(ghost_name.to_string())))
         }
     }
 }
 
 /// Verify the calling ghost has write access to a note.
-pub(crate) fn verify_write_access(
-    ghost_name: &str,
-    doc: &NoteDocument,
-) -> KnowledgeResult<()> {
+pub(crate) fn verify_write_access(ghost_name: &str, doc: &NoteDocument) -> KnowledgeResult<()> {
     if doc.scope.is_shared() {
         // Shared notes are writable by any ghost
         return Ok(());
@@ -362,10 +335,7 @@ pub(crate) fn build_front_matter(
 pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String {
     let mut lines = Vec::new();
     lines.push(format!("id = \"{}\"", front.id));
-    lines.push(format!(
-        "title = \"{}\"",
-        front.title.replace('"', "\\\"")
-    ));
+    lines.push(format!("title = \"{}\"", front.title.replace('"', "\\\"")));
     lines.push(format!("type = \"{}\"", front.note_type));
     lines.push(format!(
         "created_at = \"{}\"",
@@ -415,10 +385,7 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
             lines.push(format!("ghost = \"{}\"", comment.ghost));
             lines.push(format!("model = \"{}\"", comment.model));
             lines.push(format!("at = \"{}\"", comment.at.to_rfc3339()));
-            lines.push(format!(
-                "text = \"{}\"",
-                comment.text.replace('"', "\\\"")
-            ));
+            lines.push(format!("text = \"{}\"", comment.text.replace('"', "\\\"")));
         }
     }
     lines.join("\n")

@@ -56,7 +56,7 @@ impl Tool for ChangeDirectoryTool {
                         normalized
                     } else {
                         return Err(
-                            "Error: Operator is not allowed to leave the workspace.".to_string(),
+                            "Error: Operator is not allowed to leave the workspace.".to_string()
                         );
                     }
                 } else {
@@ -130,9 +130,11 @@ mod tests {
 
         let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("not allowed to leave the workspace"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("not allowed to leave the workspace")
+        );
     }
 
     #[tokio::test]

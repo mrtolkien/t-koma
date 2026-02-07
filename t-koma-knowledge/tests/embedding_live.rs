@@ -8,7 +8,10 @@ async fn test_ollama_embedding_live() {
     let client = EmbeddingClient::new(&settings);
     let inputs = vec!["hello world".to_string(), "t-koma knowledge".to_string()];
 
-    let embeddings = client.embed_batch(&inputs).await.expect("embedding request");
+    let embeddings = client
+        .embed_batch(&inputs)
+        .await
+        .expect("embedding request");
     assert_eq!(embeddings.len(), inputs.len());
     let dim = embeddings[0].len();
     assert!(dim > 0);
