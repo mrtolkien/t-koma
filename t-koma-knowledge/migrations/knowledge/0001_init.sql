@@ -65,17 +65,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
     chunk_id UNINDEXED
 );
 
-CREATE TABLE IF NOT EXISTS reference_topics (
-    topic_id TEXT PRIMARY KEY,
-    files_json TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS reference_files (
     topic_id TEXT NOT NULL,
     note_id TEXT NOT NULL,
     path TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'code',
     status TEXT NOT NULL DEFAULT 'active',
+    source_url TEXT,
+    source_type TEXT NOT NULL DEFAULT 'git',
+    fetched_at TEXT,
+    max_age_days INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(topic_id, note_id)
 );
 

@@ -7,7 +7,7 @@
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    NoteCreateRequest, NoteSearchScope, NoteUpdateRequest, WriteScope,
+    NoteCreateRequest, OwnershipScope, NoteUpdateRequest, WriteScope,
 };
 use t_koma_knowledge::storage::{KnowledgeStore, NoteRecord, replace_tags, upsert_note};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
@@ -158,7 +158,7 @@ async fn get_own_private_note_succeeds() {
     upsert_note(store.pool(), &note).await.unwrap();
 
     let doc = engine
-        .memory_get(&ghost_name, "ghost-a-own", NoteSearchScope::GhostOnly)
+        .memory_get(&ghost_name, "ghost-a-own", OwnershipScope::Private)
         .await;
     assert!(doc.is_ok());
 }
@@ -199,7 +199,7 @@ async fn get_other_ghost_private_note_fails() {
 
     // Ghost-a tries to read ghost-b's note
     let result = engine
-        .memory_get(&ghost_name, "ghost-b-secret", NoteSearchScope::GhostOnly)
+        .memory_get(&ghost_name, "ghost-b-secret", OwnershipScope::Private)
         .await;
     assert!(
         result.is_err(),
@@ -242,7 +242,7 @@ async fn get_shared_note_from_any_ghost() {
 
     // Ghost-b can read shared note
     let doc = engine
-        .memory_get("ghost-b", "shared-note", NoteSearchScope::SharedOnly)
+        .memory_get("ghost-b", "shared-note", OwnershipScope::Shared)
         .await;
     assert!(doc.is_ok(), "any ghost should read shared notes");
 }
@@ -678,15 +678,15 @@ async fn topic_list_returns_inserted_topics() {
     )
     .await;
 
-    // Without obsolete
+    // Topics are no longer filtered by status — both should appear
     let list = engine.topic_list(false).await.unwrap();
-    assert_eq!(list.len(), 1, "obsolete topic should be excluded");
-    assert_eq!(list[0].topic_id, "topic-a");
-    assert_eq!(list[0].tags, vec!["alpha", "rust"]);
+    assert_eq!(list.len(), 2, "all topics should be listed");
 
-    // With obsolete
+    let topic_a = list.iter().find(|e| e.topic_id == "topic-a").expect("topic-a");
+    assert_eq!(topic_a.tags, vec!["alpha", "rust"]);
+
     let list_all = engine.topic_list(true).await.unwrap();
-    assert_eq!(list_all.len(), 2, "should include obsolete topics");
+    assert_eq!(list_all.len(), 2);
 }
 
 #[tokio::test]
@@ -715,8 +715,6 @@ async fn topic_update_changes_status_and_tags() {
 
     let request = t_koma_knowledge::TopicUpdateRequest {
         topic_id: "topic-upd".to_string(),
-        status: Some("obsolete".to_string()),
-        max_age_days: Some(0),
         body: Some("Updated description.".to_string()),
         tags: Some(vec!["updated".to_string(), "changed".to_string()]),
     };
@@ -730,16 +728,12 @@ async fn topic_update_changes_status_and_tags() {
                 .await
                 .unwrap();
             assert!(
-                content.contains("status = \"obsolete\""),
-                "status should be updated"
-            );
-            assert!(
-                content.contains("max_age_days = 0"),
-                "max_age_days should be updated"
-            );
-            assert!(
                 content.contains("Updated description."),
                 "body should be updated"
+            );
+            assert!(
+                content.contains("updated"),
+                "tags should be updated"
             );
         }
         Err(e) => {
@@ -855,7 +849,7 @@ mod slow {
         // Now search for it
         let query = t_koma_knowledge::NoteQuery {
             query: "error handling in Rust".to_string(),
-            scope: NoteSearchScope::GhostOnly,
+            scope: OwnershipScope::Private,
             options: Default::default(),
         };
         let results = engine

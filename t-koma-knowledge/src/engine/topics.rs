@@ -8,11 +8,10 @@ use sqlx::SqlitePool;
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeScope, SourceRole, TopicCreateRequest, TopicCreateResult,
+    CollectionSummary, KnowledgeScope, SourceRole, TopicCreateRequest, TopicCreateResult,
     TopicListEntry, TopicSearchResult, TopicUpdateRequest, generate_note_id,
 };
-use crate::parser::TopicSource;
-use crate::sources;
+use crate::sources::{self, TopicSource};
 
 use super::KnowledgeEngine;
 use super::notes::{rebuild_front_matter, sanitize_filename};
@@ -68,7 +67,6 @@ pub(crate) async fn topic_create_execute(
     let topic_id = generate_note_id();
     let now = Utc::now();
     let trust_score = request.trust_score.unwrap_or(8);
-    let max_age_days = request.max_age_days.unwrap_or(30);
 
     let front_matter = build_topic_front_matter(
         &topic_id,
@@ -76,9 +74,6 @@ pub(crate) async fn topic_create_execute(
         ghost_name,
         trust_score,
         request.tags.as_deref(),
-        &topic_sources,
-        &all_files,
-        max_age_days,
         &now,
     );
 
@@ -116,13 +111,16 @@ pub(crate) async fn topic_create_execute(
 
         let note_type = role.to_note_type();
         let file_note_id = generate_note_id();
-        let file_ingested = crate::ingest::ingest_reference_file(
+        // Use topic title as context prefix for chunk enrichment during initial import
+        let context_prefix = format!("[{}]", request.title);
+        let file_ingested = crate::ingest::ingest_reference_file_with_context(
             settings,
             &file_path,
             &file_content,
             &file_note_id,
             file_name,
             note_type,
+            Some(&context_prefix),
         )
         .await?;
         crate::storage::upsert_note(pool, &file_ingested.note).await?;
@@ -139,14 +137,28 @@ pub(crate) async fn topic_create_execute(
         crate::index::embed_chunks(settings, embedder, pool, &file_ingested.chunks, &file_chunk_ids)
             .await?;
 
-        // Link file to topic with role
+        // Determine source_url from the FetchedSource that produced this file
+        let source_url = fetched
+            .iter()
+            .find(|r| r.files.contains(file_name))
+            .map(|r| r.source.url.clone());
+        let source_type = fetched
+            .iter()
+            .find(|r| r.files.contains(file_name))
+            .map(|r| r.source.source_type.as_str())
+            .unwrap_or("git");
+
+        // Link file to topic with role and provenance metadata
         sqlx::query(
-            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path, role) VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO reference_files (topic_id, note_id, path, role, source_url, source_type, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&topic_id)
         .bind(&file_note_id)
         .bind(file_name)
         .bind(role.as_str())
+        .bind(&source_url)
+        .bind(source_type)
+        .bind(now.to_rfc3339())
         .execute(pool)
         .await?;
     }
@@ -226,20 +238,11 @@ pub(crate) async fn topic_search(
 
     let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::SharedReference, "").await?;
 
-    // Convert to TopicSearchResult with staleness info
-    let now = Utc::now();
     let mut results = Vec::new();
     for summary in summaries {
-        let topic_meta = load_topic_meta(pool, &summary.id).await?;
-        let status = topic_meta.status.clone();
-        let is_stale = compute_staleness(&status, topic_meta.fetched_at, topic_meta.max_age_days, &now);
-
         results.push(TopicSearchResult {
             topic_id: summary.id.clone(),
             title: summary.title,
-            status,
-            is_stale,
-            fetched_at: topic_meta.fetched_at,
             tags: load_topic_tags(pool, &summary.id).await?,
             score: summary.score,
             snippet: summary.snippet,
@@ -249,39 +252,21 @@ pub(crate) async fn topic_search(
     Ok(results)
 }
 
-/// List all reference topics with staleness information.
+/// List all reference topics.
 pub(crate) async fn topic_list(
     engine: &KnowledgeEngine,
-    include_obsolete: bool,
+    _include_obsolete: bool,
 ) -> KnowledgeResult<Vec<TopicListEntry>> {
     let pool = engine.pool();
-    let now = Utc::now();
 
-    let rows = if include_obsolete {
-        sqlx::query_as::<_, (String, String, String, i64, String)>(
-            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
-        )
-        .fetch_all(pool)
-        .await?
-    } else {
-        // Exclude obsolete — we check in Rust since status is in the file, not a column
-        sqlx::query_as::<_, (String, String, String, i64, String)>(
-            "SELECT id, title, created_by_ghost, trust_score, path FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
-        )
-        .fetch_all(pool)
-        .await?
-    };
+    let rows = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT id, title, created_by_ghost FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
+    )
+    .fetch_all(pool)
+    .await?;
 
     let mut entries = Vec::new();
-    for (id, title, ghost, _trust, _path) in rows {
-        let meta = load_topic_meta(pool, &id).await?;
-
-        if !include_obsolete && meta.status == "obsolete" {
-            continue;
-        }
-
-        let is_stale = compute_staleness(&meta.status, meta.fetched_at, meta.max_age_days, &now);
-
+    for (id, title, ghost) in rows {
         let file_count = sqlx::query_as::<_, (i64,)>(
             "SELECT COUNT(*) FROM reference_files WHERE topic_id = ?",
         )
@@ -293,18 +278,57 @@ pub(crate) async fn topic_list(
 
         let tags = load_topic_tags(pool, &id).await?;
 
-        let source_count = meta.source_count;
+        // Load collection summaries: ReferenceCollection notes with parent_id = topic id
+        let collection_rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, title FROM notes WHERE note_type = 'ReferenceCollection' AND parent_id = ? ORDER BY title",
+        )
+        .bind(&id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut collections = Vec::new();
+        for (coll_id, coll_title) in collection_rows {
+            let coll_file_count = sqlx::query_as::<_, (i64,)>(
+                "SELECT COUNT(*) FROM reference_files WHERE topic_id = ? AND path LIKE ? || '%'",
+            )
+            .bind(&id)
+            .bind(format!("{}%", coll_title))
+            .fetch_one(pool)
+            .await
+            .map(|(c,)| c as usize)
+            .unwrap_or(0);
+
+            // Derive path from the collection note's filesystem path relative to topic
+            let coll_path = sqlx::query_as::<_, (String,)>(
+                "SELECT path FROM notes WHERE id = ? LIMIT 1",
+            )
+            .bind(&coll_id)
+            .fetch_optional(pool)
+            .await?
+            .map(|(p,)| {
+                // Extract the subdirectory name from the path (parent of _index.md)
+                let path = std::path::Path::new(&p);
+                path.parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .unwrap_or_default();
+
+            collections.push(CollectionSummary {
+                title: coll_title,
+                path: coll_path,
+                file_count: coll_file_count,
+            });
+        }
 
         entries.push(TopicListEntry {
             topic_id: id,
             title,
-            status: meta.status,
-            is_stale,
-            fetched_at: meta.fetched_at,
-            max_age_days: meta.max_age_days,
             created_by_ghost: ghost,
-            source_count,
             file_count,
+            collections,
             tags,
         });
     }
@@ -347,12 +371,6 @@ pub(crate) async fn topic_update(
     let mut front = parsed.front;
 
     // Apply patches
-    if let Some(status) = &request.status {
-        front.status = Some(status.clone());
-    }
-    if let Some(max_age) = request.max_age_days {
-        front.max_age_days = Some(max_age);
-    }
     if let Some(tags) = &request.tags {
         front.tags = Some(tags.clone());
     }
@@ -417,65 +435,6 @@ pub(crate) async fn recent_topics(pool: &SqlitePool) -> KnowledgeResult<Vec<(Str
 
 // ── Internal helpers ────────────────────────────────────────────────
 
-struct TopicMeta {
-    status: String,
-    fetched_at: Option<chrono::DateTime<Utc>>,
-    max_age_days: i64,
-    source_count: usize,
-}
-
-/// Load topic metadata from the file's front matter.
-///
-/// We read the topic.md file and parse its front matter to get status,
-/// fetched_at, max_age_days, and source count.
-async fn load_topic_meta(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<TopicMeta> {
-    let row = sqlx::query_as::<_, (String,)>(
-        "SELECT path FROM notes WHERE id = ? LIMIT 1",
-    )
-    .bind(topic_id)
-    .fetch_optional(pool)
-    .await?;
-
-    let path = match row {
-        Some((p,)) => p,
-        None => {
-            return Ok(TopicMeta {
-                status: "active".to_string(),
-                fetched_at: None,
-                max_age_days: 0,
-                source_count: 0,
-            });
-        }
-    };
-
-    let content = match tokio::fs::read_to_string(&path).await {
-        Ok(c) => c,
-        Err(_) => {
-            return Ok(TopicMeta {
-                status: "active".to_string(),
-                fetched_at: None,
-                max_age_days: 0,
-                source_count: 0,
-            });
-        }
-    };
-
-    match crate::parser::parse_note(&content) {
-        Ok(parsed) => Ok(TopicMeta {
-            status: parsed.front.status.unwrap_or_else(|| "active".to_string()),
-            fetched_at: parsed.front.fetched_at,
-            max_age_days: parsed.front.max_age_days.unwrap_or(0),
-            source_count: parsed.front.sources.as_ref().map(|s| s.len()).unwrap_or(0),
-        }),
-        Err(_) => Ok(TopicMeta {
-            status: "active".to_string(),
-            fetched_at: None,
-            max_age_days: 0,
-            source_count: 0,
-        }),
-    }
-}
-
 async fn load_topic_tags(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<Vec<String>> {
     let rows = sqlx::query_as::<_, (String,)>(
         "SELECT tag FROM note_tags WHERE note_id = ?",
@@ -487,35 +446,16 @@ async fn load_topic_tags(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<V
     Ok(rows.into_iter().map(|(t,)| t).collect())
 }
 
-fn compute_staleness(
-    status: &str,
-    fetched_at: Option<chrono::DateTime<Utc>>,
-    max_age_days: i64,
-    now: &chrono::DateTime<Utc>,
-) -> bool {
-    if status == "obsolete" {
-        return true;
-    }
-    if max_age_days == 0 {
-        return false;
-    }
-    match fetched_at {
-        Some(fetched) => (*now - fetched).num_days() > max_age_days,
-        None => false,
-    }
-}
-
 /// Build TOML front matter for a reference topic.
-#[allow(clippy::too_many_arguments)]
-fn build_topic_front_matter(
+///
+/// v2 topics are lean: just id, title, type, created_at, trust_score, tags, created_by.
+/// Per-file provenance (source_url, fetched_at, max_age_days) is stored in the DB.
+pub(crate) fn build_topic_front_matter(
     id: &str,
     title: &str,
     ghost_name: &str,
     trust_score: i64,
     tags: Option<&[String]>,
-    sources: &[TopicSource],
-    files: &[String],
-    max_age_days: i64,
     now: &chrono::DateTime<Utc>,
 ) -> String {
     let mut lines = Vec::new();
@@ -528,38 +468,11 @@ fn build_topic_front_matter(
         let formatted: Vec<String> = tag_list.iter().map(|t| format!("\"{}\"", t)).collect();
         lines.push(format!("tags = [{}]", formatted.join(", ")));
     }
-    lines.push("status = \"active\"".to_string());
-    lines.push(format!("fetched_at = \"{}\"", now.to_rfc3339()));
-    lines.push(format!("max_age_days = {}", max_age_days));
-    if !files.is_empty() {
-        let formatted: Vec<String> = files.iter().map(|f| format!("\"{}\"", f)).collect();
-        lines.push(format!("files = [{}]", formatted.join(", ")));
-    }
 
     lines.push(String::new());
     lines.push("[created_by]".to_string());
     lines.push(format!("ghost = \"{}\"", ghost_name));
     lines.push("model = \"tool\"".to_string());
-
-    for src in sources {
-        lines.push(String::new());
-        lines.push("[[sources]]".to_string());
-        lines.push(format!("type = \"{}\"", src.source_type));
-        lines.push(format!("url = \"{}\"", src.url));
-        if let Some(ref_name) = &src.ref_name {
-            lines.push(format!("ref = \"{}\"", ref_name));
-        }
-        if let Some(commit) = &src.commit {
-            lines.push(format!("commit = \"{}\"", commit));
-        }
-        if let Some(paths) = &src.paths {
-            let formatted: Vec<String> = paths.iter().map(|p| format!("\"{}\"", p)).collect();
-            lines.push(format!("paths = [{}]", formatted.join(", ")));
-        }
-        if let Some(role) = &src.role {
-            lines.push(format!("role = \"{}\"", role));
-        }
-    }
 
     lines.join("\n")
 }

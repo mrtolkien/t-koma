@@ -9,8 +9,8 @@ use std::sync::Arc;
 pub enum ApprovalReason {
     /// Tool wants to access a path outside the ghost workspace.
     WorkspaceEscape(String),
-    /// Tool wants to create a reference topic (potentially large fetch).
-    ReferenceTopicCreate {
+    /// Tool wants to import external sources into a reference topic (potentially large fetch).
+    ReferenceImport {
         title: String,
         summary: String,
     },
@@ -34,7 +34,7 @@ impl ApprovalReason {
             && let Some(reason_type) = value.get("reason").and_then(|v| v.as_str())
         {
             return match reason_type {
-                "reference_topic_create" => Some(ApprovalReason::ReferenceTopicCreate {
+                "reference_import" => Some(ApprovalReason::ReferenceImport {
                     title: value.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     summary: value.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 }),
@@ -52,9 +52,9 @@ impl ApprovalReason {
             ApprovalReason::WorkspaceEscape(path) => {
                 format!("{}{}", APPROVAL_REQUIRED_PREFIX, path)
             }
-            ApprovalReason::ReferenceTopicCreate { title, summary } => {
+            ApprovalReason::ReferenceImport { title, summary } => {
                 let json = serde_json::json!({
-                    "reason": "reference_topic_create",
+                    "reason": "reference_import",
                     "title": title,
                     "summary": summary,
                 });
@@ -69,8 +69,8 @@ impl ApprovalReason {
             ApprovalReason::WorkspaceEscape(_) => {
                 "Error: Operator denied approval to leave the workspace."
             }
-            ApprovalReason::ReferenceTopicCreate { .. } => {
-                "Error: Operator denied approval to create this reference topic."
+            ApprovalReason::ReferenceImport { .. } => {
+                "Error: Operator denied approval to import this reference topic."
             }
         }
     }
@@ -187,8 +187,8 @@ impl ToolContext {
             ApprovalReason::WorkspaceEscape(_) => {
                 self.set_allow_outside_workspace(true);
             }
-            ApprovalReason::ReferenceTopicCreate { .. } => {
-                self.grant_approval("reference_topic_create");
+            ApprovalReason::ReferenceImport { .. } => {
+                self.grant_approval("reference_import");
             }
         }
     }

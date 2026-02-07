@@ -3,7 +3,7 @@ use sqlx::SqlitePool;
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeScope, NoteDocument, NoteSearchScope, WriteScope,
+    KnowledgeScope, NoteDocument, OwnershipScope, WriteScope,
 };
 use crate::paths::ghost_inbox_path;
 
@@ -14,7 +14,7 @@ pub(crate) async fn memory_get(
     engine: &KnowledgeEngine,
     ghost_name: &str,
     note_id_or_title: &str,
-    scope: NoteSearchScope,
+    scope: OwnershipScope,
 ) -> KnowledgeResult<NoteDocument> {
     let scopes = resolve_scopes(&scope);
     for scope in scopes {

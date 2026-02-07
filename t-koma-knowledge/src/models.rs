@@ -67,23 +67,26 @@ impl std::fmt::Display for KnowledgeScope {
     }
 }
 
-/// Query scope for note searches.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub enum NoteSearchScope {
-    /// Search shared + ghost notes.
+/// Ownership scope for knowledge queries.
+///
+/// Controls whether a query targets shared, private (ghost-owned), or both.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OwnershipScope {
+    /// Search shared + private.
     #[default]
     All,
-    /// Only shared notes.
-    SharedOnly,
-    /// Only ghost-owned notes.
-    GhostOnly,
+    /// Only shared artifacts.
+    Shared,
+    /// Only ghost-owned artifacts.
+    Private,
 }
 
 /// Query for searching notes (shared + ghost).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteQuery {
     pub query: String,
-    pub scope: NoteSearchScope,
+    pub scope: OwnershipScope,
     #[serde(default)]
     pub options: SearchOptions,
 }
@@ -114,6 +117,73 @@ pub struct SearchOptions {
     pub dense_limit: Option<usize>,
     /// Boost multiplier for documentation files in reference search. Overrides config default.
     pub doc_boost: Option<f32>,
+}
+
+// ── Unified knowledge query models ─────────────────────────────────
+
+/// Category of knowledge to search.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchCategory {
+    Notes,
+    Diary,
+    References,
+    Topics,
+}
+
+impl SearchCategory {
+    /// All categories in default search order.
+    pub fn all() -> Vec<Self> {
+        vec![Self::Notes, Self::Diary, Self::References, Self::Topics]
+    }
+}
+
+/// Unified query for searching across all knowledge subsystems.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeSearchQuery {
+    pub query: String,
+    /// Categories to search. `None` = all.
+    pub categories: Option<Vec<SearchCategory>>,
+    #[serde(default)]
+    pub scope: OwnershipScope,
+    /// Narrow reference search to a specific topic.
+    pub topic: Option<String>,
+    #[serde(default)]
+    pub options: SearchOptions,
+}
+
+/// Unified search result grouped by category.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeSearchResult {
+    pub notes: Vec<NoteResult>,
+    pub diary: Vec<DiarySearchResult>,
+    pub references: ReferenceSearchOutput,
+    pub topics: Vec<TopicSearchResult>,
+}
+
+/// Reference search output with optional matched topic context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceSearchOutput {
+    /// Present when a `topic` parameter was used and matched.
+    pub matched_topic: Option<MatchedTopic>,
+    pub results: Vec<NoteResult>,
+}
+
+/// Matched topic metadata for contextual enrichment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchedTopic {
+    pub topic_id: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// Unified retrieval query — fetch by ID or by topic + path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeGetQuery {
+    pub id: Option<String>,
+    pub topic: Option<String>,
+    pub path: Option<String>,
+    pub max_chars: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,44 +271,6 @@ pub struct NoteWriteResult {
 }
 
 // ── Reference topic models ──────────────────────────────────────────
-
-/// Status of a reference topic.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum TopicStatus {
-    #[default]
-    Active,
-    Stale,
-    Obsolete,
-}
-
-impl TopicStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::Stale => "stale",
-            Self::Obsolete => "obsolete",
-        }
-    }
-}
-
-impl std::fmt::Display for TopicStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for TopicStatus {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "active" => Ok(Self::Active),
-            "stale" => Ok(Self::Stale),
-            "obsolete" => Ok(Self::Obsolete),
-            other => Err(format!("unknown topic status: {}", other)),
-        }
-    }
-}
 
 /// Role of a reference source: documentation or code.
 ///
@@ -372,18 +404,22 @@ pub struct TopicCreateResult {
     pub chunk_count: usize,
 }
 
+/// Summary of a collection within a topic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionSummary {
+    pub title: String,
+    pub path: String,
+    pub file_count: usize,
+}
+
 /// Entry in a topic listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicListEntry {
     pub topic_id: String,
     pub title: String,
-    pub status: String,
-    pub is_stale: bool,
-    pub fetched_at: Option<DateTime<Utc>>,
-    pub max_age_days: i64,
     pub created_by_ghost: String,
-    pub source_count: usize,
     pub file_count: usize,
+    pub collections: Vec<CollectionSummary>,
     pub tags: Vec<String>,
 }
 
@@ -392,9 +428,6 @@ pub struct TopicListEntry {
 pub struct TopicSearchResult {
     pub topic_id: String,
     pub title: String,
-    pub status: String,
-    pub is_stale: bool,
-    pub fetched_at: Option<DateTime<Utc>>,
     pub tags: Vec<String>,
     pub score: f32,
     pub snippet: String,
@@ -404,10 +437,49 @@ pub struct TopicSearchResult {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TopicUpdateRequest {
     pub topic_id: String,
-    pub status: Option<String>,
-    pub max_age_days: Option<i64>,
     pub body: Option<String>,
     pub tags: Option<Vec<String>>,
+}
+
+// ── Reference save models ──────────────────────────────────────────
+
+/// Input for saving content to a reference topic.
+///
+/// Creates topic and collection implicitly if they don't exist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceSaveRequest {
+    /// Topic name (fuzzy-matched against existing topics).
+    pub topic: String,
+    /// Relative path within the topic directory (e.g. "bambulab-a1/specs.md").
+    pub path: String,
+    /// Content to write.
+    pub content: String,
+    /// Source URL for provenance tracking.
+    pub source_url: Option<String>,
+    /// Role of the content (docs vs code). Default: docs.
+    pub role: Option<SourceRole>,
+    /// Title for the file note.
+    pub title: Option<String>,
+    /// Title for auto-created collection.
+    pub collection_title: Option<String>,
+    /// Description for auto-created collection.
+    pub collection_description: Option<String>,
+    /// Tags for auto-created collection.
+    pub collection_tags: Option<Vec<String>>,
+    /// Tags for auto-created topic.
+    pub tags: Option<Vec<String>>,
+    /// Description for auto-created topic.
+    pub topic_description: Option<String>,
+}
+
+/// Result of a reference_save operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceSaveResult {
+    pub topic_id: String,
+    pub note_id: String,
+    pub path: String,
+    pub created_topic: bool,
+    pub created_collection: bool,
 }
 
 /// Result of a `reference_search` query, including full topic context.
