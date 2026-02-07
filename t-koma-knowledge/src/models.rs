@@ -67,23 +67,26 @@ impl std::fmt::Display for KnowledgeScope {
     }
 }
 
-/// Query scope for note searches.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub enum NoteSearchScope {
-    /// Search shared + ghost notes.
+/// Ownership scope for knowledge queries.
+///
+/// Controls whether a query targets shared, private (ghost-owned), or both.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OwnershipScope {
+    /// Search shared + private.
     #[default]
     All,
-    /// Only shared notes.
-    SharedOnly,
-    /// Only ghost-owned notes.
-    GhostOnly,
+    /// Only shared artifacts.
+    Shared,
+    /// Only ghost-owned artifacts.
+    Private,
 }
 
 /// Query for searching notes (shared + ghost).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteQuery {
     pub query: String,
-    pub scope: NoteSearchScope,
+    pub scope: OwnershipScope,
     #[serde(default)]
     pub options: SearchOptions,
 }

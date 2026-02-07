@@ -7,7 +7,7 @@
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    NoteCreateRequest, NoteSearchScope, NoteUpdateRequest, WriteScope,
+    NoteCreateRequest, OwnershipScope, NoteUpdateRequest, WriteScope,
 };
 use t_koma_knowledge::storage::{KnowledgeStore, NoteRecord, replace_tags, upsert_note};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
@@ -158,7 +158,7 @@ async fn get_own_private_note_succeeds() {
     upsert_note(store.pool(), &note).await.unwrap();
 
     let doc = engine
-        .memory_get(&ghost_name, "ghost-a-own", NoteSearchScope::GhostOnly)
+        .memory_get(&ghost_name, "ghost-a-own", OwnershipScope::Private)
         .await;
     assert!(doc.is_ok());
 }
@@ -199,7 +199,7 @@ async fn get_other_ghost_private_note_fails() {
 
     // Ghost-a tries to read ghost-b's note
     let result = engine
-        .memory_get(&ghost_name, "ghost-b-secret", NoteSearchScope::GhostOnly)
+        .memory_get(&ghost_name, "ghost-b-secret", OwnershipScope::Private)
         .await;
     assert!(
         result.is_err(),
@@ -242,7 +242,7 @@ async fn get_shared_note_from_any_ghost() {
 
     // Ghost-b can read shared note
     let doc = engine
-        .memory_get("ghost-b", "shared-note", NoteSearchScope::SharedOnly)
+        .memory_get("ghost-b", "shared-note", OwnershipScope::Shared)
         .await;
     assert!(doc.is_ok(), "any ghost should read shared notes");
 }
@@ -849,7 +849,7 @@ mod slow {
         // Now search for it
         let query = t_koma_knowledge::NoteQuery {
             query: "error handling in Rust".to_string(),
-            scope: NoteSearchScope::GhostOnly,
+            scope: OwnershipScope::Private,
             options: Default::default(),
         };
         let results = engine

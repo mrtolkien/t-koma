@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
     KnowledgeScope, NoteCreateRequest, NoteDocument,
-    NoteSearchScope, NoteUpdateRequest, NoteWriteResult, WriteScope, generate_note_id,
+    NoteUpdateRequest, NoteWriteResult, OwnershipScope, WriteScope, generate_note_id,
 };
 use crate::parser::CommentEntry;
 use crate::KnowledgeSettings;
@@ -90,7 +90,7 @@ pub(crate) async fn note_update(
 ) -> KnowledgeResult<NoteWriteResult> {
     // Fetch existing note and verify access
     let doc = engine
-        .memory_get(ghost_name, &request.note_id, NoteSearchScope::All)
+        .memory_get(ghost_name, &request.note_id, OwnershipScope::All)
         .await?;
     verify_write_access(ghost_name, &doc)?;
 
@@ -178,7 +178,7 @@ pub(crate) async fn note_validate(
     trust_score: Option<i64>,
 ) -> KnowledgeResult<NoteWriteResult> {
     let doc = engine
-        .memory_get(ghost_name, note_id, NoteSearchScope::All)
+        .memory_get(ghost_name, note_id, OwnershipScope::All)
         .await?;
     verify_write_access(ghost_name, &doc)?;
 
@@ -233,7 +233,7 @@ pub(crate) async fn note_comment(
     text: &str,
 ) -> KnowledgeResult<NoteWriteResult> {
     let doc = engine
-        .memory_get(ghost_name, note_id, NoteSearchScope::All)
+        .memory_get(ghost_name, note_id, OwnershipScope::All)
         .await?;
     verify_write_access(ghost_name, &doc)?;
 

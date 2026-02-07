@@ -7,8 +7,8 @@ use crate::embeddings::EmbeddingClient;
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::graph::{load_links_in, load_links_out, load_parent, load_tags};
 use crate::models::{
-    DiaryQuery, DiarySearchResult, KnowledgeScope, NoteQuery, NoteResult, NoteSearchScope,
-    NoteSummary, SearchOptions,
+    DiaryQuery, DiarySearchResult, KnowledgeScope, NoteQuery, NoteResult, NoteSummary,
+    OwnershipScope, SearchOptions,
 };
 
 pub(crate) async fn search_store(
@@ -366,15 +366,15 @@ pub(crate) async fn hydrate_summaries_boosted(
     Ok(summaries)
 }
 
-pub(crate) fn resolve_scopes(scope: &NoteSearchScope) -> Vec<KnowledgeScope> {
+pub(crate) fn resolve_scopes(scope: &OwnershipScope) -> Vec<KnowledgeScope> {
     match scope {
-        NoteSearchScope::All => vec![
+        OwnershipScope::All => vec![
             KnowledgeScope::SharedNote,
             KnowledgeScope::GhostNote,
             KnowledgeScope::GhostDiary,
         ],
-        NoteSearchScope::SharedOnly => vec![KnowledgeScope::SharedNote],
-        NoteSearchScope::GhostOnly => vec![
+        OwnershipScope::Shared => vec![KnowledgeScope::SharedNote],
+        OwnershipScope::Private => vec![
             KnowledgeScope::GhostNote,
             KnowledgeScope::GhostDiary,
         ],
