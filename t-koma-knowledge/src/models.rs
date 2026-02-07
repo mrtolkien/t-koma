@@ -382,6 +382,10 @@ pub struct TopicSourceInput {
     pub paths: Option<Vec<String>>,
     /// Role of the source content (docs vs code). Inferred from source_type if not set.
     pub role: Option<SourceRole>,
+    /// Max link-hop depth for crawl sources (default 1, max 3).
+    pub max_depth: Option<u8>,
+    /// Max pages to fetch for crawl sources (default 20, max 100).
+    pub max_pages: Option<usize>,
 }
 
 /// Input for creating a new reference topic.
