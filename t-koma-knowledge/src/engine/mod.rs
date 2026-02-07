@@ -211,6 +211,15 @@ impl KnowledgeEngine {
         reference::reference_get(self, note_id, topic, file_path, max_chars).await
     }
 
+    /// Resolve an existing reference topic by fuzzy name matching.
+    ///
+    /// Returns `(id, title)` or errors with `UnknownNote` if no topic found.
+    pub async fn resolve_topic(&self, name: &str) -> KnowledgeResult<(String, String)> {
+        save::find_existing_topic(self.pool(), name)
+            .await?
+            .ok_or_else(|| KnowledgeError::UnknownNote(format!("topic '{}'", name)))
+    }
+
     /// Save content to a reference topic, creating topic and collection if needed.
     pub async fn reference_save(
         &self,
