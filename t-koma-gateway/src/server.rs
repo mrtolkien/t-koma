@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use crate::content::{self, ids};
+use crate::discord;
+use crate::gateway_message;
 use crate::session::{ChatError, ToolApprovalDecision};
 use crate::state::{AppState, LogEntry, RateLimitDecision};
 
@@ -43,6 +45,21 @@ fn tool_loop_limit_reached_message(limit: usize, extra: usize) -> String {
         "tool-loop-limit-reached",
         &[("limit", limit.as_str()), ("extra", extra.as_str())],
     )
+}
+
+fn ws_text_response(text: impl Into<String>) -> t_koma_core::WsResponse {
+    let id = format!("ws_{}", uuid::Uuid::new_v4());
+    let message = t_koma_core::GatewayMessage::text_only(
+        id.clone(),
+        t_koma_core::GatewayMessageKind::AssistantText,
+        text.into(),
+    );
+    t_koma_core::WsResponse::Response {
+        id,
+        message,
+        done: true,
+        usage: None,
+    }
 }
 
 /// Health check response
@@ -250,7 +267,7 @@ async fn handle_websocket(
 
     let welcome = WsResponse::Response {
         id: "welcome".to_string(),
-        content: render_message(ids::CONNECTED_PUPPET_MASTER, &[]),
+        message: gateway_message::from_content(ids::CONNECTED_PUPPET_MASTER, None, &[]),
         done: true,
         usage: None,
     };
@@ -379,6 +396,73 @@ async fn handle_websocket(
                         .await;
                 }
                 Ok(other_message) => {
+                    // CLI admin command: approve operator and trigger cross-interface follow-up.
+                    if let WsMessage::ApproveOperator {
+                        operator_id: target_operator_id,
+                    } = other_message.clone()
+                    {
+                        if platform != t_koma_db::Platform::Cli {
+                            let error_response = WsResponse::Error {
+                                message: "approve_operator requires CLI client context".to_string(),
+                            };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+
+                        if let Err(e) = t_koma_db::OperatorRepository::approve(
+                            state.koma_db.pool(),
+                            &target_operator_id,
+                        )
+                        .await
+                        {
+                            let error_response = WsResponse::Error {
+                                message: format!("Approve failed: {}", e),
+                            };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+
+                        let mut discord_notified = false;
+                        if let Some(token) = state.discord_bot_token().await {
+                            match discord::send_approved_operator_ghost_prompt_dm(
+                                state.as_ref(),
+                                token.as_str(),
+                                &target_operator_id,
+                            )
+                            .await
+                            {
+                                Ok(notified) => {
+                                    discord_notified = notified;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Approved operator {}, but Discord notification failed: {}",
+                                        target_operator_id, e
+                                    );
+                                }
+                            }
+                        }
+
+                        let response = WsResponse::OperatorApproved {
+                            operator_id: target_operator_id,
+                            discord_notified,
+                        };
+                        let _ = sender
+                            .send(Message::Text(
+                                serde_json::to_string(&response).unwrap().into(),
+                            ))
+                            .await;
+                        continue;
+                    }
+
                     let Some(op_id) = operator_id.clone() else {
                         let response = WsResponse::InterfaceSelectionRequired {
                             message: render_message(ids::SELECT_NEW_OR_EXISTING_FIRST, &[]),
@@ -413,6 +497,107 @@ async fn handle_websocket(
                                 .await;
                             continue;
                         }
+                    }
+
+                    // Control/admin commands that do not depend on active ghost routing.
+                    match other_message.clone() {
+                        WsMessage::ApproveOperator { .. } => {}
+                        WsMessage::SelectProvider { provider, model } => {
+                            let provider_name = provider.as_str();
+
+                            let entry = match state
+                                .get_model_by_provider_and_id(provider_name, &model)
+                            {
+                                Some(entry) => entry,
+                                None => {
+                                    let error_response = WsResponse::Error {
+                                        message: render_message(
+                                            ids::MODEL_NOT_CONFIGURED,
+                                            &[
+                                                ("model", model.as_str()),
+                                                ("provider", provider_name),
+                                            ],
+                                        ),
+                                    };
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                            };
+
+                            selected_model_alias = entry.alias.clone();
+                            let response = WsResponse::ProviderSelected {
+                                provider: entry.provider.clone(),
+                                model: entry.model.clone(),
+                            };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        WsMessage::ListAvailableModels { provider } => {
+                            let provider_name = provider.as_str();
+                            let models = state.list_models_for_provider(provider_name);
+                            if models.is_empty() {
+                                let error_response = WsResponse::Error {
+                                    message: render_message(
+                                        ids::NO_MODELS_CONFIGURED,
+                                        &[("provider", provider_name)],
+                                    ),
+                                };
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&error_response).unwrap().into(),
+                                    ))
+                                    .await;
+                                continue;
+                            }
+                            let response = WsResponse::AvailableModels {
+                                provider: provider_name.to_string(),
+                                models,
+                            };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        WsMessage::RestartGateway => {
+                            match state.restart_gateway().await {
+                                Ok(()) => {
+                                    let response = WsResponse::GatewayRestarting;
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&response).unwrap().into(),
+                                        ))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let error_response = WsResponse::Error {
+                                        message: format!("Failed to restart gateway: {}", e),
+                                    };
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
+                                }
+                            }
+                            continue;
+                        }
+                        WsMessage::Ping => {
+                            let pong = WsResponse::Pong;
+                            let pong_json = serde_json::to_string(&pong).unwrap();
+                            let _ = sender.send(Message::Text(pong_json.into())).await;
+                            continue;
+                        }
+                        _ => {}
                     }
 
                     let ghosts = match t_koma_db::GhostRepository::list_by_operator(
@@ -593,102 +778,11 @@ async fn handle_websocket(
                                 ))
                                 .await;
                         }
-                        WsMessage::SelectProvider { provider, model } => {
-                            let provider_name = provider.as_str();
-
-                            let entry = match state
-                                .get_model_by_provider_and_id(provider_name, &model)
-                            {
-                                Some(entry) => entry,
-                                None => {
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(
-                                            ids::MODEL_NOT_CONFIGURED,
-                                            &[
-                                                ("model", model.as_str()),
-                                                ("provider", provider_name),
-                                            ],
-                                        ),
-                                    };
-                                    let _ = sender
-                                        .send(Message::Text(
-                                            serde_json::to_string(&error_response).unwrap().into(),
-                                        ))
-                                        .await;
-                                    continue;
-                                }
-                            };
-
-                            selected_model_alias = entry.alias.clone();
-
-                            info!(
-                                "Client {} selected provider: {} with model: {}",
-                                client_id, entry.provider, entry.model
-                            );
-
-                            let response = WsResponse::ProviderSelected {
-                                provider: entry.provider.clone(),
-                                model: entry.model.clone(),
-                            };
-                            let _ = sender
-                                .send(Message::Text(
-                                    serde_json::to_string(&response).unwrap().into(),
-                                ))
-                                .await;
-                        }
-                        WsMessage::ListAvailableModels { provider } => {
-                            let provider_name = provider.as_str();
-                            let models = state.list_models_for_provider(provider_name);
-                            if models.is_empty() {
-                                let error_response = WsResponse::Error {
-                                    message: render_message(
-                                        ids::NO_MODELS_CONFIGURED,
-                                        &[("provider", provider_name)],
-                                    ),
-                                };
-                                let _ = sender
-                                    .send(Message::Text(
-                                        serde_json::to_string(&error_response).unwrap().into(),
-                                    ))
-                                    .await;
-                                continue;
-                            }
-
-                            let response = WsResponse::AvailableModels {
-                                provider: provider_name.to_string(),
-                                models,
-                            };
-                            let _ = sender
-                                .send(Message::Text(
-                                    serde_json::to_string(&response).unwrap().into(),
-                                ))
-                                .await;
-                        }
-                        WsMessage::RestartGateway => match state.restart_gateway().await {
-                            Ok(()) => {
-                                let response = WsResponse::GatewayRestarting;
-                                let _ = sender
-                                    .send(Message::Text(
-                                        serde_json::to_string(&response).unwrap().into(),
-                                    ))
-                                    .await;
-                            }
-                            Err(e) => {
-                                let error_response = WsResponse::Error {
-                                    message: format!("Failed to restart gateway: {}", e),
-                                };
-                                let _ = sender
-                                    .send(Message::Text(
-                                        serde_json::to_string(&error_response).unwrap().into(),
-                                    ))
-                                    .await;
-                            }
-                        },
-                        WsMessage::Ping => {
-                            let pong = WsResponse::Pong;
-                            let pong_json = serde_json::to_string(&pong).unwrap();
-                            let _ = sender.send(Message::Text(pong_json.into())).await;
-                        }
+                        WsMessage::ApproveOperator { .. } => {}
+                        WsMessage::SelectProvider { .. }
+                        | WsMessage::ListAvailableModels { .. }
+                        | WsMessage::RestartGateway
+                        | WsMessage::Ping => {}
                         WsMessage::Chat {
                             ghost_name,
                             session_id,
@@ -841,15 +935,10 @@ async fn handle_websocket(
                                             .await;
                                     }
                                     let retry_after = retry_after.as_secs().to_string();
-                                    let ws_response = WsResponse::Response {
-                                        id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                        content: render_message(
-                                            ids::RATE_LIMITED,
-                                            &[("retry_after", retry_after.as_str())],
-                                        ),
-                                        done: true,
-                                        usage: None,
-                                    };
+                                    let ws_response = ws_text_response(render_message(
+                                        ids::RATE_LIMITED,
+                                        &[("retry_after", retry_after.as_str())],
+                                    ));
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
                                     let _ = sender.send(Message::Text(response_json.into())).await;
@@ -890,12 +979,7 @@ async fn handle_websocket(
                                         .await
                                     {
                                         Ok(Some(text)) => {
-                                            let ws_response = WsResponse::Response {
-                                                id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                                content: text,
-                                                done: true,
-                                                usage: None,
-                                            };
+                                            let ws_response = ws_text_response(text);
                                             let response_json =
                                                 serde_json::to_string(&ws_response).unwrap();
                                             let _ = sender
@@ -915,12 +999,7 @@ async fn handle_websocket(
                                                 .await;
                                             let message =
                                                 approval_required_message(&pending.reason);
-                                            let ws_response = WsResponse::Response {
-                                                id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                                content: message,
-                                                done: true,
-                                                usage: None,
-                                            };
+                                            let ws_response = ws_text_response(message);
                                             let response_json =
                                                 serde_json::to_string(&ws_response).unwrap();
                                             let _ = sender
@@ -937,15 +1016,11 @@ async fn handle_websocket(
                                                     pending,
                                                 )
                                                 .await;
-                                            let ws_response = WsResponse::Response {
-                                                id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                                content: tool_loop_limit_reached_message(
+                                            let ws_response =
+                                                ws_text_response(tool_loop_limit_reached_message(
                                                     crate::session::DEFAULT_TOOL_LOOP_LIMIT,
                                                     crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                                                ),
-                                                done: true,
-                                                usage: None,
-                                            };
+                                                ));
                                             let response_json =
                                                 serde_json::to_string(&ws_response).unwrap();
                                             let _ = sender
@@ -976,12 +1051,10 @@ async fn handle_websocket(
                                         )
                                         .await
                                 {
-                                    let ws_response = WsResponse::Response {
-                                        id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                        content: render_message(ids::TOOL_LOOP_DENIED, &[]),
-                                        done: true,
-                                        usage: None,
-                                    };
+                                    let ws_response = ws_text_response(render_message(
+                                        ids::TOOL_LOOP_DENIED,
+                                        &[],
+                                    ));
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
                                     let _ = sender.send(Message::Text(response_json.into())).await;
@@ -999,12 +1072,7 @@ async fn handle_websocket(
                                     .await
                                 {
                                     Ok(Some(text)) => {
-                                        let ws_response = WsResponse::Response {
-                                            id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                            content: text,
-                                            done: true,
-                                            usage: None,
-                                        };
+                                        let ws_response = ws_text_response(text);
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
                                         let _ =
@@ -1016,12 +1084,7 @@ async fn handle_websocket(
                                         } else {
                                             render_message(ids::NO_PENDING_APPROVAL, &[])
                                         };
-                                        let ws_response = WsResponse::Response {
-                                            id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                            content: message.to_string(),
-                                            done: true,
-                                            usage: None,
-                                        };
+                                        let ws_response = ws_text_response(message.to_string());
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
                                         let _ =
@@ -1037,12 +1100,7 @@ async fn handle_websocket(
                                             )
                                             .await;
                                         let message = approval_required_message(&pending.reason);
-                                        let ws_response = WsResponse::Response {
-                                            id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                            content: message,
-                                            done: true,
-                                            usage: None,
-                                        };
+                                        let ws_response = ws_text_response(message);
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
                                         let _ =
@@ -1057,15 +1115,11 @@ async fn handle_websocket(
                                                 pending,
                                             )
                                             .await;
-                                        let ws_response = WsResponse::Response {
-                                            id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                            content: tool_loop_limit_reached_message(
+                                        let ws_response =
+                                            ws_text_response(tool_loop_limit_reached_message(
                                                 crate::session::DEFAULT_TOOL_LOOP_LIMIT,
                                                 crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                                            ),
-                                            done: true,
-                                            usage: None,
-                                        };
+                                            ));
                                         let response_json =
                                             serde_json::to_string(&ws_response).unwrap();
                                         let _ =
@@ -1095,12 +1149,7 @@ async fn handle_websocket(
                                 .await
                             {
                                 Ok(text) => {
-                                    let ws_response = WsResponse::Response {
-                                        id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                        content: text,
-                                        done: true,
-                                        usage: None,
-                                    };
+                                    let ws_response = ws_text_response(text);
 
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
@@ -1121,12 +1170,7 @@ async fn handle_websocket(
                                         )
                                         .await;
                                     let message = approval_required_message(&pending.reason);
-                                    let ws_response = WsResponse::Response {
-                                        id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                        content: message,
-                                        done: true,
-                                        usage: None,
-                                    };
+                                    let ws_response = ws_text_response(message);
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
                                     let _ = sender.send(Message::Text(response_json.into())).await;
@@ -1140,15 +1184,11 @@ async fn handle_websocket(
                                             pending,
                                         )
                                         .await;
-                                    let ws_response = WsResponse::Response {
-                                        id: format!("ws_{}", uuid::Uuid::new_v4()),
-                                        content: tool_loop_limit_reached_message(
+                                    let ws_response =
+                                        ws_text_response(tool_loop_limit_reached_message(
                                             crate::session::DEFAULT_TOOL_LOOP_LIMIT,
                                             crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                                        ),
-                                        done: true,
-                                        usage: None,
-                                    };
+                                        ));
                                     let response_json =
                                         serde_json::to_string(&ws_response).unwrap();
                                     let _ = sender.send(Message::Text(response_json.into())).await;

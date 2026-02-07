@@ -140,6 +140,15 @@ Transport layers (Discord, WebSocket) do NOT manage tools. They call
 `t-koma-gateway/src/chat/history.rs`; provider adapters convert from that
 neutral model internally.
 
+CLI admin actions that need cross-interface side effects (for example operator
+approval that must trigger a Discord follow-up prompt) must go through a
+gateway WebSocket command handled in `t-koma-gateway`, not direct CLI DB writes.
+
+Gateway outbound responses use semantic `GatewayMessage` payloads in
+`t-koma-core::message` and are rendered per interface. Every interactive
+gateway message must include a plaintext `text_fallback` path so non-rich
+interfaces can still operate with plain replies.
+
 ## Architecture Guardrails
 
 These are hard rules to preserve code quality and discoverability.
@@ -407,7 +416,7 @@ On approval, Phase 2 re-executes with `has_approval()` returning true. See
 ## Gateway Content (Brief)
 
 - Messages: add to `t-koma-gateway/messages/en/*.toml` as `[message-id]` with
-  `body` and optional `vars`/`title`. Use `{{var}}`.
+  `body` and optional `vars`/`title`/`kind`/`actions`. Use `{{var}}`.
 - Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
   and a `# loaded:` comment to know where they are used.
 - `ghost-context.md` uses Jinja template variables (`{{ ghost_identity }}`,

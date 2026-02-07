@@ -1,102 +1,102 @@
 [health-status]
-body = "ok"
+body = "OK"
 
 [health-koma]
-body = "running"
+body = "RUNNING"
 
 [failed-load-interface]
-body = "Failed to load interface"
+body = "`INTERFACE` load failed. インターフェース読込エラー。"
 
 [interface-invalid-operator]
-body = "Interface is not linked to a valid operator."
+body = "`INTERFACE` points to invalid `OPERATOR` record."
 
 [failed-load-operator]
-body = "Failed to load operator"
+body = "`OPERATOR` load failed. オペレータ読込エラー。"
 
 [interface-required]
-body = "T-KOMA (ティーコマ): This interface must belong to an EXISTING or NEW OPERATOR (オペレータ). Reply with NEW or EXISTING."
+body = "T-KOMA // This `INTERFACE` requires `OPERATOR BINDING`. Reply `NEW` or `EXISTING`."
 
 [access-pending]
-body = "Your access request is pending approval"
+body = "`ACCESS REQUEST` pending. 承認待機中。"
 
 [access-denied]
-body = "Your access request was denied."
+body = "`ACCESS REQUEST` denied. アクセス拒否。"
 
 [unknown-operator-status]
-body = "Unknown operator status"
+body = "Unknown `OPERATOR STATUS`. オペレータ状態不明。"
 
 [existing-operator-todo]
-body = "Existing operator binding not implemented yet. TODO."
+body = "`EXISTING OPERATOR` bind path is TODO."
 
 [reply-with-new-or-existing]
-body = "Reply with NEW or EXISTING."
+body = "Reply with `NEW` or `EXISTING`."
 
 [failed-create-operator]
-body = "Failed to create operator"
+body = "`OPERATOR` creation failed."
 
 [failed-create-interface]
-body = "Failed to create interface"
+body = "`INTERFACE` creation failed."
 
 [operator-created-awaiting-approval]
-body = "Operator created. Awaiting approval via management CLI."
+body = "`OPERATOR` shell created. `MANAGEMENT CLI` approval required."
 
 [select-new-or-existing-first]
-body = "Select NEW or EXISTING operator first."
+body = "Select `OPERATOR MODE` first: `NEW` or `EXISTING`."
 
 [failed-list-ghosts]
-body = "Failed to list ghosts"
+body = "`GHOST` list query failed."
 
 [no-ghosts-for-operator]
-body = "No GHOST (ゴースト) exists for this operator. Create one via Discord first."
+body = "No `GHOST NODE` linked to this `OPERATOR`. Create one from `DISCORD` first."
 
 [unknown-ghost-name-server]
-body = "Unknown ghost name"
+body = "Unknown `GHOST NAME`."
 
 [failed-load-ghost]
-body = "Failed to load ghost"
+body = "`GHOST` record load failed."
 
 [ghost-not-owned]
-body = "Ghost does not belong to this operator"
+body = "`GHOST` ownership check failed. このゴーストは別オーナーです。"
 
 [failed-init-ghost-session]
-body = "Failed to initialize ghost session"
+body = "`GHOST SESSION` init failed."
 
 [failed-create-session]
-body = "Failed to create session"
+body = "`SESSION` creation failed."
 
 [no-active-ghost]
-body = "No active ghost selected"
+body = "No `ACTIVE GHOST` selected."
 
 [failed-init-ghost-db]
-body = "Failed to initialize ghost DB"
+body = "`GHOST DB` init failed."
 
 [failed-init-session]
-body = "Failed to initialize session"
+body = "`SESSION` init failed."
 
 [invalid-session]
-body = "Invalid session"
+body = "Invalid `SESSION` handle."
 
 [failed-list-sessions]
-body = "Failed to list sessions"
+body = "`SESSION` list query failed."
 
 [failed-switch-session]
-body = "Failed to switch session"
+body = "`SESSION` switch failed."
 
 [failed-delete-session]
-body = "Failed to delete session"
+body = "`SESSION` delete failed."
 
 [connected-puppet-master]
-body = "Connected to T-KOMA (ティーコマ) as the Puppet Master."
+body = "`LINK ESTABLISHED`: `T-KOMA CORE` <-> `PUPPET MASTER`"
 
 [connected-logs]
-body = "Connected to T-KOMA (ティーコマ) logs"
+body = "`LOG STREAM` connected to `T-KOMA CORE`"
 
 [error-internal-operator-status]
-body = "Internal error checking operator status"
+body = "Internal `STATUS` resolver fault for `OPERATOR`."
 
 [anonymous-operator]
-body = "Anonymous Operator"
+body = "`ANON OPERATOR`"
 
 [rate-limited]
-body = "Rate limit reached. Your last message was saved. Send 'continue' after {{retry_after}} seconds to retry."
+body = "`RATE LIMIT` engaged. Last `MESSAGE` buffered. Send `continue` after {{retry_after}} seconds."
 vars = ["retry_after"]

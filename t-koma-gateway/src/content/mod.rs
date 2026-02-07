@@ -72,6 +72,14 @@ pub fn message_text(
     registry().message_text(id, interface, vars)
 }
 
+pub fn gateway_message(
+    id: &str,
+    interface: Option<&str>,
+    vars: &[(&str, &str)],
+) -> Result<t_koma_core::GatewayMessage, ContentError> {
+    registry().gateway_message(id, interface, vars)
+}
+
 pub fn prompt_text(
     id: &str,
     provider: Option<&str>,

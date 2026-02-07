@@ -1,23 +1,84 @@
 [approval-required]
-body = "Approval required to leave the workspace. Reply with APPROVE or DENY. Approval applies to the next action only."
+kind = "approval_request"
+body = '''
+### AUTH GATE // オーソリゼーション
+┄┄┄┄┄┄┄┄┄┄┄┄
+`WORKSPACE BOUNDARY SHIFT` detected.
+
+Use the `ACTION BUTTONS` below.
+If buttons are unavailable, reply with:
+- `APPROVE`
+- `DENY`
+Token is ONE-SHOT for the next `ACTION` only.
+'''
+actions = [
+  { id = "approve", label = "Approve", intent = "approval.approve" },
+  { id = "deny", label = "Deny", intent = "approval.deny" }
+]
 
 [approval-required-with-path]
+kind = "approval_request"
 vars = ["path"]
-body = "Approval required to leave the workspace (requested: {{path}}). Reply with APPROVE or DENY. Approval applies to the next action only."
+body = '''
+### AUTH GATE // オーソリゼーション
+┄┄┄┄┄┄┄┄┄┄┄┄
+`WORKSPACE BOUNDARY SHIFT` detected.
+`TARGET PATH`: `{{path}}`
+
+Use the `ACTION BUTTONS` below.
+If buttons are unavailable, reply with:
+- `APPROVE`
+- `DENY`
+Token is ONE-SHOT for the next `ACTION` only.
+'''
+actions = [
+  { id = "approve", label = "Approve", intent = "approval.approve" },
+  { id = "deny", label = "Deny", intent = "approval.deny" }
+]
 
 [approval-reference-import]
+kind = "approval_request"
 vars = ["title", "summary"]
-body = "Approval required to import reference topic \"{{title}}\".\n{{summary}}\nReply with APPROVE or DENY."
+body = '''
+### AUTH GATE // リファレンス・インポート
+┄┄┄┄┄┄┄┄┄┄┄┄
+`REFERENCE TOPIC` import requested: **{{title}}**
+{{summary}}
+
+Use the `ACTION BUTTONS` below.
+If buttons are unavailable, reply with:
+- `APPROVE`
+- `DENY`
+'''
+actions = [
+  { id = "approve", label = "Approve", intent = "approval.approve" },
+  { id = "deny", label = "Deny", intent = "approval.deny" }
+]
 
 [tool-loop-limit-reached]
+kind = "approval_request"
 vars = ["limit", "extra"]
-body = "Tool execution reached the safety limit ({{limit}} steps). Reply with APPROVE to allow {{extra}} more steps, or reply with STEPS <n> to set a maximum."
+body = '''
+### TOOL LOOP GUARD // セーフティ
+┄┄┄┄┄┄┄┄┄┄┄┄
+`SAFETY LIMIT` reached at **{{limit}}** steps.
+
+Use the `ACTION BUTTONS` below.
+Text commands remain valid:
+- `APPROVE` -> allow {{extra}} extra steps
+- `STEPS <n>` -> set custom max steps
+'''
+actions = [
+  { id = "continue-default", label = "Continue", intent = "tool_loop.continue_default" },
+  { id = "set-steps", label = "Set Steps", intent = "tool_loop.set_steps" },
+  { id = "deny", label = "Deny", intent = "tool_loop.deny" }
+]
 
 [tool-loop-denied]
-body = "Tool continuation denied."
+body = "`TOOL LOOP` continuation `DENIED`. セッション安定。"
 
 [no-pending-tool-loop]
-body = "There is no pending tool continuation to resolve."
+body = "No pending `TOOL LOOP` continuation. 保留タスクなし。"
 
 [no-pending-approval]
-body = "There is no pending approval to resolve."
+body = "No pending `APPROVAL` token. 保留オーソリなし。"
