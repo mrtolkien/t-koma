@@ -34,7 +34,7 @@ impl Tool for ReferenceImportTool {
     }
 
     fn description(&self) -> &str {
-        "Import external sources (git repos, web pages) into a reference topic, indexing with embeddings. Load the reference-researcher skill first for best results."
+        "Bulk import external sources (git repos, web pages) into a reference topic with embeddings. Requires operator approval."
     }
 
     fn input_schema(&self) -> Value {
@@ -105,20 +105,7 @@ impl Tool for ReferenceImportTool {
         })
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use reference_import to bulk-import external sources into a searchable reference topic.\n\
-            - Default to fetching the ENTIRE repo (source + docs). The embedding system handles large codebases well.\n\
-            - The operator will be asked to approve before the fetch begins.\n\
-            - If the operator denies (too large), retry with a paths filter: prioritize README.md, docs/, examples/.\n\
-            - Always write a meaningful body that summarizes the library's purpose and key concepts.\n\
-            - Always search for existing topics first (use knowledge_search with categories: [\"topics\"]).\n\
-            - Set `role: \"docs\"` for documentation sources and `role: \"code\"` for code repos. Web sources default to docs.\n\
-            - ALWAYS look for a separate documentation repo or docsite. Docs are boosted in search results.\n\
-            - For incremental saves (single files, web page dumps), use reference_write with action 'save' instead.\n\
-            - Use the `reference-researcher` skill for best practices on creating reference topics.",
-        )
-    }
+    // Guidance is in the system prompt (reference_system.md)
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: ImportInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
