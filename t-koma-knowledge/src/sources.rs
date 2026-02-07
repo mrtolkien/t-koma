@@ -562,11 +562,14 @@ fn is_likely_binary(path: &str) -> bool {
 }
 
 /// Convert a URL to a safe filename for saving web pages.
+///
+/// Uses `_` for path separators so that URLs like `/docs/api-reference/overview`
+/// and `/docs/api/reference/overview` produce distinct filenames.
 pub(crate) fn url_to_filename(url: &str) -> String {
     let parsed = url::Url::parse(url).ok();
     let path_part = parsed
         .as_ref()
-        .map(|u| u.path().trim_matches('/').replace('/', "-"))
+        .map(|u| u.path().trim_matches('/').replace('/', "_"))
         .unwrap_or_default();
 
     let host = parsed
@@ -619,9 +622,16 @@ mod tests {
     fn test_url_to_filename() {
         assert_eq!(
             url_to_filename("https://dioxuslabs.com/learn/0.6/"),
-            "dioxuslabs-com-learn-0-6.md"
+            "dioxuslabs-com-learn_0-6.md"
         );
         assert_eq!(url_to_filename("https://example.com"), "example-com.md");
+    }
+
+    #[test]
+    fn test_url_to_filename_no_collision() {
+        let a = url_to_filename("https://example.com/docs/api-reference/overview");
+        let b = url_to_filename("https://example.com/docs/api/reference/overview");
+        assert_ne!(a, b, "different URL paths must produce different filenames");
     }
 
     #[test]

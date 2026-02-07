@@ -1,0 +1,48 @@
+---
+source: t-koma-knowledge/tests/crawl_e2e.rs
+expression: "serde_json::json!({\n    \"source_count\": f.source_count, \"file_count\": f.file_count, \"chunk_count\":\n    f.chunk_count, \"per_file_chunks\": f.per_file,\n})"
+---
+chunk_count: 285
+file_count: 20
+per_file_chunks:
+  - chunk_count: 1
+    file_path: openrouter-ai-chat.md
+  - chunk_count: 31
+    file_path: openrouter-ai-docs_api-reference_overview.md
+  - chunk_count: 31
+    file_path: openrouter-ai-docs_api_reference_overview.md
+  - chunk_count: 9
+    file_path: openrouter-ai-docs_faq.md
+  - chunk_count: 3
+    file_path: openrouter-ai-docs_guides_features_message-transforms.md
+  - chunk_count: 9
+    file_path: openrouter-ai-docs_guides_features_presets.md
+  - chunk_count: 15
+    file_path: openrouter-ai-docs_guides_features_structured-outputs.md
+  - chunk_count: 43
+    file_path: openrouter-ai-docs_guides_features_tool-calling.md
+  - chunk_count: 8
+    file_path: openrouter-ai-docs_guides_features_zdr.md
+  - chunk_count: 5
+    file_path: openrouter-ai-docs_guides_features_zero-completion-insurance.md
+  - chunk_count: 10
+    file_path: openrouter-ai-docs_guides_overview_models.md
+  - chunk_count: 3
+    file_path: openrouter-ai-docs_guides_overview_principles.md
+  - chunk_count: 8
+    file_path: openrouter-ai-docs_guides_overview_report-feedback.md
+  - chunk_count: 8
+    file_path: openrouter-ai-docs_guides_routing_model-fallbacks.md
+  - chunk_count: 54
+    file_path: openrouter-ai-docs_guides_routing_provider-selection.md
+  - chunk_count: 12
+    file_path: openrouter-ai-docs_quickstart.md
+  - chunk_count: 9
+    file_path: openrouter-ai-docs_sdks_agentic-usage.md
+  - chunk_count: 16
+    file_path: openrouter-ai-enterprise.md
+  - chunk_count: 3
+    file_path: openrouter-ai-models.md
+  - chunk_count: 7
+    file_path: openrouter-ai-rankings.md
+source_count: 1

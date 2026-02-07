@@ -8,8 +8,8 @@ top_results:
   - rank: 1
     file: search.rs
     note_type: ReferenceCode
-    snippet: "pub(crate) fn sanitize_fts5_query(raw: &str) -> String {\n    let tokens: Vec<String> = raw\n        .split_whitespace()\n "
+    snippet: "[t-koma-knowledge source]\n\npub(crate) fn sanitize_fts5_query(raw: &str) -> String {\n    let tokens: Vec<String> = raw\n  "
   - rank: 2
     file: search.rs
     note_type: ReferenceCode
-    snippet: "pub(crate) async fn bm25_search(\n    pool: &SqlitePool,\n    query: &str,\n    limit: usize,\n    scope: KnowledgeScope,\n  "
+    snippet: "[t-koma-knowledge source]\n\npub(crate) async fn bm25_search(\n    pool: &SqlitePool,\n    query: &str,\n    limit: usize,\n  "
