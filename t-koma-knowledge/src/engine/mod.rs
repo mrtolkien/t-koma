@@ -7,7 +7,7 @@ use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
     DiaryQuery, DiarySearchResult, KnowledgeScope, NoteCreateRequest, NoteDocument, NoteQuery,
-    NoteResult, NoteSearchScope, NoteUpdateRequest, NoteWriteResult, ReferenceFileStatus,
+    NoteResult, NoteUpdateRequest, NoteWriteResult, OwnershipScope, ReferenceFileStatus,
     ReferenceQuery, ReferenceSearchResult, ReferenceSaveRequest, ReferenceSaveResult,
     TopicCreateRequest, TopicCreateResult, TopicListEntry, TopicSearchResult, TopicUpdateRequest,
     WriteScope,
@@ -116,7 +116,7 @@ impl KnowledgeEngine {
         &self,
         ghost_name: &str,
         note_id_or_title: &str,
-        scope: NoteSearchScope,
+        scope: OwnershipScope,
     ) -> KnowledgeResult<NoteDocument> {
         get::memory_get(self, ghost_name, note_id_or_title, scope).await
     }

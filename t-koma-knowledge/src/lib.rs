@@ -18,8 +18,8 @@ pub use t_koma_core::config::{KnowledgeSettings, SearchDefaults};
 pub use errors::KnowledgeError;
 pub use models::{
     CollectionSummary, DiaryQuery, DiarySearchResult, KnowledgeScope, NoteCreateRequest,
-    NoteDocument, NoteQuery, NoteResult, NoteSearchScope, NoteSummary, NoteUpdateRequest,
-    NoteWriteResult, ReferenceFileStatus, ReferenceQuery, ReferenceSearchResult,
+    NoteDocument, NoteQuery, NoteResult, NoteSummary, NoteUpdateRequest,
+    NoteWriteResult, OwnershipScope, ReferenceFileStatus, ReferenceQuery, ReferenceSearchResult,
     ReferenceSaveRequest, ReferenceSaveResult, SourceRole, TopicCreateRequest, TopicCreateResult,
     TopicListEntry, TopicSearchResult, TopicSourceInput, TopicUpdateRequest, WriteScope,
 };

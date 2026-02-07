@@ -31,11 +31,11 @@ impl MemoryGetTool {
         })
     }
 
-    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::NoteSearchScope {
+    fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::OwnershipScope {
         match scope.as_deref() {
-            Some("shared") => t_koma_knowledge::models::NoteSearchScope::SharedOnly,
-            Some("ghost") => t_koma_knowledge::models::NoteSearchScope::GhostOnly,
-            _ => t_koma_knowledge::models::NoteSearchScope::All,
+            Some("shared") => t_koma_knowledge::models::OwnershipScope::Shared,
+            Some("ghost") => t_koma_knowledge::models::OwnershipScope::Private,
+            _ => t_koma_knowledge::models::OwnershipScope::All,
         }
     }
 }
