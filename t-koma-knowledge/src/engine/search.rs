@@ -366,6 +366,15 @@ pub(crate) async fn hydrate_summaries_boosted(
     Ok(summaries)
 }
 
+/// Resolve ownership scope to note-only scopes (no diary, no references).
+pub(crate) fn resolve_note_only_scopes(scope: &OwnershipScope) -> Vec<KnowledgeScope> {
+    match scope {
+        OwnershipScope::All => vec![KnowledgeScope::SharedNote, KnowledgeScope::GhostNote],
+        OwnershipScope::Shared => vec![KnowledgeScope::SharedNote],
+        OwnershipScope::Private => vec![KnowledgeScope::GhostNote],
+    }
+}
+
 pub(crate) fn resolve_scopes(scope: &OwnershipScope) -> Vec<KnowledgeScope> {
     match scope {
         OwnershipScope::All => vec![

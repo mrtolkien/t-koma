@@ -119,6 +119,73 @@ pub struct SearchOptions {
     pub doc_boost: Option<f32>,
 }
 
+// ── Unified knowledge query models ─────────────────────────────────
+
+/// Category of knowledge to search.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchCategory {
+    Notes,
+    Diary,
+    References,
+    Topics,
+}
+
+impl SearchCategory {
+    /// All categories in default search order.
+    pub fn all() -> Vec<Self> {
+        vec![Self::Notes, Self::Diary, Self::References, Self::Topics]
+    }
+}
+
+/// Unified query for searching across all knowledge subsystems.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeSearchQuery {
+    pub query: String,
+    /// Categories to search. `None` = all.
+    pub categories: Option<Vec<SearchCategory>>,
+    #[serde(default)]
+    pub scope: OwnershipScope,
+    /// Narrow reference search to a specific topic.
+    pub topic: Option<String>,
+    #[serde(default)]
+    pub options: SearchOptions,
+}
+
+/// Unified search result grouped by category.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeSearchResult {
+    pub notes: Vec<NoteResult>,
+    pub diary: Vec<DiarySearchResult>,
+    pub references: ReferenceSearchOutput,
+    pub topics: Vec<TopicSearchResult>,
+}
+
+/// Reference search output with optional matched topic context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceSearchOutput {
+    /// Present when a `topic` parameter was used and matched.
+    pub matched_topic: Option<MatchedTopic>,
+    pub results: Vec<NoteResult>,
+}
+
+/// Matched topic metadata for contextual enrichment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchedTopic {
+    pub topic_id: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// Unified retrieval query — fetch by ID or by topic + path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeGetQuery {
+    pub id: Option<String>,
+    pub topic: Option<String>,
+    pub path: Option<String>,
+    pub max_chars: Option<usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteSummary {
     pub id: String,
