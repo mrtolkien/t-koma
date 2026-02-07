@@ -231,8 +231,7 @@ Full examples live in:
 ## Knowledge & Memory Tools
 
 The knowledge system lives in `t-koma-knowledge` with gateway tools in
-`t-koma-gateway/src/tools/memory_*.rs`, `search_diary.rs`, and
-`reference_search.rs`.
+`t-koma-gateway/src/tools/` (`knowledge_*.rs`, `memory_*.rs`, `reference_*.rs`).
 
 ### Folder Layout
 
@@ -268,12 +267,19 @@ Cross-scope rule: ghost notes can link to shared notes and reference topics via
 All knowledge tools are always visible to the ghost. Tools associated with a
 skill mention in their description that the skill should be loaded first.
 
-Memory tools:
+Query tools:
 
-- `memory_search`: Hybrid BM25 + dense search across note scopes.
+- `knowledge_search`: Unified search across notes, diary, references, and
+  topics. Supports `categories` filter, `scope` (all/shared/private), and
+  `topic` for narrowing reference searches. Min-1-per-category budget algorithm
+  ensures diverse results.
+- `knowledge_get`: Retrieve full content by ID (searches all scopes) or by
+  `topic` + `path` for reference files. Supports `max_chars` truncation.
+
+Memory write tools:
+
 - `memory_capture`: Write raw text to ghost inbox. NOT embedded, NOT indexed.
   Accepts optional `source` field for provenance tracking.
-- `memory_get`: Retrieve a note by ID or title. (skill: `note-writer`)
 - `memory_note_create`: Create a structured note with front matter.
   (skill: `note-writer`)
 - `memory_note_update`: Patch an existing note (title, body, tags, etc.).
@@ -282,22 +288,15 @@ Memory tools:
   (skill: `note-writer`)
 - `memory_note_comment`: Append a timestamped comment to a note.
   (skill: `note-writer`)
-- `search_diary`: Search diary entries by keyword or concept. Diary files are
-  plain markdown (YYYY-MM-DD.md, no front matter).
 
-Reference tools:
+Reference write tools:
 
-- `reference_search`: Search within a reference topic's indexed files. Docs
-  boosted over code.
-- `reference_topic_search`: Semantic search over existing reference topics.
 - `reference_save`: Save content to a reference topic incrementally. Creates
   topic and collection implicitly. No approval needed.
 - `reference_import`: Bulk import from git repos and web pages into a reference
   topic. Sources can have a `role` (docs/code) to control search boost.
   Requires operator approval. (skill: `reference-researcher`)
 - `reference_topic_update`: Update topic metadata (body, tags).
-  (skill: `reference-researcher`)
-- `reference_get`: Fetch the full content of a reference file.
   (skill: `reference-researcher`)
 - `reference_file_update`: Mark a reference file as active/problematic/obsolete.
   (skill: `reference-researcher`)
@@ -310,7 +309,7 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 
 ### Topic Discovery
 
-- Use `reference_topic_search` with a semantic query to find reference topics.
+- Use `knowledge_search` with `categories: ["topics"]` to find reference topics.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
 - The `knowledge-organizer` skill explains the physical file layout and indexing
