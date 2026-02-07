@@ -55,6 +55,7 @@ The gateway `build.rs` validates:
 ## Runtime Access
 Use the content registry helpers:
 - `crate::content::message_text(id, interface, vars)`
+- `crate::content::gateway_message(id, interface, vars)` (semantic `GatewayMessage` payload with `text_fallback`)
 - `crate::content::prompt_text(id, provider, vars)`
 
 Example usage:

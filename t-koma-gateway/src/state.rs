@@ -30,6 +30,18 @@ struct PendingInterface {
     external_id: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PendingGatewayAction {
+    pub operator_id: String,
+    pub ghost_name: String,
+    pub session_id: String,
+    pub external_id: String,
+    pub channel_id: String,
+    pub intent: String,
+    pub payload: Option<String>,
+    pub expires_at: i64,
+}
+
 #[derive(Debug, Default)]
 struct OperatorRateLimitState {
     last_5m: VecDeque<i64>,
@@ -222,6 +234,8 @@ pub struct AppState {
     pending_tool_approvals: RwLock<HashMap<String, PendingToolApproval>>,
     /// Pending tool loop continuations keyed by operator/ghost/session
     pending_tool_loops: RwLock<HashMap<String, PendingToolContinuation>>,
+    /// Pending Discord gateway actions keyed by opaque token
+    pending_gateway_actions: RwLock<HashMap<String, PendingGatewayAction>>,
     /// Active chat requests keyed by operator/ghost/session
     in_flight_chats: RwLock<HashSet<String>>,
     /// Last ignored message keyed by operator/ghost/session
@@ -248,6 +262,8 @@ pub struct AppState {
 
     /// Scheduler state for background jobs (heartbeat now, cron later)
     scheduler: RwLock<SchedulerState>,
+    /// Discord bot token (optional, used by server-side Discord notifications)
+    discord_bot_token: RwLock<Option<String>>,
 }
 
 /// Model entry tracked by the gateway
@@ -280,6 +296,7 @@ impl AppState {
             pending_interfaces: RwLock::new(HashMap::new()),
             pending_tool_approvals: RwLock::new(HashMap::new()),
             pending_tool_loops: RwLock::new(HashMap::new()),
+            pending_gateway_actions: RwLock::new(HashMap::new()),
             in_flight_chats: RwLock::new(HashSet::new()),
             ignored_messages: RwLock::new(HashMap::new()),
             operator_rate_limits: RwLock::new(HashMap::new()),
@@ -290,7 +307,18 @@ impl AppState {
             heartbeat_runner: RwLock::new(None),
             heartbeat_overrides: RwLock::new(HashMap::new()),
             scheduler: RwLock::new(SchedulerState::new()),
+            discord_bot_token: RwLock::new(None),
         }
+    }
+
+    pub async fn set_discord_bot_token(&self, token: Option<String>) {
+        let mut guard = self.discord_bot_token.write().await;
+        *guard = token;
+    }
+
+    pub async fn discord_bot_token(&self) -> Option<String> {
+        let guard = self.discord_bot_token.read().await;
+        guard.clone()
     }
 
     pub async fn set_heartbeat_override(
@@ -869,6 +897,18 @@ impl AppState {
         let key = Self::approval_key(operator_id, ghost_name, session_id);
         let mut guard = self.pending_tool_loops.write().await;
         guard.remove(&key).is_some()
+    }
+
+    pub async fn set_pending_gateway_action(&self, token: &str, pending: PendingGatewayAction) {
+        let mut guard = self.pending_gateway_actions.write().await;
+        guard.insert(token.to_string(), pending);
+    }
+
+    pub async fn take_pending_gateway_action(&self, token: &str) -> Option<PendingGatewayAction> {
+        let now = Utc::now().timestamp();
+        let mut guard = self.pending_gateway_actions.write().await;
+        guard.retain(|_, action| action.expires_at > now);
+        guard.remove(token)
     }
 
     pub async fn handle_tool_approval(

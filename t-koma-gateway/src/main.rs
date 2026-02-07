@@ -118,6 +118,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         default_model.alias, default_model.provider, default_model.model
     );
 
+    // Get Discord token from secrets
+    let discord_token = config.discord_bot_token().map(|s| s.to_string());
+
     // Create shared application state
     let knowledge_settings =
         t_koma_knowledge::KnowledgeSettings::from(&config.settings.tools.knowledge);
@@ -132,6 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         koma_db,
         knowledge_engine,
     ));
+    state.set_discord_bot_token(discord_token.clone()).await;
     state.start_shared_knowledge_watcher().await;
     let heartbeat_model_alias = config
         .settings
@@ -141,9 +145,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|alias| !alias.is_empty())
         .map(|alias| alias.to_string());
     state.start_heartbeat_runner(heartbeat_model_alias).await;
-
-    // Get Discord token from secrets
-    let discord_token = config.discord_bot_token().map(|s| s.to_string());
 
     // Start Discord bot if enabled and token is present
     let discord_client = if config.discord_enabled() {

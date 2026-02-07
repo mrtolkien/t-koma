@@ -1,53 +1,40 @@
 [ghost-name-prompt]
 body = '''
-┌───────────────────────────────────────────────┐
-│ T-KOMA (ティーコマ) // GHOST INITIALIZATION    │
-├───────────────────────────────────────────────┤
-│ PUPPET MASTER ACCESS WARNING                   │
-│ The Puppet Master has full access to this     │
-│ GHOST (ゴースト)'s memory and workspace.      │
-│                                               │
-│ Only proceed if you trust the Puppet Master.  │
-├───────────────────────────────────────────────┤
-│ Enter a GHOST name (letters/numbers, spaces,  │
-│ '-', '_' plus kanji/katakana). Example: ALPHA │
-└───────────────────────────────────────────────┘
+### T-KOMA // ゴースト・ブート
+┄┄┄┄┄┄┄┄┄┄┄┄
 
+Enter a `GHOST NAME`:
+- allowed: letters, numbers, spaces, `-`, `_`, kanji, katakana
+- example: `ALPHA`
 '''
 
 [ghost-created-header]
 body = '''
-┌───────────────────────────────┐
-│ GHOST (ゴースト) ONLINE        │
-└───────────────────────────────┘
-
+### GHOST NODE ONLINE // ゴースト起動
+┄┄┄┄┄┄┄┄┄┄┄┄
 '''
 
 [ghost-created-header-with-name]
 vars = ["ghost_name"]
 body = '''
-┌───────────────────────────────┐
-│ GHOST (ゴースト) ONLINE        │
-└───────────────────────────────┘
-GHOST: {{ghost_name}}
-
+### GHOST NODE ONLINE // ゴースト起動
+┄┄┄┄┄┄┄┄┄┄┄┄
+`GHOST`: {{ghost_name}}
 '''
 
 [active-ghost-set]
 vars = ["ghost_name"]
 body = '''
-Active GHOST set to: {{ghost_name}}
-
-┌───────────────────────────────┐
-│ GHOST (ゴースト) ONLINE        │
-└───────────────────────────────┘
-
+### ACTIVE GHOST SWITCH // 切替完了
+┄┄┄┄┄┄┄┄┄┄┄┄
+`ACTIVE GHOST`: {{ghost_name}}
 '''
 
 [invalid-ghost-name]
 vars = ["error", "ghost_name_prompt"]
 body = '''
-Invalid ghost name. {{error}}
+`GHOST NAME` rejected by `VALIDATION LAYER`.
+`REASON`: {{error}}
 
 {{ghost_name_prompt}}
 
@@ -56,7 +43,7 @@ Invalid ghost name. {{error}}
 [unknown-ghost-name]
 vars = ["ghost_list"]
 body = '''
-Unknown GHOST name.
+Unknown `GHOST` handle. 不明なゴースト。
 
 {{ghost_list}}
 
@@ -65,7 +52,10 @@ Unknown GHOST name.
 [select-ghost-prompt]
 vars = ["ghost_list"]
 body = '''
-Select a GHOST by typing: `ghost: NAME`
+### GHOST SELECT // ノード選択
+┄┄┄┄┄┄┄┄┄┄┄┄
+Use the `MENU` to lock `ACTIVE GHOST`.
+You can also type `ghost: NAME`.
 
 {{ghost_list}}
 
@@ -74,22 +64,19 @@ Select a GHOST by typing: `ghost: NAME`
 [ghost-list]
 vars = ["ghost_list"]
 body = '''
-┌───────────────────────────────┐
-│ AVAILABLE GHOSTS (ゴースト)   │
-├───────────────────────────────┤
+### GHOST ROSTER // ロスター
+┄┄┄┄┄┄┄┄┄┄┄┄
 {{ghost_list}}
-└───────────────────────────────┘
-
 '''
 
 [error-failed-load-ghosts]
-body = "Sorry, I failed to load your ghosts."
+body = "`GHOST ROSTER` load failed. ゴースト一覧読込エラー。"
 
 [error-failed-init-ghost-storage]
-body = "Failed to initialize ghost storage."
+body = "`GHOST STORAGE` init failed. ストレージ初期化エラー。"
 
 [error-ghost-boot-failed]
-body = "Ghost failed to boot. Try again later."
+body = "`GHOST BOOT` failed. Retry later. ゴースト起動失敗。"
 
 [error-missing-bootstrap]
-body = "t-koma-gateway/prompts/bootstrap.md missing; cannot initialize ghost."
+body = "`BOOTSTRAP PROMPT` missing: t-koma-gateway/prompts/bootstrap.md"
