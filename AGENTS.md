@@ -29,6 +29,9 @@ important information in vibe/knowledge.
   when the last message is not `HEARTBEAT_OK`. Uses `HEARTBEAT.md` in the ghost
   workspace as instructions (auto-created on first use). `HEARTBEAT_CONTINUE`
   suppresses output and reschedules in ~30 minutes.
+- REFLECTION: Background job triggered after heartbeat. Processes unread inbox
+  captures into structured knowledge (notes, diary, identity files) using the
+  `knowledge-writer` skill. 30-minute cooldown between runs.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -144,10 +147,10 @@ These are hard rules to preserve code quality and discoverability.
 ### Scheduler (Background Jobs)
 
 Background jobs use `t-koma-gateway/src/scheduler.rs` as the single scheduling
-state. Heartbeat is the first job (`JobKind::Heartbeat`); future cron jobs must
-reuse this scheduler instead of creating bespoke timers or per-module maps. The
-only valid place to persist “next due” times in memory is the scheduler state
-owned by `AppState`.
+state. Job kinds: `JobKind::Heartbeat` and `JobKind::Reflection`. Future cron
+jobs must reuse this scheduler instead of creating bespoke timers or per-module
+maps. The only valid place to persist "next due" times in memory is the
+scheduler state owned by `AppState`.
 
 ### Gateway module ownership
 
@@ -261,10 +264,15 @@ $DATA_DIR/shared/notes/              → SharedNote scope
 $DATA_DIR/shared/references/         → SharedReference scope
 
 $DATA_DIR/ghosts/$slug/inbox/        → NOT indexed, NOT embedded
-$DATA_DIR/ghosts/$slug/notes/        → GhostNote scope
+$DATA_DIR/ghosts/$slug/notes/        → GhostNote scope (tag-based subfolders)
 $DATA_DIR/ghosts/$slug/references/   → GhostReference scope
 $DATA_DIR/ghosts/$slug/diary/        → GhostDiary scope
+$DATA_DIR/ghosts/$slug/skills/       → Ghost-local skills (highest priority)
 ```
+
+Notes are organized into tag-based subfolders derived from the first tag at
+creation time (e.g., `rust/library/` for tag `rust/library`). Files don't move
+on tag changes.
 
 ### Scopes
 
@@ -293,21 +301,18 @@ Query tools:
 - `knowledge_search`: Unified search across notes, diary, references, and
   topics. Supports `categories` filter, `scope` (all/shared/private), and
   `topic` for narrowing reference searches. Min-1-per-category budget algorithm
-  ensures diverse results.
+  ensures diverse results. Tags are indexed in FTS and embeddings.
 - `knowledge_get`: Retrieve full content by ID (searches all scopes) or by
   `topic` + `path` for reference files. Supports `max_chars` truncation.
 
 Memory write tools:
 
-- `memory_capture`: Write raw text to ghost inbox. NOT embedded, NOT indexed.
-  Accepts optional `source` field for provenance tracking.
-- `memory_note_create`: Create a structured note with front matter.
-  (skill: `note-writer`)
-- `memory_note_update`: Patch an existing note (title, body, tags, etc.).
-  (skill: `note-writer`)
-- `memory_note_validate`: Mark a note as validated, optionally adjust trust.
-  (skill: `note-writer`)
-- `memory_note_comment`: Append a timestamped comment to a note.
+- `memory_capture`: Write raw text to ghost inbox (private only). NOT embedded,
+  NOT indexed. Requires `source` field for provenance tracking. Inbox items are
+  processed during the reflection job.
+- `note_write`: Consolidated tool for note operations. Actions: `create`,
+  `update`, `validate`, `comment`, `delete`. Replaces the old
+  `memory_note_create/update/validate/comment` tools.
   (skill: `note-writer`)
 
 Reference write tools:
@@ -324,9 +329,39 @@ Reference write tools:
 
 Other:
 
-- `load_skill`: Load a skill for detailed guidance on a workflow.
+- `load_skill`: Load a skill for detailed guidance on a workflow. Searches
+  ghost-local skills first (`$WORKSPACE/skills/`), then user config, then
+  project defaults.
 
-Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools.
+Administrative operations (refresh) are CLI/TUI-only — not ghost tools. Note
+deletion is available via `note_write` action `delete`.
+
+### Reflection Job
+
+After each heartbeat tick completes, the reflection runner
+(`t-koma-gateway/src/reflection.rs`) checks whether the ghost has unprocessed
+inbox files. If so, and the last reflection was > 30 minutes ago, it builds a
+prompt with the `knowledge-writer` skill instructions and all inbox items, then
+sends it through the normal chat pipeline. The ghost curates inbox captures into
+structured notes, diary entries, or identity file updates.
+
+Reflection uses `JobKind::Reflection` in the scheduler with a 30-minute
+cooldown.
+
+### Skills
+
+Skills are discovered from three locations (highest priority first):
+
+1. Ghost-local: `$WORKSPACE/skills/{name}/SKILL.md`
+2. User config: `~/.config/t-koma/skills/{name}/SKILL.md`
+3. Project defaults: `./default-prompts/skills/{name}/SKILL.md`
+
+Available skills are listed in the system prompt under "Available Skills".
+Ghosts can create their own skills by adding `SKILL.md` files with YAML
+frontmatter (`name`, `description`) to their workspace `skills/` directory.
+
+Default skills: `note-writer`, `knowledge-writer`, `reference-researcher`,
+`knowledge-organizer`.
 
 ### Topic Discovery
 

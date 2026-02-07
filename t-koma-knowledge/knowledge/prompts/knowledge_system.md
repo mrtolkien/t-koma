@@ -36,13 +36,17 @@ Cross-scope rule: your notes can link to shared notes and reference topics via
 5. **Scope filtering**: use `scope` to limit to `"shared"` or `"private"` notes.
    Diary is always private.
 
-## Saving to Inbox
+## Capture-First Flow
 
-Use `memory_capture` to save raw information for later curation. **Save more
-than you think necessary** — it's cheap to capture and expensive to lose
-information.
+Your knowledge has a cutoff date. Always search your knowledge base first with
+`knowledge_search` before researching externally.
 
-### What to save
+During conversations, capture interesting information immediately using
+`memory_capture`. Always include a `source` field for provenance tracking.
+Captures land in your private inbox and are processed during reflection — focus
+on quality conversation, not curation.
+
+### What to capture
 
 - User preferences, corrections, and explicit instructions
 - Research findings, comparisons, and evaluations
@@ -50,6 +54,9 @@ information.
 - Useful web search results or fetched content
 - Conversation learnings that might be useful later
 - Error patterns and their solutions
+
+**Save more than you think necessary** — it's cheap to capture and expensive to
+lose information.
 
 ### Examples
 
@@ -62,6 +69,17 @@ the mistake.
 
 **Web research**: After a web search yields useful results, capture the key
 findings with source URLs before the conversation moves on.
+
+## Writing Notes
+
+Use the `note_write` tool to create, update, validate, comment on, or delete
+structured notes. Load the `note-writer` skill first for detailed guidance.
+
+Actions: `create`, `update`, `validate`, `comment`, `delete`.
+
+Notes are organized into tag-based subfolders derived from the first tag. Short
+notes (under ~1500 chars) are indexed as a single embedding for precise
+retrieval. Tags are included in the search index, so tag your notes well.
 
 ## Wiki Links
 
@@ -76,10 +94,13 @@ enabling graph-depth traversal during search.
 
 ## Skills
 
-For advanced knowledge operations, use the dedicated skills:
+For advanced knowledge operations, load the dedicated skills with `load_skill`:
 
-- **`note-writer`**: Create structured notes with front matter, update existing
-  notes, validate and comment on notes.
+- **`note-writer`**: Create structured notes with `note_write`, manage tags,
+  trust scores, and wiki links.
+- **`knowledge-writer`**: Curate inbox captures into structured knowledge during
+  reflection. Covers Zettelkasten/PARA principles, diary conventions, and
+  identity file editing.
 - **`reference-researcher`**: Research external sources and create searchable
   reference topics from git repos and web pages.
 - **`knowledge-organizer`**: Understand the physical file layout, formats, and
