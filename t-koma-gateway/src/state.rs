@@ -84,6 +84,12 @@ pub enum LogEntry {
         session_id: String,
         status: String,
     },
+    /// Reflection job status
+    Reflection {
+        ghost_name: String,
+        session_id: String,
+        status: String,
+    },
     /// Routing decision for operator -> ghost/session
     Routing {
         platform: String,
@@ -160,6 +166,15 @@ impl std::fmt::Display for LogEntry {
             } => write!(
                 f,
                 "[{}] [HEARTBEAT] {} ({}) {}",
+                timestamp, ghost_name, session_id, status
+            ),
+            LogEntry::Reflection {
+                ghost_name,
+                session_id,
+                status,
+            } => write!(
+                f,
+                "[{}] [REFLECTION] {} ({}) {}",
                 timestamp, ghost_name, session_id, status
             ),
             LogEntry::Routing {
@@ -329,6 +344,18 @@ impl AppState {
     pub async fn get_heartbeat_due(&self, key: &str) -> Option<i64> {
         let guard = self.scheduler.read().await;
         guard.get_due(JobKind::Heartbeat, key)
+    }
+
+    /// Generic scheduler access for any job kind.
+    pub async fn scheduler_set(&self, kind: JobKind, key: &str, next_due: Option<i64>) {
+        let mut guard = self.scheduler.write().await;
+        guard.set_due(kind, key, next_due);
+    }
+
+    /// Generic scheduler read for any job kind.
+    pub async fn scheduler_get(&self, kind: JobKind, key: &str) -> Option<i64> {
+        let guard = self.scheduler.read().await;
+        guard.get_due(kind, key)
     }
 
     /// Start the heartbeat runner if it isn't already running.
