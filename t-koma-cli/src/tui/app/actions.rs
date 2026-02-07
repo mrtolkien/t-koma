@@ -233,17 +233,81 @@ impl TuiApp {
         let Some(operator) = self.operators.get(self.content_idx) else {
             return;
         };
+        let operator_id = operator.id.clone();
         let Some(db) = &self.db else {
             self.status = "DB unavailable".to_string();
             return;
         };
 
-        if let Err(e) = OperatorRepository::approve(db.pool(), &operator.id).await {
+        match self.approve_operator_via_gateway(&operator_id).await {
+            Ok(notified) => {
+                self.status = if notified {
+                    format!("Approved {} (Discord prompt sent)", operator_id)
+                } else {
+                    format!("Approved {}", operator_id)
+                };
+                self.refresh_operators().await;
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Gateway approval path unavailable, using DB fallback: {}",
+                    e
+                );
+            }
+        }
+
+        if let Err(e) = OperatorRepository::approve(db.pool(), &operator_id).await {
             self.status = format!("Approve failed: {}", e);
             return;
         }
-        self.status = format!("Approved {}", operator.id);
+        self.status = format!("Approved {} (local DB)", operator_id);
         self.refresh_operators().await;
+    }
+
+    async fn approve_operator_via_gateway(&self, operator_id: &str) -> Result<bool, String> {
+        let ws_url = ws_url_for_cli(&self.settings.ws_url());
+        let (tx, mut rx) = WsClient::connect(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        tx.send(WsMessage::ApproveOperator {
+            operator_id: operator_id.to_string(),
+        })
+        .map_err(|_| "Failed to send approve_operator".to_string())?;
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return Err("Timed out waiting for gateway approve_operator response".to_string());
+            }
+            let remaining = deadline.saturating_duration_since(now);
+            match tokio::time::timeout(remaining, rx.next()).await {
+                Ok(Some(WsResponse::OperatorApproved {
+                    operator_id: approved_id,
+                    discord_notified,
+                })) => {
+                    if approved_id != operator_id {
+                        return Err(format!(
+                            "Gateway approved unexpected operator id: {}",
+                            approved_id
+                        ));
+                    }
+                    return Ok(discord_notified);
+                }
+                Ok(Some(WsResponse::Error { message })) => return Err(message),
+                Ok(Some(_)) => {
+                    // Ignore unrelated bootstrap/welcome responses on fresh WS connects.
+                }
+                Ok(None) => return Err("Gateway closed connection".to_string()),
+                Err(_) => {
+                    return Err(
+                        "Timed out waiting for gateway approve_operator response".to_string()
+                    );
+                }
+            }
+        }
     }
 
     pub(super) async fn deny_selected_operator(&mut self) {

@@ -1,14 +1,14 @@
 [error-generic]
-body = "Sorry, an error occurred. Please try again later."
+body = "`SYSTEM FAULT` detected. Retry in a moment. システム障害。"
 
 [error-processing-request]
-body = "Sorry, I encountered an error processing your request."
+body = "`REQUEST` processing fault. リクエスト処理エラー。"
 
 [access-pending-discord]
-body = "Your access request is pending approval. The Puppet Master will review it."
+body = "`ACCESS REQUEST` is `PENDING`. パペットマスター審査待ち。"
 
 [chat-busy]
-body = "I'm still replying to your previous message, so this one was ignored. Send `CONTINUE` to resend the last ignored message."
+body = "`CHAT CORE` is `BUSY`. MESSAGE buffered as `IGNORED`. Send `CONTINUE` to replay."
 
 [chat-continue-missing]
-body = "There is no ignored message to continue. Send a new message instead."
+body = "No `IGNORED` message in buffer. Send a fresh `MESSAGE`."

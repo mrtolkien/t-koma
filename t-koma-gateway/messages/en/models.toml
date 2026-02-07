@@ -1,7 +1,7 @@
 [model-not-configured]
 vars = ["model", "provider"]
-body = "Model '{{model}}' for provider '{{provider}}' is not configured"
+body = "`MODEL PROFILE` not configured. `MODEL`='{{model}}' `PROVIDER`='{{provider}}'"
 
 [no-models-configured]
 vars = ["provider"]
-body = "No models configured for provider '{{provider}}'"
+body = "`MODEL REGISTRY` empty for `PROVIDER` '{{provider}}'."

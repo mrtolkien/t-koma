@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod content;
 pub mod discord;
+pub mod gateway_message;
 pub mod heartbeat;
 pub mod log_bridge;
 pub mod prompt;
