@@ -15,7 +15,11 @@
       "mcp__rust-knalyzer__*",
       "Bash(grep:*)",
       "Bash(git checkout:*)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "mcp__rust-analyzer__rust_analyzer_diagnostics",
+      "Bash(git -C /home/tolki/Development/t-koma/feat/references log --oneline -5)",
+      "Bash(git -C /home/tolki/Development/t-koma/feat/references diff AGENTS.md t-koma-knowledge/knowledge/prompts/knowledge_system.md)",
+      "Bash(git -C /home/tolki/Development/t-koma/feat/references log --oneline -10)"
     ]
   },
   "enableAllProjectMcpServers": true,
