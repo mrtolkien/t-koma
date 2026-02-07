@@ -25,7 +25,7 @@ pub(crate) async fn note_create(
     // Derive subfolder from first tag (creation-time only, files don't move on tag change)
     let target_dir = if let Some(tags) = &request.tags {
         if let Some(first_tag) = tags.first() {
-            target_dir.join(first_tag.replace('/', std::path::MAIN_SEPARATOR_STR))
+            target_dir.join(sanitize_tag_path(first_tag))
         } else {
             target_dir
         }
@@ -455,12 +455,45 @@ pub(crate) async fn note_delete(
         .bind(note_id)
         .execute(pool)
         .await?;
+    // Clear inbound link targets so they can re-resolve if a note with the
+    // same title is recreated later.
+    sqlx::query("UPDATE note_links SET target_id = NULL WHERE target_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
     sqlx::query("DELETE FROM notes WHERE id = ?")
         .bind(note_id)
         .execute(pool)
         .await?;
 
     Ok(())
+}
+
+/// Sanitize a hierarchical tag (e.g. `rust/library`) into a safe relative path.
+///
+/// Each `/`-separated segment is stripped of unsafe characters (`..`, absolute
+/// prefixes, non-alphanumeric) so the result can never escape the parent
+/// directory via path traversal. Empty segments are dropped.
+pub(crate) fn sanitize_tag_path(tag: &str) -> std::path::PathBuf {
+    let mut path = std::path::PathBuf::new();
+    for segment in tag.split('/') {
+        let clean: String = segment
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .to_lowercase();
+        let clean = clean.trim_matches('-').to_string();
+        if !clean.is_empty() && clean != "." && clean != ".." {
+            path.push(clean);
+        }
+    }
+    path
 }
 
 /// Sanitize a title for use as a filename.
