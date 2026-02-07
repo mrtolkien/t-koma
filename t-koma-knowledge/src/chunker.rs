@@ -12,6 +12,18 @@ pub struct Chunk {
 }
 
 pub fn chunk_markdown(input: &str) -> Vec<Chunk> {
+    // Short content stays as a single chunk for better embedding quality
+    if input.len() < 1500 {
+        let trimmed = input.trim();
+        if !trimmed.is_empty() {
+            return vec![Chunk {
+                title: "Intro".to_string(),
+                content: trimmed.to_string(),
+                index: 0,
+            }];
+        }
+    }
+
     let mut chunks = Vec::new();
     let mut current_title = String::from("Intro");
     let mut current_lines: Vec<String> = Vec::new();
@@ -171,11 +183,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chunks_markdown_by_heading() {
+    fn short_content_stays_single_chunk() {
         let input = "# Title\nIntro\n\n## Section\nContent";
         let chunks = chunk_markdown(input);
-        assert!(!chunks.is_empty());
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].title, "Intro");
+        assert!(chunks[0].content.contains("Title"));
+        assert!(chunks[0].content.contains("Content"));
+    }
+
+    #[test]
+    fn long_content_splits_by_heading() {
+        // Build content over 1500 chars to trigger heading-based splitting
+        let filler = "x".repeat(800);
+        let input = format!("# Title\n{}\n\n## Section\n{}", filler, filler);
+        let chunks = chunk_markdown(&input);
+        assert!(chunks.len() >= 2);
         assert_eq!(chunks[0].title, "Title");
-        assert!(chunks[0].content.contains("Intro"));
+        assert_eq!(chunks[1].title, "Section");
     }
 }

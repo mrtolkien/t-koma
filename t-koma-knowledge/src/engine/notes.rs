@@ -21,6 +21,17 @@ pub(crate) async fn note_create(
     let now = Utc::now();
     let (target_dir, scope, owner_ghost) =
         resolve_write_target(engine.settings(), ghost_name, &request.scope)?;
+
+    // Derive subfolder from first tag (creation-time only, files don't move on tag change)
+    let target_dir = if let Some(tags) = &request.tags {
+        if let Some(first_tag) = tags.first() {
+            target_dir.join(first_tag.replace('/', std::path::MAIN_SEPARATOR_STR))
+        } else {
+            target_dir
+        }
+    } else {
+        target_dir
+    };
     tokio::fs::create_dir_all(&target_dir).await?;
 
     let trust_score = request.trust_score.unwrap_or(5);

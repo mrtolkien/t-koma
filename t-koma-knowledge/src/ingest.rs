@@ -66,13 +66,13 @@ pub async fn ingest_reference_topic(
         content_hash: hash,
     };
 
-    let chunks = build_markdown_chunks(settings, &parsed, &note);
+    let tags = parsed.front.tags.clone().unwrap_or_default();
+    let chunks = build_markdown_chunks(settings, &parsed, &note, &tags);
     let links = parsed
         .links
         .iter()
         .map(|link| (link.target.clone(), link.alias.clone()))
         .collect();
-    let tags = parsed.front.tags.clone().unwrap_or_default();
 
     Ok(IngestedTopic {
         note: IngestedNote {
@@ -133,13 +133,13 @@ pub async fn ingest_markdown(
         content_hash: hash,
     };
 
-    let chunks = build_markdown_chunks(settings, &parsed, &note);
+    let tags = parsed.front.tags.clone().unwrap_or_default();
+    let chunks = build_markdown_chunks(settings, &parsed, &note, &tags);
     let links = parsed
         .links
         .iter()
         .map(|link| (link.target.clone(), link.alias.clone()))
         .collect();
-    let tags = parsed.front.tags.clone().unwrap_or_default();
 
     Ok(IngestedNote {
         note,
@@ -283,13 +283,13 @@ pub async fn ingest_reference_collection(
         content_hash: hash,
     };
 
-    let chunks = build_markdown_chunks(settings, &parsed, &note);
+    let tags = parsed.front.tags.clone().unwrap_or_default();
+    let chunks = build_markdown_chunks(settings, &parsed, &note, &tags);
     let links = parsed
         .links
         .iter()
         .map(|link| (link.target.clone(), link.alias.clone()))
         .collect();
-    let tags = parsed.front.tags.clone().unwrap_or_default();
 
     Ok(IngestedNote {
         note,
@@ -378,18 +378,37 @@ fn build_markdown_chunks(
     settings: &KnowledgeSettings,
     parsed: &ParsedNote,
     note: &NoteRecord,
+    tags: &[String],
 ) -> Vec<ChunkRecord> {
     let chunks = chunk_markdown(&parsed.body);
+    let tag_prefix = if !tags.is_empty() {
+        Some(format!("[tags: {}]", tags.join(", ")))
+    } else {
+        None
+    };
+
     chunks
         .into_iter()
-        .map(|chunk| ChunkRecord {
-            note_id: note.id.clone(),
-            chunk_index: chunk.index as i64,
-            title: chunk.title,
-            content: chunk.content.clone(),
-            content_hash: compute_hash(&chunk.content),
-            embedding_model: Some(settings.embedding_model.clone()),
-            embedding_dim: settings.embedding_dim.map(|d| d as i64),
+        .map(|chunk| {
+            // Prepend tags to the first chunk for FTS and embedding search
+            let content = if chunk.index == 0 {
+                if let Some(ref prefix) = tag_prefix {
+                    format!("{}\n\n{}", prefix, chunk.content)
+                } else {
+                    chunk.content.clone()
+                }
+            } else {
+                chunk.content.clone()
+            };
+            ChunkRecord {
+                note_id: note.id.clone(),
+                chunk_index: chunk.index as i64,
+                title: chunk.title,
+                content: content.clone(),
+                content_hash: compute_hash(&content),
+                embedding_model: Some(settings.embedding_model.clone()),
+                embedding_dim: settings.embedding_dim.map(|d| d as i64),
+            }
         })
         .collect()
 }
