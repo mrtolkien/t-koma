@@ -188,11 +188,13 @@ async fn execute_save(
                 .map_err(|e| e.to_string())?;
             Ok(json!({"status": "updated"}).to_string())
         } else {
-            // Create new — save a placeholder file to bootstrap the topic
+            // Create new — save a placeholder file to bootstrap the topic,
+            // passing body as topic_description so topic.md gets the description
             let request = t_koma_knowledge::ReferenceSaveRequest {
                 topic: input.topic,
                 path: "topic-readme.md".to_string(),
-                content: body.unwrap_or_default(),
+                content: "Topic overview — add reference files to populate this topic."
+                    .to_string(),
                 source_url: None,
                 role: Some(t_koma_knowledge::SourceRole::Docs),
                 title: Some("Topic Overview".to_string()),
@@ -200,7 +202,7 @@ async fn execute_save(
                 collection_description: None,
                 collection_tags: None,
                 tags: input.tags,
-                topic_description: None,
+                topic_description: body,
             };
 
             let result = engine

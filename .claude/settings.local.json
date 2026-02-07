@@ -19,7 +19,9 @@
       "mcp__rust-analyzer__rust_analyzer_diagnostics",
       "Bash(git -C /home/tolki/Development/t-koma/feat/references log --oneline -5)",
       "Bash(git -C /home/tolki/Development/t-koma/feat/references diff AGENTS.md t-koma-knowledge/knowledge/prompts/knowledge_system.md)",
-      "Bash(git -C /home/tolki/Development/t-koma/feat/references log --oneline -10)"
+      "Bash(git -C /home/tolki/Development/t-koma/feat/references log --oneline -10)",
+      "mcp__github__pull_request_read",
+      "mcp__github__add_issue_comment"
     ]
   },
   "enableAllProjectMcpServers": true,

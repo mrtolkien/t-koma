@@ -1,0 +1,20 @@
+---
+source: t-koma-knowledge/tests/crawl_e2e.rs
+expression: "build_search_snapshot(question, &search_result.results, 3)"
+---
+query: API key authentication headers
+total_hits: 8
+unique_files: 5
+top_results:
+  - rank: 1
+    title: openrouter-ai-docs_api_reference_overview.md
+    note_type: ReferenceCode
+    snippet_preview: "[OpenRouter API]\n\nOpenRouter allows you to specify some optional headers to identify your app and\nmake it discoverable to users on our site.\n\n* `HTTP-"
+  - rank: 2
+    title: openrouter-ai-docs_api-reference_overview.md
+    note_type: ReferenceCode
+    snippet_preview: "[OpenRouter API]\n\nOpenRouter allows you to specify some optional headers to identify your app and\nmake it discoverable to users on our site.\n\n* `HTTP-"
+  - rank: 3
+    title: openrouter-ai-enterprise.md
+    note_type: ReferenceCode
+    snippet_preview: "[OpenRouter API]\n\nView and export all API requests across all users.\n\nMultiple users with global preferences to enforce policies.\n\nProgrammatic API ke"
