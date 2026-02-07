@@ -22,6 +22,7 @@ impl MemoryNoteCreateTool {
     fn parse_scope(scope: Option<String>) -> t_koma_knowledge::models::WriteScope {
         match scope.as_deref() {
             Some("shared") => t_koma_knowledge::models::WriteScope::SharedNote,
+            // Accept both "private" and legacy "ghost"
             _ => t_koma_knowledge::models::WriteScope::GhostNote,
         }
     }
@@ -51,8 +52,8 @@ impl Tool for MemoryNoteCreateTool {
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["ghost", "shared"],
-                    "description": "Where to create the note. Default 'ghost' (your private notes)."
+                    "enum": ["private", "shared"],
+                    "description": "Where to create the note. Default 'private' (your own notes)."
                 },
                 "body": {
                     "type": "string",
@@ -87,7 +88,7 @@ impl Tool for MemoryNoteCreateTool {
     fn prompt(&self) -> Option<&'static str> {
         Some(
             "Use memory_note_create to create a structured knowledge note with validated front matter.\n\
-            - Default scope is 'ghost' (your own notes).\n\
+            - Default scope is 'private' (your own notes).\n\
             - Use 'shared' to create notes visible to all ghosts.\n\
             - The note ID is generated automatically.\n\
             - Set parent to organize notes hierarchically.\n\

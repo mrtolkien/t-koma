@@ -16,7 +16,7 @@ use serde::Serialize;
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    NoteCreateRequest, NoteQuery, NoteResult, NoteSearchScope, ReferenceQuery,
+    NoteCreateRequest, NoteQuery, NoteResult, OwnershipScope, ReferenceQuery,
     WriteScope,
 };
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
@@ -318,7 +318,7 @@ async fn scope_isolation_ghost_vs_reference() {
             &f.ghost_name,
             NoteQuery {
                 query: question.to_string(),
-                scope: NoteSearchScope::GhostOnly,
+                scope: OwnershipScope::Private,
                 options: Default::default(),
             },
         )

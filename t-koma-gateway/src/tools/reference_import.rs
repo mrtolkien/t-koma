@@ -16,7 +16,7 @@ struct TopicSourceInput {
 }
 
 #[derive(Debug, Deserialize)]
-struct TopicCreateInput {
+struct ImportInput {
     title: String,
     body: String,
     sources: Vec<TopicSourceInput>,
@@ -25,16 +25,16 @@ struct TopicCreateInput {
     trust_score: Option<i64>,
 }
 
-pub struct ReferenceTopicCreateTool;
+pub struct ReferenceImportTool;
 
 #[async_trait::async_trait]
-impl Tool for ReferenceTopicCreateTool {
+impl Tool for ReferenceImportTool {
     fn name(&self) -> &str {
-        "reference_topic_create"
+        "reference_import"
     }
 
     fn description(&self) -> &str {
-        "Create a new reference topic by fetching external sources (git repos, web pages), indexing with embeddings. Load the reference-researcher skill first for best results."
+        "Import external sources (git repos, web pages) into a reference topic, indexing with embeddings. Load the reference-researcher skill first for best results."
     }
 
     fn input_schema(&self) -> Value {
@@ -107,20 +107,21 @@ impl Tool for ReferenceTopicCreateTool {
 
     fn prompt(&self) -> Option<&'static str> {
         Some(
-            "Use reference_topic_create to build a searchable reference from external sources.\n\
+            "Use reference_import to bulk-import external sources into a searchable reference topic.\n\
             - Default to fetching the ENTIRE repo (source + docs). The embedding system handles large codebases well.\n\
             - The operator will be asked to approve before the fetch begins.\n\
             - If the operator denies (too large), retry with a paths filter: prioritize README.md, docs/, examples/.\n\
             - Always write a meaningful body that summarizes the library's purpose and key concepts.\n\
-            - Always search for existing topics first (check system prompt + reference_topic_search).\n\
+            - Always search for existing topics first (use knowledge_search with categories: [\"topics\"]).\n\
             - Set `role: \"docs\"` for documentation sources and `role: \"code\"` for code repos. Web sources default to docs.\n\
             - ALWAYS look for a separate documentation repo or docsite. Docs are boosted in search results.\n\
+            - For incremental saves (single files, web page dumps), use reference_save instead.\n\
             - Use the `reference-researcher` skill for best practices on creating reference topics.",
         )
     }
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
-        let input: TopicCreateInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
+        let input: ImportInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         // Clone the engine Arc so we can mutably borrow context later
         let engine = context
@@ -131,7 +132,7 @@ impl Tool for ReferenceTopicCreateTool {
         let request = to_knowledge_request(&input);
 
         // Phase 2: if we already have approval, proceed with creation
-        if context.has_approval("reference_topic_create") {
+        if context.has_approval("reference_import") {
             let result = engine
                 .topic_create(context.ghost_name(), request)
                 .await
@@ -146,7 +147,7 @@ impl Tool for ReferenceTopicCreateTool {
             .await
             .map_err(|e| e.to_string())?;
 
-        let reason = ApprovalReason::ReferenceTopicCreate {
+        let reason = ApprovalReason::ReferenceImport {
             title: input.title,
             summary,
         };
@@ -155,7 +156,7 @@ impl Tool for ReferenceTopicCreateTool {
     }
 }
 
-fn to_knowledge_request(input: &TopicCreateInput) -> t_koma_knowledge::TopicCreateRequest {
+fn to_knowledge_request(input: &ImportInput) -> t_koma_knowledge::TopicCreateRequest {
     t_koma_knowledge::TopicCreateRequest {
         title: input.title.clone(),
         body: input.body.clone(),

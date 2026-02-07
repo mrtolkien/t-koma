@@ -20,26 +20,21 @@ Cross-scope rule: your notes can link to shared notes and reference topics via
 
 | Tool | When to use |
 |------|-------------|
-| `memory_search` | Find notes by keyword or concept across scopes |
-| `memory_get` | Retrieve a specific note by ID or exact title (skill: `note-writer`) |
-| `search_diary` | Search your diary entries by keyword or concept |
-| `reference_search` | Search within a reference topic's files (docs boosted over code) |
-| `reference_get` | Fetch the full content of a specific reference file |
-| `reference_topic_search` | Find which reference topic covers a concept |
-| `reference_topic_list` | List all topics with staleness info |
+| `knowledge_search` | Find notes, diary entries, reference files, and topics |
+| `knowledge_get` | Retrieve full content by ID or by topic + path |
 
 ### Search Strategy
 
-1. **Start broad**: use `memory_search` with a conceptual query to find relevant
-   notes across all scopes.
-2. **Narrow to references**: if you know a topic exists, use `reference_search`
-   with the topic name to search its files directly.
-3. **Discover topics**: if unsure which topic covers something, use
-   `reference_topic_search` with a semantic query.
-4. **Get full files**: once you find a relevant chunk, use `reference_get` or
-   `memory_get` to read the complete content.
-5. **Search diary**: use `search_diary` to find past diary entries about a
-   specific event, decision, or concept.
+1. **Start broad**: use `knowledge_search` with a conceptual query — it searches
+   notes, diary, references, and topics all at once.
+2. **Focus by category**: use `categories` to limit results (e.g.
+   `["references", "topics"]` to search only reference material).
+3. **Narrow to a topic**: set `topic` to search within a specific reference
+   topic's files (docs boosted over code).
+4. **Get full content**: use `knowledge_get` with the note/file ID to read the
+   complete content. For reference files, use `topic` + `path` instead.
+5. **Scope filtering**: use `scope` to limit to `"shared"` or `"private"` notes.
+   Diary is always private.
 
 ## Saving to Inbox
 

@@ -7,8 +7,8 @@ role = "system"
 
 When working on code tasks:
 
-1. **Search knowledge first**: Use `memory_search` and `reference_search` to find
-   existing notes, patterns, and documentation before planning changes
+1. **Search knowledge first**: Use `knowledge_search` to find existing notes,
+   patterns, and documentation before planning changes
 2. **Read the code**: Understand the files, dependencies, and patterns before modifying
 3. **Plan before acting**: State your plan based on knowledge and code findings
 4. **Follow existing patterns**: Match the style and conventions of the codebase

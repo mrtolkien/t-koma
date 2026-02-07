@@ -6,8 +6,6 @@ use crate::tools::{Tool, ToolContext};
 #[derive(Debug, Deserialize)]
 struct TopicUpdateInput {
     topic_id: String,
-    status: Option<String>,
-    max_age_days: Option<i64>,
     body: Option<String>,
     tags: Option<Vec<String>>,
 }
@@ -21,7 +19,7 @@ impl Tool for ReferenceTopicUpdateTool {
     }
 
     fn description(&self) -> &str {
-        "Update reference topic metadata (status, body, tags, max_age_days) without re-fetching sources. Load the reference-researcher skill first for best results."
+        "Update reference topic metadata (body, tags) without re-fetching sources. Load the reference-researcher skill first for best results."
     }
 
     fn input_schema(&self) -> Value {
@@ -31,16 +29,6 @@ impl Tool for ReferenceTopicUpdateTool {
                 "topic_id": {
                     "type": "string",
                     "description": "ID of the reference topic to update."
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["active", "stale", "obsolete"],
-                    "description": "Update the topic status."
-                },
-                "max_age_days": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Update staleness threshold. 0 = never stale."
                 },
                 "body": {
                     "type": "string",
@@ -60,9 +48,8 @@ impl Tool for ReferenceTopicUpdateTool {
     fn prompt(&self) -> Option<&'static str> {
         Some(
             "Use reference_topic_update to patch topic metadata without re-fetching sources.\n\
-            - Set status to 'obsolete' when a library is deprecated or superseded.\n\
-            - Adjust max_age_days based on how actively the library is developed.\n\
-            - Update the body to improve the topic description.",
+            - Update the body to improve the topic description.\n\
+            - Update tags for better discoverability.",
         )
     }
 
@@ -75,8 +62,6 @@ impl Tool for ReferenceTopicUpdateTool {
 
         let request = t_koma_knowledge::TopicUpdateRequest {
             topic_id: input.topic_id,
-            status: input.status,
-            max_age_days: input.max_age_days,
             body: input.body,
             tags: input.tags,
         };

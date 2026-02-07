@@ -2,7 +2,7 @@ use tempfile::TempDir;
 
 use t_koma_knowledge::storage::{upsert_note, KnowledgeStore, NoteRecord};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
-use t_koma_knowledge::models::NoteSearchScope;
+use t_koma_knowledge::models::OwnershipScope;
 
 #[tokio::test]
 async fn test_private_note_isolation() {
@@ -73,13 +73,13 @@ async fn test_private_note_isolation() {
     let engine = KnowledgeEngine::open(settings).await.expect("open engine");
 
     let own = engine
-        .memory_get("ghost-a", "ghost-a-note", NoteSearchScope::GhostOnly)
+        .memory_get("ghost-a", "ghost-a-note", OwnershipScope::Private)
         .await
         .expect("ghost a should read own note");
     assert_eq!(own.id, "ghost-a-note");
 
     let other = engine
-        .memory_get("ghost-a", "ghost-b-note", NoteSearchScope::GhostOnly)
+        .memory_get("ghost-a", "ghost-b-note", OwnershipScope::Private)
         .await;
     assert!(other.is_err(), "ghost a should not read ghost b note");
 }

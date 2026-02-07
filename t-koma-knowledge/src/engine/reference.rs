@@ -6,7 +6,7 @@ use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::graph::{load_links_in, load_links_out, load_parent, load_tags};
 use crate::models::{
     KnowledgeScope, NoteDocument, NoteResult, ReferenceFileStatus, ReferenceQuery,
-    ReferenceSearchResult,
+    ReferenceSearchResult, SearchOptions,
 };
 
 use super::KnowledgeEngine;
@@ -255,6 +255,122 @@ async fn search_reference_topics(
         )
         .await?;
         let tags = load_tags(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        results.push(NoteResult {
+            summary,
+            parents,
+            links_out,
+            links_in,
+            tags,
+        });
+    }
+
+    Ok(results)
+}
+
+/// Search ALL non-obsolete reference files across all topics.
+///
+/// Unlike `search_reference_files` which is scoped to a single topic,
+/// this searches the entire reference corpus. Used by the unified
+/// `knowledge_search` when no specific topic is provided.
+pub(crate) async fn search_all_reference_files(
+    engine: &KnowledgeEngine,
+    query_str: &str,
+    options: &SearchOptions,
+) -> KnowledgeResult<Vec<NoteResult>> {
+    let pool = engine.pool();
+    let settings = engine.settings();
+    let embedder = engine.embedder();
+
+    // Fetch all non-obsolete reference file note_ids (excluding topic/collection notes)
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT note_id, status FROM reference_files WHERE status != 'obsolete'",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let note_ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
+    let problematic_ids: Vec<String> = rows
+        .iter()
+        .filter(|(_, status)| status == "problematic")
+        .map(|(id, _)| id.clone())
+        .collect();
+
+    if note_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let doc_boost = options.doc_boost.unwrap_or(settings.search.doc_boost);
+    let bm25_limit = options.bm25_limit.unwrap_or(settings.search.bm25_limit);
+    let dense_limit = options.dense_limit.unwrap_or(settings.search.dense_limit);
+    let max_results = options.max_results.unwrap_or(settings.search.max_results);
+
+    // BM25 search scoped to reference file notes
+    let filter_ids = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT chunk_id, bm25(chunk_fts) as score FROM chunk_fts \
+         JOIN notes ON notes.id = chunk_fts.note_id \
+         WHERE chunk_fts MATCH ? AND notes.id IN ({}) \
+         ORDER BY score ASC LIMIT ?",
+        filter_ids
+    );
+    let safe_query = sanitize_fts5_query(query_str);
+    let mut qb = sqlx::query_as::<_, (i64, f32)>(&sql);
+    qb = qb.bind(&safe_query);
+    for id in &note_ids {
+        qb = qb.bind(id);
+    }
+    qb = qb.bind(bm25_limit as i64);
+    let bm25_hits = qb.fetch_all(pool).await?;
+
+    // Dense search
+    let dense_hits = dense_search(
+        embedder,
+        pool,
+        query_str,
+        dense_limit,
+        Some(&note_ids),
+        KnowledgeScope::SharedReference,
+        "",
+    )
+    .await?;
+
+    let fused = rrf_fuse(settings.search.rrf_k, &bm25_hits, &dense_hits);
+    let mut ranked: Vec<(i64, f32)> = fused.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.truncate(max_results);
+
+    let summaries = hydrate_summaries_boosted(
+        pool,
+        &ranked,
+        KnowledgeScope::SharedReference,
+        "",
+        doc_boost,
+        &problematic_ids,
+    )
+    .await?;
+
+    let mut results = Vec::new();
+    for summary in summaries {
+        let parents =
+            load_parent(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        let links_out = load_links_out(
+            pool,
+            &summary.id,
+            settings.search.graph_max,
+            KnowledgeScope::SharedReference,
+            "",
+        )
+        .await?;
+        let links_in = load_links_in(
+            pool,
+            &summary.id,
+            settings.search.graph_max,
+            KnowledgeScope::SharedReference,
+            "",
+        )
+        .await?;
+        let tags =
+            load_tags(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
         results.push(NoteResult {
             summary,
             parents,

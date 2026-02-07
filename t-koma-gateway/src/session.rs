@@ -70,7 +70,6 @@ pub enum ToolApprovalDecision {
 
 /// Template variable values for ghost-context.md rendering
 struct GhostContextVars {
-    reference_topics: String,
     ghost_identity: String,
     ghost_diary: String,
     ghost_projects: String,
@@ -81,7 +80,6 @@ impl GhostContextVars {
     /// Convert to the slice format expected by the template engine
     fn as_pairs(&self) -> Vec<(&str, &str)> {
         vec![
-            ("reference_topics", self.reference_topics.as_str()),
             ("ghost_identity", self.ghost_identity.as_str()),
             ("ghost_diary", self.ghost_diary.as_str()),
             ("ghost_projects", self.ghost_projects.as_str()),
@@ -629,25 +627,6 @@ impl SessionChat {
         &self,
         workspace_root: &std::path::Path,
     ) -> Result<GhostContextVars, ChatError> {
-        // Reference topics
-        let reference_topics = if let Some(engine) = &self.knowledge_engine
-            && let Ok(topics) = engine.recent_topics().await
-            && !topics.is_empty()
-        {
-            let mut section = String::from("# Available Reference Topics\n\n");
-            for (id, title, tags) in &topics {
-                let tag_str = if tags.is_empty() {
-                    String::new()
-                } else {
-                    format!(" — {}", tags.join(", "))
-                };
-                section.push_str(&format!("- {} (`{}`){}\n", title, id, tag_str));
-            }
-            section
-        } else {
-            String::new()
-        };
-
         // Ghost identity (BOOT.md + SOUL.md + USER.md)
         let mut identity_parts = Vec::new();
         for (label, filename) in [("BOOT.md", "BOOT.md"), ("SOUL.md", "SOUL.md"), ("USER.md", "USER.md")] {
@@ -713,7 +692,6 @@ impl SessionChat {
         let ghost_projects = project_parts.join("\n\n");
 
         Ok(GhostContextVars {
-            reference_topics,
             ghost_identity,
             ghost_diary,
             ghost_projects,

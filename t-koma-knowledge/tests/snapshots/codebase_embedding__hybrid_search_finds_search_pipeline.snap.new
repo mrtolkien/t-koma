@@ -1,0 +1,16 @@
+---
+source: t-koma-knowledge/tests/codebase_embedding.rs
+assertion_line: 259
+expression: "build_snapshot(question, results, 2)"
+---
+query: hybrid search with BM25 and embeddings
+total_hits: 8
+top_results:
+  - rank: 1
+    file: knowledge_system.md
+    note_type: ReferenceDocs
+    snippet: "[t-koma-knowledge source]\n\nYou have access to a persistent knowledge base with hybrid search (BM25 +\nembeddings). Use it"
+  - rank: 2
+    file: search.rs
+    note_type: ReferenceCode
+    snippet: "[t-koma-knowledge source]\n\npub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingC"

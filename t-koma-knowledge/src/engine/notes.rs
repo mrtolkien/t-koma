@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
     KnowledgeScope, NoteCreateRequest, NoteDocument,
-    NoteSearchScope, NoteUpdateRequest, NoteWriteResult, WriteScope, generate_note_id,
+    NoteUpdateRequest, NoteWriteResult, OwnershipScope, WriteScope, generate_note_id,
 };
 use crate::parser::CommentEntry;
 use crate::KnowledgeSettings;
@@ -90,7 +90,7 @@ pub(crate) async fn note_update(
 ) -> KnowledgeResult<NoteWriteResult> {
     // Fetch existing note and verify access
     let doc = engine
-        .memory_get(ghost_name, &request.note_id, NoteSearchScope::All)
+        .memory_get(ghost_name, &request.note_id, OwnershipScope::All)
         .await?;
     verify_write_access(ghost_name, &doc)?;
 
@@ -178,7 +178,7 @@ pub(crate) async fn note_validate(
     trust_score: Option<i64>,
 ) -> KnowledgeResult<NoteWriteResult> {
     let doc = engine
-        .memory_get(ghost_name, note_id, NoteSearchScope::All)
+        .memory_get(ghost_name, note_id, OwnershipScope::All)
         .await?;
     verify_write_access(ghost_name, &doc)?;
 
@@ -233,7 +233,7 @@ pub(crate) async fn note_comment(
     text: &str,
 ) -> KnowledgeResult<NoteWriteResult> {
     let doc = engine
-        .memory_get(ghost_name, note_id, NoteSearchScope::All)
+        .memory_get(ghost_name, note_id, OwnershipScope::All)
         .await?;
     verify_write_access(ghost_name, &doc)?;
 
@@ -404,20 +404,6 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
         lines.push(format!("ghost = \"{}\"", validated_by.ghost));
         lines.push(format!("model = \"{}\"", validated_by.model));
     }
-    if let Some(files) = &front.files {
-        let formatted: Vec<String> = files.iter().map(|f| format!("\"{}\"", f)).collect();
-        lines.push(format!("files = [{}]", formatted.join(", ")));
-    }
-    // Reference topic fields
-    if let Some(status) = &front.status {
-        lines.push(format!("status = \"{}\"", status));
-    }
-    if let Some(fetched_at) = front.fetched_at {
-        lines.push(format!("fetched_at = \"{}\"", fetched_at.to_rfc3339()));
-    }
-    if let Some(max_age) = front.max_age_days {
-        lines.push(format!("max_age_days = {}", max_age));
-    }
     lines.push(String::new());
     lines.push("[created_by]".to_string());
     lines.push(format!("ghost = \"{}\"", front.created_by.ghost));
@@ -433,27 +419,6 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
                 "text = \"{}\"",
                 comment.text.replace('"', "\\\"")
             ));
-        }
-    }
-    if let Some(sources) = &front.sources {
-        for src in sources {
-            lines.push(String::new());
-            lines.push("[[sources]]".to_string());
-            lines.push(format!("type = \"{}\"", src.source_type));
-            lines.push(format!("url = \"{}\"", src.url));
-            if let Some(ref_name) = &src.ref_name {
-                lines.push(format!("ref = \"{}\"", ref_name));
-            }
-            if let Some(commit) = &src.commit {
-                lines.push(format!("commit = \"{}\"", commit));
-            }
-            if let Some(paths) = &src.paths {
-                let formatted: Vec<String> = paths.iter().map(|p| format!("\"{}\"", p)).collect();
-                lines.push(format!("paths = [{}]", formatted.join(", ")));
-            }
-            if let Some(role) = &src.role {
-                lines.push(format!("role = \"{}\"", role));
-            }
         }
     }
     lines.join("\n")

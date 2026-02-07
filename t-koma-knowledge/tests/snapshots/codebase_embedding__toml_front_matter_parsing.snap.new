@@ -1,0 +1,16 @@
+---
+source: t-koma-knowledge/tests/codebase_embedding.rs
+assertion_line: 377
+expression: "build_snapshot(question, results, 2)"
+---
+query: core source files models search graph
+total_hits: 8
+top_results:
+  - rank: 1
+    file: knowledge_system.md
+    note_type: ReferenceDocs
+    snippet: "[t-koma-knowledge source]\n\n| Tool | When to use |\n|------|-------------|\n| `memory_search` | Find notes by keyword or co"
+  - rank: 2
+    file: models.rs
+    note_type: ReferenceCode
+    snippet: "[t-koma-knowledge source]\n\npub struct SearchOptions {\n    pub max_results: Option<usize>,\n    pub graph_depth: Option<u8"
