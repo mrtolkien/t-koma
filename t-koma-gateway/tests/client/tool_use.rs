@@ -58,6 +58,7 @@ async fn test_pwd_tool_execution() {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("ghost_skills", ""),
         ("system_info", ""),
     ]);
     let system_blocks = t_koma_gateway::prompt::render::build_system_prompt(&system_prompt);

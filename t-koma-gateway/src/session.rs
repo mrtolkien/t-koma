@@ -73,6 +73,7 @@ struct GhostContextVars {
     ghost_identity: String,
     ghost_diary: String,
     ghost_projects: String,
+    ghost_skills: String,
     system_info: String,
 }
 
@@ -83,6 +84,7 @@ impl GhostContextVars {
             ("ghost_identity", self.ghost_identity.as_str()),
             ("ghost_diary", self.ghost_diary.as_str()),
             ("ghost_projects", self.ghost_projects.as_str()),
+            ("ghost_skills", self.ghost_skills.as_str()),
             ("system_info", self.system_info.as_str()),
         ]
     }
@@ -96,6 +98,7 @@ pub struct SessionChat {
     pub(crate) tool_manager: ToolManager,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
     system_info: String,
+    skill_paths: Vec<std::path::PathBuf>,
 }
 
 async fn load_recent_active_diary_entries(
@@ -142,6 +145,100 @@ async fn load_recent_active_diary_entries(
     out
 }
 
+/// Discover available skills from all paths and build a prompt listing.
+///
+/// Ghost-local skills (from `workspace_root/skills/`) take highest priority,
+/// then configured paths (user config, project defaults). Same-name skills
+/// from lower-priority paths are overridden.
+async fn discover_skills_listing(
+    workspace_root: &std::path::Path,
+    skill_paths: &[std::path::PathBuf],
+) -> String {
+    use std::collections::HashMap;
+    let mut skills: HashMap<String, String> = HashMap::new();
+
+    // Scan configured paths first (lowest priority)
+    for dir in skill_paths.iter().rev() {
+        if let Ok(found) = scan_skills_dir(dir).await {
+            skills.extend(found);
+        }
+    }
+
+    // Ghost-local skills override everything
+    let workspace_skills = workspace_root.join("skills");
+    if let Ok(found) = scan_skills_dir(&workspace_skills).await {
+        for (name, desc) in found {
+            skills.insert(format!("{name} (ghost-created)"), desc);
+        }
+    }
+
+    if skills.is_empty() {
+        return String::new();
+    }
+
+    let mut lines = vec![
+        "## Available Skills".to_string(),
+        String::new(),
+        "Use `load_skill` to load the full instructions for any skill before using it.".to_string(),
+        String::new(),
+    ];
+    let mut sorted: Vec<_> = skills.into_iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, description) in sorted {
+        lines.push(format!("- **{}**: {}", name, description));
+    }
+    lines.join("\n")
+}
+
+/// Scan a directory for skill subdirectories and extract name + description.
+async fn scan_skills_dir(
+    dir: &std::path::Path,
+) -> std::io::Result<Vec<(String, String)>> {
+    let mut results = Vec::new();
+    if !dir.exists() {
+        return Ok(results);
+    }
+
+    let mut entries = tokio::fs::read_dir(dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let skill_md = path.join("SKILL.md");
+        if let Ok(content) = tokio::fs::read_to_string(&skill_md).await
+            && let Some((name, desc)) = parse_skill_frontmatter(&content)
+        {
+            results.push((name, desc));
+        }
+    }
+
+    Ok(results)
+}
+
+/// Extract name and description from YAML frontmatter in a SKILL.md file.
+fn parse_skill_frontmatter(content: &str) -> Option<(String, String)> {
+    let trimmed = content.trim();
+    if !trimmed.starts_with("---") {
+        return None;
+    }
+    let rest = &trimmed[3..];
+    let end = rest.find("\n---")?;
+    let yaml = &rest[..end];
+
+    let mut name = None;
+    let mut description = None;
+    for line in yaml.lines() {
+        if let Some(val) = line.strip_prefix("name:") {
+            name = Some(val.trim().to_string());
+        } else if let Some(val) = line.strip_prefix("description:") {
+            description = Some(val.trim().to_string());
+        }
+    }
+
+    Some((name?, description.unwrap_or_default()))
+}
+
 impl SessionChat {
     /// Create a new SessionChat instance.
     ///
@@ -153,9 +250,10 @@ impl SessionChat {
         skill_paths: Vec<std::path::PathBuf>,
     ) -> Self {
         Self {
-            tool_manager: ToolManager::new(skill_paths),
+            tool_manager: ToolManager::new(skill_paths.clone()),
             knowledge_engine,
             system_info: system_info::build_system_info(),
+            skill_paths,
         }
     }
 
@@ -734,10 +832,14 @@ impl SessionChat {
         }
         let ghost_projects = project_parts.join("\n\n");
 
+        // Available skills (ghost-local override config/project)
+        let ghost_skills = discover_skills_listing(workspace_root, &self.skill_paths).await;
+
         Ok(GhostContextVars {
             ghost_identity,
             ghost_diary,
             ghost_projects,
+            ghost_skills,
             system_info: self.system_info.clone(),
         })
     }

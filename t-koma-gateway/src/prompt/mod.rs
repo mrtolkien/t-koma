@@ -147,6 +147,7 @@ mod tests {
         ("ghost_identity", ""),
         ("ghost_diary", ""),
         ("ghost_projects", ""),
+        ("ghost_skills", ""),
         ("system_info", ""),
     ];
 
