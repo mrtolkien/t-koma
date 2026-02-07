@@ -115,7 +115,7 @@ impl Tool for ReferenceImportTool {
             - Always search for existing topics first (use knowledge_search with categories: [\"topics\"]).\n\
             - Set `role: \"docs\"` for documentation sources and `role: \"code\"` for code repos. Web sources default to docs.\n\
             - ALWAYS look for a separate documentation repo or docsite. Docs are boosted in search results.\n\
-            - For incremental saves (single files, web page dumps), use reference_save instead.\n\
+            - For incremental saves (single files, web page dumps), use reference_write with action 'save' instead.\n\
             - Use the `reference-researcher` skill for best practices on creating reference topics.",
         )
     }
