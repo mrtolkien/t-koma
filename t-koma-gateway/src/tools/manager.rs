@@ -12,7 +12,6 @@ use super::{
     reference_save::ReferenceSaveTool,
     reference_search::ReferenceSearchTool,
     reference_import::ReferenceImportTool,
-    reference_topic_list::ReferenceTopicListTool,
     reference_topic_search::ReferenceTopicSearchTool,
     reference_topic_update::ReferenceTopicUpdateTool,
     search::SearchTool, search_diary::SearchDiaryTool, shell::ShellTool,
@@ -56,7 +55,6 @@ impl ToolManager {
             Box::new(ReferenceImportTool),
             Box::new(SearchDiaryTool),
             Box::new(ReferenceTopicSearchTool),
-            Box::new(ReferenceTopicListTool),
             Box::new(ReferenceTopicUpdateTool),
         ];
         Self { tools }

@@ -26,7 +26,6 @@ Cross-scope rule: your notes can link to shared notes and reference topics via
 | `reference_search` | Search within a reference topic's files (docs boosted over code) |
 | `reference_get` | Fetch the full content of a specific reference file |
 | `reference_topic_search` | Find which reference topic covers a concept |
-| `reference_topic_list` | List all topics with staleness info |
 
 ### Search Strategy
 
