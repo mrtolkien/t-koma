@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::SqlitePool;
 
 use crate::KnowledgeSettings;
@@ -378,6 +378,22 @@ impl KnowledgeEngine {
         // ── Min-per-category budget algorithm ───────────────────────
         // Reserve top-1 from each non-empty category, then fill remaining
         // budget from a globally sorted pool.
+        //
+        // Category boosts applied to pool scores for priority ordering:
+        //   Notes      1.5x  — curated, high-quality knowledge
+        //   Diary      1.0–1.5x — recency-weighted (1.5x today → 1.0x at 1 year)
+        //   References 1.0x  — baseline (already has internal doc_boost)
+        //   Topics     1.0x  — baseline
+
+        const NOTE_BOOST: f32 = 1.5;
+
+        let diary_recency_boost = |date_str: &str| -> f32 {
+            let Some(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok() else {
+                return 1.0;
+            };
+            let days_old = (Utc::now().date_naive() - date).num_days().max(0) as f32;
+            (1.5 - 0.5 * days_old / 365.0).max(1.0)
+        };
 
         #[derive(Debug)]
         struct ScoredItem {
@@ -389,10 +405,10 @@ impl KnowledgeEngine {
         let mut reserved_indices: Vec<(SearchCategory, usize)> = Vec::new();
         let mut pool_items: Vec<ScoredItem> = Vec::new();
 
-        // Notes
+        // Notes (boosted: curated knowledge ranks highest)
         for (i, r) in notes.iter().enumerate() {
             let item = ScoredItem {
-                score: r.summary.score,
+                score: r.summary.score * NOTE_BOOST,
                 category: SearchCategory::Notes,
                 index: i,
             };
@@ -402,10 +418,10 @@ impl KnowledgeEngine {
                 pool_items.push(item);
             }
         }
-        // Diary
+        // Diary (recency-boosted: recent entries rank higher)
         for (i, r) in diary.iter().enumerate() {
             let item = ScoredItem {
-                score: r.score,
+                score: r.score * diary_recency_boost(&r.date),
                 category: SearchCategory::Diary,
                 index: i,
             };
@@ -415,7 +431,7 @@ impl KnowledgeEngine {
                 pool_items.push(item);
             }
         }
-        // References
+        // References (baseline: internal doc_boost already applied)
         for (i, r) in ref_output.results.iter().enumerate() {
             let item = ScoredItem {
                 score: r.summary.score,
@@ -428,7 +444,7 @@ impl KnowledgeEngine {
                 pool_items.push(item);
             }
         }
-        // Topics
+        // Topics (baseline)
         for (i, r) in topic_results.iter().enumerate() {
             let item = ScoredItem {
                 score: r.score,
