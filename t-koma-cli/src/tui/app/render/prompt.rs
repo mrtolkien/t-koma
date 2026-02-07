@@ -1,8 +1,11 @@
-use ratatui::{widgets::{Block, Borders, Clear, Paragraph}, Frame};
+use ratatui::{
+    Frame,
+    widgets::{Block, Borders, Clear, Paragraph},
+};
 
 use crate::tui::theme;
 
-use super::super::{state::PromptKind, util::centered_rect, TuiApp};
+use super::super::{TuiApp, state::PromptKind, util::centered_rect};
 
 impl TuiApp {
     pub(super) fn draw_prompt_overlay(&self, frame: &mut Frame, kind: PromptKind) {

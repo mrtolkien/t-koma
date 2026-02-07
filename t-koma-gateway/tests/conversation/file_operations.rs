@@ -11,8 +11,8 @@ use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     chat::history::build_history_messages,
-    prompt::render::build_system_prompt,
     prompt::SystemPrompt,
+    prompt::render::build_system_prompt,
     tools::{Tool, file_edit::FileEditTool, shell::ShellTool},
 };
 #[cfg(feature = "live-tests")]
@@ -52,13 +52,16 @@ async fn test_file_create_edit_delete_workflow() {
     let shell_tool = ShellTool;
     let file_edit_tool = FileEditTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
-    let system_prompt = SystemPrompt::with_tools(&tools, &[
-        ("reference_topics", ""),
-        ("ghost_identity", ""),
-        ("ghost_diary", ""),
-        ("ghost_projects", ""),
-        ("system_info", ""),
-    ]);
+    let system_prompt = SystemPrompt::with_tools(
+        &tools,
+        &[
+            ("reference_topics", ""),
+            ("ghost_identity", ""),
+            ("ghost_diary", ""),
+            ("ghost_projects", ""),
+            ("system_info", ""),
+        ],
+    );
     let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();
 
@@ -268,13 +271,16 @@ async fn test_replace_tool_exact_match_requirement() {
     let shell_tool = ShellTool;
     let file_edit_tool = FileEditTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
-    let system_prompt = SystemPrompt::with_tools(&tools, &[
-        ("reference_topics", ""),
-        ("ghost_identity", ""),
-        ("ghost_diary", ""),
-        ("ghost_projects", ""),
-        ("system_info", ""),
-    ]);
+    let system_prompt = SystemPrompt::with_tools(
+        &tools,
+        &[
+            ("reference_topics", ""),
+            ("ghost_identity", ""),
+            ("ghost_diary", ""),
+            ("ghost_projects", ""),
+            ("system_info", ""),
+        ],
+    );
     let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();
 

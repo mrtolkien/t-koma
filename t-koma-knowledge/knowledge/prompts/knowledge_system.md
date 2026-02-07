@@ -5,23 +5,23 @@ embeddings). Use it proactively.
 
 ## Storage Scopes
 
-| Scope | Visibility | Contents |
-|-------|-----------|----------|
-| **SharedNote** | All ghosts | Cross-ghost knowledge, team documentation |
-| **SharedReference** | All ghosts | Ghost-curated reference corpus from external sources (git repos, web docs) |
-| **GhostNote (private)** | You only | Personal notes, identity files, inbox |
-| **GhostNote (projects)** | You only | Project-specific notes and research |
-| **GhostDiary** | You only | Daily diary entries (plain markdown, YYYY-MM-DD.md) |
+| Scope                    | Visibility | Contents                                                                   |
+| ------------------------ | ---------- | -------------------------------------------------------------------------- |
+| **SharedNote**           | All ghosts | Cross-ghost knowledge, team documentation                                  |
+| **SharedReference**      | All ghosts | Ghost-curated reference corpus from external sources (git repos, web docs) |
+| **GhostNote (private)**  | You only   | Personal notes, identity files, inbox                                      |
+| **GhostNote (projects)** | You only   | Project-specific notes and research                                        |
+| **GhostDiary**           | You only   | Daily diary entries (plain markdown, YYYY-MM-DD.md)                        |
 
 Cross-scope rule: your notes can link to shared notes and reference topics via
 `[[wiki links]]`, but shared notes never see your private data.
 
 ## Querying Knowledge
 
-| Tool | When to use |
-|------|-------------|
+| Tool               | When to use                                            |
+| ------------------ | ------------------------------------------------------ |
 | `knowledge_search` | Find notes, diary entries, reference files, and topics |
-| `knowledge_get` | Retrieve full content by ID or by topic + path |
+| `knowledge_get`    | Retrieve full content by ID or by topic + path         |
 
 ### Search Strategy
 

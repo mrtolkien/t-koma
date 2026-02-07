@@ -2,15 +2,14 @@ use serde_json::Value;
 
 use super::{
     Tool, ToolContext, change_directory::ChangeDirectoryTool, create_file::CreateFileTool,
-    file_edit::FileEditTool, find_files::FindFilesTool,
-    knowledge_get::KnowledgeGetTool, knowledge_search::KnowledgeSearchTool,
-    list_dir::ListDirTool, memory_capture::MemoryCaptureTool,
-    memory_note_comment::MemoryNoteCommentTool, memory_note_create::MemoryNoteCreateTool,
-    memory_note_update::MemoryNoteUpdateTool, memory_note_validate::MemoryNoteValidateTool,
-    read_file::ReadFileTool, reference_file_update::ReferenceFileUpdateTool,
-    reference_import::ReferenceImportTool, reference_save::ReferenceSaveTool,
-    reference_topic_update::ReferenceTopicUpdateTool, search::SearchTool, shell::ShellTool,
-    web_fetch::WebFetchTool, web_search::WebSearchTool,
+    file_edit::FileEditTool, find_files::FindFilesTool, knowledge_get::KnowledgeGetTool,
+    knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool,
+    memory_capture::MemoryCaptureTool, memory_note_comment::MemoryNoteCommentTool,
+    memory_note_create::MemoryNoteCreateTool, memory_note_update::MemoryNoteUpdateTool,
+    memory_note_validate::MemoryNoteValidateTool, read_file::ReadFileTool,
+    reference_file_update::ReferenceFileUpdateTool, reference_import::ReferenceImportTool,
+    reference_save::ReferenceSaveTool, reference_topic_update::ReferenceTopicUpdateTool,
+    search::SearchTool, shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
 /// Central manager for all AI tools

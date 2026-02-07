@@ -5,7 +5,10 @@ mod render;
 mod state;
 mod util;
 
-use std::{path::PathBuf, time::{Duration, Instant}};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::prelude::*;
@@ -144,7 +147,11 @@ impl TuiApp {
                 "Toggle Workspace Escape".to_string(),
             ],
             Category::Ghosts => {
-                vec!["List All".to_string(), "New Ghost".to_string(), "Delete".to_string()]
+                vec![
+                    "List All".to_string(),
+                    "New Ghost".to_string(),
+                    "Delete".to_string(),
+                ]
             }
         }
     }

@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use chrono::Utc;
-use libsqlite3_sys::{sqlite3, sqlite3_api_routines, sqlite3_auto_extension, SQLITE_OK};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
+use libsqlite3_sys::{SQLITE_OK, sqlite3, sqlite3_api_routines, sqlite3_auto_extension};
 use sqlite_vec::sqlite3_vec_init;
+use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
 
@@ -60,16 +60,12 @@ impl KnowledgeStore {
 
 fn init_sqlite_vec_once() -> KnowledgeResult<()> {
     let rc = *SQLITE_VEC_INIT_RC.get_or_init(|| unsafe {
-        type SqliteVecInitFn = unsafe extern "C" fn(
-            *mut sqlite3,
-            *mut *const i8,
-            *const sqlite3_api_routines,
-        ) -> i32;
+        type SqliteVecInitFn =
+            unsafe extern "C" fn(*mut sqlite3, *mut *const i8, *const sqlite3_api_routines) -> i32;
 
-        sqlite3_auto_extension(Some(std::mem::transmute::<
-            *const (),
-            SqliteVecInitFn,
-        >(sqlite3_vec_init as *const ())))
+        sqlite3_auto_extension(Some(std::mem::transmute::<*const (), SqliteVecInitFn>(
+            sqlite3_vec_init as *const (),
+        )))
     });
 
     if rc == SQLITE_OK {
@@ -82,18 +78,15 @@ fn init_sqlite_vec_once() -> KnowledgeResult<()> {
 }
 
 async fn run_migrations(pool: &SqlitePool) -> KnowledgeResult<()> {
-    sqlx::migrate!("./migrations/knowledge")
-        .run(pool)
-        .await?;
+    sqlx::migrate!("./migrations/knowledge").run(pool).await?;
     Ok(())
 }
 
 async fn ensure_vec_table(pool: &SqlitePool, embedding_dim: Option<usize>) -> KnowledgeResult<()> {
-    let existing: Option<(String,)> = sqlx::query_as(
-        "SELECT value FROM meta WHERE key = 'embedding_dim' LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await?;
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM meta WHERE key = 'embedding_dim' LIMIT 1")
+            .fetch_optional(pool)
+            .await?;
 
     let dim = if let Some((value,)) = existing {
         value.parse::<usize>().ok()
@@ -231,7 +224,11 @@ pub async fn upsert_note(pool: &SqlitePool, record: &NoteRecord) -> KnowledgeRes
     Ok(())
 }
 
-pub async fn replace_tags(pool: &SqlitePool, note_id: &str, tags: &[String]) -> KnowledgeResult<()> {
+pub async fn replace_tags(
+    pool: &SqlitePool,
+    note_id: &str,
+    tags: &[String],
+) -> KnowledgeResult<()> {
     sqlx::query("DELETE FROM note_tags WHERE note_id = ?")
         .bind(note_id)
         .execute(pool)
@@ -313,12 +310,10 @@ pub async fn replace_chunks(
     note_type: &str,
     chunks: &[ChunkRecord],
 ) -> KnowledgeResult<Vec<i64>> {
-    let existing_ids: Vec<(i64,)> = sqlx::query_as(
-        "SELECT id FROM chunks WHERE note_id = ?",
-    )
-    .bind(note_id)
-    .fetch_all(pool)
-    .await?;
+    let existing_ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM chunks WHERE note_id = ?")
+        .bind(note_id)
+        .fetch_all(pool)
+        .await?;
 
     sqlx::query("DELETE FROM chunks WHERE note_id = ?")
         .bind(note_id)
@@ -329,7 +324,11 @@ pub async fn replace_chunks(
         .execute(pool)
         .await?;
     if !existing_ids.is_empty() {
-        let placeholders = existing_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let placeholders = existing_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
         let sql = format!("DELETE FROM chunk_vec WHERE rowid IN ({})", placeholders);
         let mut q = sqlx::query(&sql);
         for (chunk_id,) in &existing_ids {
@@ -381,9 +380,8 @@ pub async fn upsert_vec(
     chunk_id: i64,
     embedding: &[f32],
 ) -> KnowledgeResult<()> {
-    let payload = serde_json::to_string(embedding).map_err(|e| {
-        KnowledgeError::Embedding(format!("embedding serialize failed: {e}"))
-    })?;
+    let payload = serde_json::to_string(embedding)
+        .map_err(|e| KnowledgeError::Embedding(format!("embedding serialize failed: {e}")))?;
 
     sqlx::query("INSERT OR REPLACE INTO chunk_vec(rowid, embedding) VALUES (?, ?)")
         .bind(chunk_id)

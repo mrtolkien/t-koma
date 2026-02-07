@@ -40,8 +40,14 @@ impl std::str::FromStr for MessageRole {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
-    ToolUse { id: String, name: String, input: serde_json::Value },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
     ToolResult {
         tool_use_id: String,
         content: String,
@@ -162,7 +168,10 @@ impl SessionRepository {
     /// Get or create active session for an operator
     pub async fn get_or_create_active(pool: &SqlitePool, operator_id: &str) -> DbResult<Session> {
         if let Some(session) = Self::get_active(pool, operator_id).await? {
-            debug!("Found active session: {} for operator: {}", session.id, operator_id);
+            debug!(
+                "Found active session: {} for operator: {}",
+                session.id, operator_id
+            );
             return Ok(session);
         }
 
@@ -248,8 +257,8 @@ impl SessionRepository {
     ) -> DbResult<Message> {
         let id = format!("msg_{}", Uuid::new_v4());
         let now = Utc::now().timestamp();
-        let content_json = serde_json::to_string(&content)
-            .map_err(|e| DbError::Serialization(e.to_string()))?;
+        let content_json =
+            serde_json::to_string(&content).map_err(|e| DbError::Serialization(e.to_string()))?;
 
         sqlx::query(
             "INSERT INTO messages (id, session_id, role, content, model, created_at)
@@ -363,11 +372,7 @@ impl SessionRepository {
     }
 
     /// Delete a session if it belongs to the operator
-    pub async fn delete(
-        pool: &SqlitePool,
-        operator_id: &str,
-        session_id: &str,
-    ) -> DbResult<()> {
+    pub async fn delete(pool: &SqlitePool, operator_id: &str, session_id: &str) -> DbResult<()> {
         let session = Self::get_by_id(pool, session_id)
             .await?
             .ok_or_else(|| DbError::SessionNotFound(session_id.to_string()))?;
@@ -473,8 +478,8 @@ impl TryFrom<MessageRow> for Message {
     type Error = DbError;
 
     fn try_from(row: MessageRow) -> Result<Self, Self::Error> {
-        let content: Vec<ContentBlock> =
-            serde_json::from_str(&row.content).map_err(|e| DbError::Serialization(e.to_string()))?;
+        let content: Vec<ContentBlock> = serde_json::from_str(&row.content)
+            .map_err(|e| DbError::Serialization(e.to_string()))?;
 
         Ok(Message {
             id: row.id,

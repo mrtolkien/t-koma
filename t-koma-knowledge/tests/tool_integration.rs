@@ -6,9 +6,7 @@
 
 use tempfile::TempDir;
 
-use t_koma_knowledge::models::{
-    NoteCreateRequest, OwnershipScope, NoteUpdateRequest, WriteScope,
-};
+use t_koma_knowledge::models::{NoteCreateRequest, NoteUpdateRequest, OwnershipScope, WriteScope};
 use t_koma_knowledge::storage::{KnowledgeStore, NoteRecord, replace_tags, upsert_note};
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
@@ -130,9 +128,7 @@ async fn get_own_private_note_succeeds() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     // Insert a note for ghost-a
     let note = NoteRecord {
@@ -170,9 +166,7 @@ async fn get_other_ghost_private_note_fails() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     // Insert a note for ghost-b
     let note = NoteRecord {
@@ -214,9 +208,7 @@ async fn get_shared_note_from_any_ghost() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     let note = NoteRecord {
         id: "shared-note".to_string(),
@@ -256,9 +248,7 @@ async fn update_own_note_succeeds() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     // Create a note file that can be parsed
     let note_path = shared_root.join("updatable.md");
@@ -334,9 +324,7 @@ async fn update_other_ghost_note_denied() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     let note_path = shared_root.join("ghost-b-note.md");
     let content = r#"+++
@@ -397,9 +385,7 @@ async fn validate_note_updates_metadata() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     let note_path = shared_root.join("validatable.md");
     let content = r#"+++
@@ -470,9 +456,7 @@ async fn comment_appends_to_front_matter() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     let note_path = shared_root.join("commentable.md");
     let content = r#"+++
@@ -542,7 +526,12 @@ async fn capture_to_ghost_inbox() {
     let (engine, ghost_name, _temp) = setup().await;
 
     let result = engine
-        .memory_capture(&ghost_name, "Quick note to self", WriteScope::GhostNote, None)
+        .memory_capture(
+            &ghost_name,
+            "Quick note to self",
+            WriteScope::GhostNote,
+            None,
+        )
         .await;
     assert!(result.is_ok());
     let path = result.unwrap();
@@ -649,9 +638,7 @@ async fn topic_list_returns_inserted_topics() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     insert_topic_note(
         &store,
@@ -682,7 +669,10 @@ async fn topic_list_returns_inserted_topics() {
     let list = engine.topic_list(false).await.unwrap();
     assert_eq!(list.len(), 2, "all topics should be listed");
 
-    let topic_a = list.iter().find(|e| e.topic_id == "topic-a").expect("topic-a");
+    let topic_a = list
+        .iter()
+        .find(|e| e.topic_id == "topic-a")
+        .expect("topic-a");
     assert_eq!(topic_a.tags, vec!["alpha", "rust"]);
 
     let list_all = engine.topic_list(true).await.unwrap();
@@ -696,9 +686,7 @@ async fn topic_update_changes_status_and_tags() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     insert_topic_note(
         &store,
@@ -731,10 +719,7 @@ async fn topic_update_changes_status_and_tags() {
                 content.contains("Updated description."),
                 "body should be updated"
             );
-            assert!(
-                content.contains("updated"),
-                "tags should be updated"
-            );
+            assert!(content.contains("updated"), "tags should be updated");
         }
         Err(e) => {
             // Embedding errors are acceptable in non-slow-tests
@@ -756,9 +741,7 @@ async fn recent_topics_returns_most_recent() {
     let shared_root = data_root.join("shared").join("notes");
 
     let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8))
-        .await
-        .unwrap();
+    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
 
     // Insert topics with different dates
     insert_topic_note(

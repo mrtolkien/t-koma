@@ -120,21 +120,27 @@ impl ContentRegistry {
                     continue;
                 }
 
-                let raw_text =
-                    fs::read_to_string(&entry_path).map_err(|e| ContentError::Io(entry_path.clone(), e))?;
+                let raw_text = fs::read_to_string(&entry_path)
+                    .map_err(|e| ContentError::Io(entry_path.clone(), e))?;
                 let doc: toml::Value = toml::from_str(&raw_text)
                     .map_err(|e| ContentError::Parse(format!("{}: {}", entry_path.display(), e)))?;
-                let table = doc
-                    .as_table()
-                    .ok_or_else(|| ContentError::Parse(format!("{}: expected table", entry_path.display())))?;
+                let table = doc.as_table().ok_or_else(|| {
+                    ContentError::Parse(format!("{}: expected table", entry_path.display()))
+                })?;
 
                 for (id, value) in table {
-                    let entry_table = value
-                        .as_table()
-                        .ok_or_else(|| ContentError::Parse(format!("{}: {} must be table", entry_path.display(), id)))?;
+                    let entry_table = value.as_table().ok_or_else(|| {
+                        ContentError::Parse(format!(
+                            "{}: {} must be table",
+                            entry_path.display(),
+                            id
+                        ))
+                    })?;
                     let entry_raw: MessageEntryRaw = toml::Value::Table(entry_table.clone())
                         .try_into()
-                        .map_err(|e| ContentError::Parse(format!("{}: {}", entry_path.display(), e)))?;
+                        .map_err(|e| {
+                            ContentError::Parse(format!("{}: {}", entry_path.display(), e))
+                        })?;
 
                     let template = MessageTemplate::from_entry(id.clone(), entry_raw)?;
                     let variants = self.messages.entry(template.id.clone()).or_default();
@@ -158,14 +164,20 @@ impl ContentRegistry {
             })?;
             let (id_from_name, suffix) = parse_filename(stem)?;
 
-            let raw_text = fs::read_to_string(&path).map_err(|e| ContentError::Io(path.clone(), e))?;
+            let raw_text =
+                fs::read_to_string(&path).map_err(|e| ContentError::Io(path.clone(), e))?;
             let (front_matter, body) = split_front_matter(&raw_text)
                 .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
             let front: PromptFrontMatter = toml::from_str(&front_matter)
                 .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
             let template = PromptTemplate::from_parts(front, body, path.clone())?;
 
-            validate_template_identity(&template.id, &id_from_name, &template.scope, suffix.as_deref())?;
+            validate_template_identity(
+                &template.id,
+                &id_from_name,
+                &template.scope,
+                suffix.as_deref(),
+            )?;
 
             let variants = self.prompts.entry(template.id.clone()).or_default();
             insert_prompt_variant(variants, template)?;

@@ -45,10 +45,7 @@ impl GitRepoMetadata {
     /// Human-readable summary for the approval message.
     pub fn summary(&self) -> String {
         let size_mb = self.size_kb as f64 / 1024.0;
-        format!(
-            "{}: ~{:.0} MB, {}",
-            self.full_name, size_mb, self.language
-        )
+        format!("{}: ~{:.0} MB, {}", self.full_name, size_mb, self.language)
     }
 }
 
@@ -79,25 +76,15 @@ pub async fn query_github_metadata(owner_repo: &str) -> KnowledgeResult<GitRepoM
         )));
     }
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| {
-            KnowledgeError::SourceFetch(format!("failed to parse gh api response: {}", e))
-        })?;
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| {
+        KnowledgeError::SourceFetch(format!("failed to parse gh api response: {}", e))
+    })?;
 
     Ok(GitRepoMetadata {
-        full_name: json["full_name"]
-            .as_str()
-            .unwrap_or(owner_repo)
-            .to_string(),
-        description: json["description"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        full_name: json["full_name"].as_str().unwrap_or(owner_repo).to_string(),
+        description: json["description"].as_str().unwrap_or("").to_string(),
         size_kb: json["size"].as_u64().unwrap_or(0),
-        language: json["language"]
-            .as_str()
-            .unwrap_or("Unknown")
-            .to_string(),
+        language: json["language"].as_str().unwrap_or("Unknown").to_string(),
         default_branch: json["default_branch"]
             .as_str()
             .unwrap_or("main")
@@ -152,16 +139,15 @@ pub async fn fetch_git_source(
     source: &TopicSourceInput,
     topic_dir: &Path,
 ) -> KnowledgeResult<FetchedSource> {
-    let tmp_dir = tempfile::tempdir()
-        .map_err(|e| KnowledgeError::SourceFetch(format!("tempdir: {}", e)))?;
+    let tmp_dir =
+        tempfile::tempdir().map_err(|e| KnowledgeError::SourceFetch(format!("tempdir: {}", e)))?;
     let clone_dir = tmp_dir.path().join("repo");
 
     let is_github = extract_github_owner_repo(&source.url).is_some();
 
     // Clone
     if is_github {
-        let owner_repo =
-            extract_github_owner_repo(&source.url).expect("already checked");
+        let owner_repo = extract_github_owner_repo(&source.url).expect("already checked");
         clone_with_gh(&owner_repo, &clone_dir, source.ref_name.as_deref()).await?;
     } else {
         clone_with_git(&source.url, &clone_dir, source.ref_name.as_deref()).await?;
@@ -347,17 +333,8 @@ async fn clone_with_gh(
 }
 
 /// Clone a non-GitHub git repo.
-async fn clone_with_git(
-    url: &str,
-    dest: &Path,
-    ref_name: Option<&str>,
-) -> KnowledgeResult<()> {
-    let mut args = vec![
-        "clone",
-        "--depth",
-        "1",
-        "--filter=blob:none",
-    ];
+async fn clone_with_git(url: &str, dest: &Path, ref_name: Option<&str>) -> KnowledgeResult<()> {
+    let mut args = vec!["clone", "--depth", "1", "--filter=blob:none"];
     if let Some(branch) = ref_name {
         args.push("--branch");
         args.push(branch);
@@ -464,10 +441,7 @@ async fn copy_repo_files(
             continue;
         }
 
-        let rel_path = entry
-            .path()
-            .strip_prefix(repo_dir)
-            .unwrap_or(entry.path());
+        let rel_path = entry.path().strip_prefix(repo_dir).unwrap_or(entry.path());
         let rel_str = rel_path.to_string_lossy().to_string();
 
         // If paths filter is set and sparse checkout didn't work perfectly,
@@ -523,11 +497,10 @@ fn matches_path_filter(rel_path: &str, filters: &[String]) -> bool {
 /// Heuristic: skip files that are likely binary.
 fn is_likely_binary(path: &str) -> bool {
     let binary_exts = [
-        ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".eot",
-        ".mp3", ".mp4", ".wav", ".ogg", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
-        ".exe", ".dll", ".so", ".dylib", ".a", ".o", ".obj", ".class", ".jar",
-        ".wasm", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-        ".db", ".sqlite", ".sqlite3", ".bin", ".dat",
+        ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".eot", ".mp3",
+        ".mp4", ".wav", ".ogg", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".exe", ".dll", ".so",
+        ".dylib", ".a", ".o", ".obj", ".class", ".jar", ".wasm", ".pdf", ".doc", ".docx", ".xls",
+        ".xlsx", ".ppt", ".pptx", ".db", ".sqlite", ".sqlite3", ".bin", ".dat",
     ];
     let lower = path.to_lowercase();
     binary_exts.iter().any(|ext| lower.ends_with(ext))
@@ -555,7 +528,13 @@ fn url_to_filename(url: &str) -> String {
     // Sanitize
     let sanitized: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
 
     format!("{}.md", sanitized.trim_matches('-'))
@@ -587,10 +566,7 @@ mod tests {
             url_to_filename("https://dioxuslabs.com/learn/0.6/"),
             "dioxuslabs-com-learn-0-6.md"
         );
-        assert_eq!(
-            url_to_filename("https://example.com"),
-            "example-com.md"
-        );
+        assert_eq!(url_to_filename("https://example.com"), "example-com.md");
     }
 
     #[test]

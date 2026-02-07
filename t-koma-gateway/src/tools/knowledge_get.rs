@@ -60,8 +60,7 @@ impl Tool for KnowledgeGetTool {
     }
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
-        let input: KnowledgeGetInput =
-            serde_json::from_value(args).map_err(|e| e.to_string())?;
+        let input: KnowledgeGetInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         // Validate: must provide id or (topic + path)
         if input.id.is_none() && (input.topic.is_none() || input.path.is_none()) {

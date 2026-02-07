@@ -127,7 +127,7 @@ impl From<InterfaceRow> for Interface {
 mod tests {
     use super::*;
     use crate::{
-        test_helpers::create_test_koma_pool, OperatorAccessLevel, OperatorRepository, Platform,
+        OperatorAccessLevel, OperatorRepository, Platform, test_helpers::create_test_koma_pool,
     };
 
     #[tokio::test]
@@ -155,14 +155,10 @@ mod tests {
 
         assert_eq!(iface.external_id, "discord-123");
 
-        let found = InterfaceRepository::get_by_external_id(
-            pool,
-            Platform::Discord,
-            "discord-123",
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let found = InterfaceRepository::get_by_external_id(pool, Platform::Discord, "discord-123")
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(found.id, iface.id);
     }

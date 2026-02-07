@@ -3,14 +3,14 @@ use sqlx::SqlitePool;
 
 use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
+use crate::errors::KnowledgeError;
 use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
-use crate::errors::KnowledgeError;
 use crate::models::{
     DiaryQuery, DiarySearchResult, KnowledgeGetQuery, KnowledgeScope, KnowledgeSearchQuery,
     KnowledgeSearchResult, MatchedTopic, NoteCreateRequest, NoteDocument, NoteQuery, NoteResult,
     NoteUpdateRequest, NoteWriteResult, OwnershipScope, ReferenceFileStatus, ReferenceQuery,
-    ReferenceSearchOutput, ReferenceSearchResult, ReferenceSaveRequest, ReferenceSaveResult,
+    ReferenceSaveRequest, ReferenceSaveResult, ReferenceSearchOutput, ReferenceSearchResult,
     SearchCategory, TopicCreateRequest, TopicCreateResult, TopicListEntry, TopicSearchResult,
     TopicUpdateRequest, WriteScope,
 };
@@ -229,18 +229,12 @@ impl KnowledgeEngine {
     }
 
     /// Semantic search over reference topics.
-    pub async fn topic_search(
-        &self,
-        query: &str,
-    ) -> KnowledgeResult<Vec<TopicSearchResult>> {
+    pub async fn topic_search(&self, query: &str) -> KnowledgeResult<Vec<TopicSearchResult>> {
         topics::topic_search(self, query).await
     }
 
     /// List all reference topics with staleness info.
-    pub async fn topic_list(
-        &self,
-        include_obsolete: bool,
-    ) -> KnowledgeResult<Vec<TopicListEntry>> {
+    pub async fn topic_list(&self, include_obsolete: bool) -> KnowledgeResult<Vec<TopicListEntry>> {
         topics::topic_list(self, include_obsolete).await
     }
 
@@ -270,10 +264,7 @@ impl KnowledgeEngine {
         ghost_name: &str,
         query: KnowledgeSearchQuery,
     ) -> KnowledgeResult<KnowledgeSearchResult> {
-        let categories = query
-            .categories
-            .clone()
-            .unwrap_or_else(SearchCategory::all);
+        let categories = query.categories.clone().unwrap_or_else(SearchCategory::all);
         let max_results = query
             .options
             .max_results
@@ -281,11 +272,15 @@ impl KnowledgeEngine {
 
         // Reconcile scopes that will be queried
         let needs_shared = categories.iter().any(|c| {
-            matches!(c, SearchCategory::Notes | SearchCategory::References | SearchCategory::Topics)
+            matches!(
+                c,
+                SearchCategory::Notes | SearchCategory::References | SearchCategory::Topics
+            )
         }) && query.scope != OwnershipScope::Private;
-        let needs_ghost = categories.iter().any(|c| {
-            matches!(c, SearchCategory::Notes | SearchCategory::Diary)
-        }) && query.scope != OwnershipScope::Shared;
+        let needs_ghost = categories
+            .iter()
+            .any(|c| matches!(c, SearchCategory::Notes | SearchCategory::Diary))
+            && query.scope != OwnershipScope::Shared;
 
         if needs_shared {
             self.maybe_reconcile(ghost_name, KnowledgeScope::SharedNote)
@@ -319,15 +314,15 @@ impl KnowledgeEngine {
                 notes.extend(partial);
             }
             notes.sort_by(|a, b| {
-                b.summary.score.partial_cmp(&a.summary.score)
+                b.summary
+                    .score
+                    .partial_cmp(&a.summary.score)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
 
         let mut diary = Vec::new();
-        if categories.contains(&SearchCategory::Diary)
-            && query.scope != OwnershipScope::Shared
-        {
+        if categories.contains(&SearchCategory::Diary) && query.scope != OwnershipScope::Shared {
             let diary_query = DiaryQuery {
                 query: query.query.clone(),
                 options: query.options.clone(),
@@ -462,7 +457,9 @@ impl KnowledgeEngine {
         let remaining_budget = max_results.saturating_sub(reserved_count);
 
         pool_items.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
         pool_items.truncate(remaining_budget);
 
@@ -474,18 +471,34 @@ impl KnowledgeEngine {
 
         for (cat, idx) in &reserved_indices {
             match cat {
-                SearchCategory::Notes => { include_notes.insert(*idx); }
-                SearchCategory::Diary => { include_diary.insert(*idx); }
-                SearchCategory::References => { include_refs.insert(*idx); }
-                SearchCategory::Topics => { include_topics.insert(*idx); }
+                SearchCategory::Notes => {
+                    include_notes.insert(*idx);
+                }
+                SearchCategory::Diary => {
+                    include_diary.insert(*idx);
+                }
+                SearchCategory::References => {
+                    include_refs.insert(*idx);
+                }
+                SearchCategory::Topics => {
+                    include_topics.insert(*idx);
+                }
             }
         }
         for item in &pool_items {
             match item.category {
-                SearchCategory::Notes => { include_notes.insert(item.index); }
-                SearchCategory::Diary => { include_diary.insert(item.index); }
-                SearchCategory::References => { include_refs.insert(item.index); }
-                SearchCategory::Topics => { include_topics.insert(item.index); }
+                SearchCategory::Notes => {
+                    include_notes.insert(item.index);
+                }
+                SearchCategory::Diary => {
+                    include_diary.insert(item.index);
+                }
+                SearchCategory::References => {
+                    include_refs.insert(item.index);
+                }
+                SearchCategory::Topics => {
+                    include_topics.insert(item.index);
+                }
             }
         }
 
@@ -544,9 +557,10 @@ impl KnowledgeEngine {
                 .await;
         }
 
-        let id = query.id.as_deref().ok_or(KnowledgeError::MissingField(
-            "id or (topic + path)",
-        ))?;
+        let id = query
+            .id
+            .as_deref()
+            .ok_or(KnowledgeError::MissingField("id or (topic + path)"))?;
 
         // Try each scope until we find the note
         let scopes = [
@@ -604,13 +618,7 @@ impl KnowledgeEngine {
                     reconcile_shared(&self.settings, pool, &self.embedder).await?;
                 }
                 _ => {
-                    reconcile_ghost(
-                        &self.settings,
-                        pool,
-                        &self.embedder,
-                        ghost_name,
-                    )
-                    .await?;
+                    reconcile_ghost(&self.settings, pool, &self.embedder, ghost_name).await?;
                 }
             }
             sqlx::query("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)")

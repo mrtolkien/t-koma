@@ -20,9 +20,9 @@ impl WsClient {
     ) -> Result<(mpsc::UnboundedSender<WsMessage>, ResponseStream), WsClientError> {
         // Parse URL to validate it
         let _ = url::Url::parse(url)?;
-        
+
         info!("Connecting to WebSocket server at {}", url);
-        
+
         // Use the string directly for connection
         let (ws_stream, _) = connect_async(url).await?;
         info!("WebSocket connection established");

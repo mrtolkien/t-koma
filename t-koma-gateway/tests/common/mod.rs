@@ -101,8 +101,7 @@ pub async fn setup_test_environment(
     ghost_name: &str,
 ) -> Result<TestEnvironment, Box<dyn std::error::Error>> {
     let koma_db = t_koma_db::test_helpers::create_test_koma_pool().await?;
-    let operator =
-    OperatorRepository::create_new(
+    let operator = OperatorRepository::create_new(
         koma_db.pool(),
         operator_name,
         Platform::Api,

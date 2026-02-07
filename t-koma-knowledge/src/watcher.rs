@@ -14,7 +14,8 @@ use crate::paths::{knowledge_db_path, shared_notes_root, shared_references_root}
 use crate::storage::KnowledgeStore;
 
 pub async fn run_shared_watcher(settings: KnowledgeSettings) -> KnowledgeResult<()> {
-    let store = KnowledgeStore::open(&knowledge_db_path(&settings)?, settings.embedding_dim).await?;
+    let store =
+        KnowledgeStore::open(&knowledge_db_path(&settings)?, settings.embedding_dim).await?;
     let embedder = EmbeddingClient::new(&settings);
     let root = shared_notes_root(&settings)?;
     let reference = shared_references_root(&settings)?;
@@ -33,7 +34,8 @@ pub async fn run_ghost_watcher(
     settings: KnowledgeSettings,
     ghost_name: String,
 ) -> KnowledgeResult<()> {
-    let store = KnowledgeStore::open(&knowledge_db_path(&settings)?, settings.embedding_dim).await?;
+    let store =
+        KnowledgeStore::open(&knowledge_db_path(&settings)?, settings.embedding_dim).await?;
     let embedder = EmbeddingClient::new(&settings);
     let notes = crate::paths::ghost_notes_root(&settings, &ghost_name)?;
     let diary = crate::paths::ghost_diary_root(&settings, &ghost_name)?;

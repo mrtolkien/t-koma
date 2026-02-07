@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use super::{ContentError, ContentScope};
-use crate::content::template::{render_template, TemplateVars};
+use crate::content::template::{TemplateVars, render_template};
 
 #[derive(Debug, Clone)]
 pub struct MessageTemplate {

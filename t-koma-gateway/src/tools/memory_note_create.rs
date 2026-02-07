@@ -99,7 +99,8 @@ impl Tool for MemoryNoteCreateTool {
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: NoteCreateInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let engine = context.knowledge_engine()
+        let engine = context
+            .knowledge_engine()
             .ok_or("knowledge engine not available")?;
 
         let scope = Self::parse_scope(input.scope);
@@ -114,7 +115,10 @@ impl Tool for MemoryNoteCreateTool {
             trust_score: input.trust_score,
         };
 
-        let result = engine.note_create(context.ghost_name(), request).await.map_err(|e| e.to_string())?;
+        let result = engine
+            .note_create(context.ghost_name(), request)
+            .await
+            .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
     }
 }

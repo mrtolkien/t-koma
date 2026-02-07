@@ -84,7 +84,10 @@ fn validate_prompts(dir: &Path) {
             continue;
         }
         println!("cargo:rerun-if-changed={}", path.display());
-        let stem = path.file_stem().and_then(|s| s.to_str()).expect("file stem");
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .expect("file stem");
         let (id_from_name, suffix) = parse_filename(stem);
 
         let raw_text = fs::read_to_string(&path).expect("read prompt file");
@@ -92,7 +95,10 @@ fn validate_prompts(dir: &Path) {
         let front: PromptFrontMatter = toml::from_str(&front).expect("parse prompt front matter");
 
         if front.id != id_from_name {
-            panic!("Prompt id '{}' does not match filename '{}'", front.id, id_from_name);
+            panic!(
+                "Prompt id '{}' does not match filename '{}'",
+                front.id, id_from_name
+            );
         }
 
         let scope = front.scope.as_deref().unwrap_or("shared");
@@ -210,7 +216,9 @@ fn extract_template_vars(template: &str) -> Vec<String> {
 
 fn is_valid_var_name(name: &str) -> bool {
     let mut chars = name.chars();
-    let Some(first) = chars.next() else { return false; };
+    let Some(first) = chars.next() else {
+        return false;
+    };
     if !first.is_ascii_lowercase() {
         return false;
     }

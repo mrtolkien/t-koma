@@ -1,8 +1,8 @@
 use tempfile::TempDir;
 
-use t_koma_knowledge::storage::{upsert_note, KnowledgeStore, NoteRecord};
-use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 use t_koma_knowledge::models::OwnershipScope;
+use t_koma_knowledge::storage::{KnowledgeStore, NoteRecord, upsert_note};
+use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
 #[tokio::test]
 async fn test_private_note_isolation() {

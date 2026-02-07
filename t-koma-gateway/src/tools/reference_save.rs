@@ -100,18 +100,14 @@ impl Tool for ReferenceSaveTool {
     }
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
-        let input: ReferenceSaveInput =
-            serde_json::from_value(args).map_err(|e| e.to_string())?;
+        let input: ReferenceSaveInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         let engine = context
             .knowledge_engine()
             .ok_or("knowledge engine not available")?
             .clone();
 
-        let role = input
-            .role
-            .as_deref()
-            .and_then(|r| r.parse().ok());
+        let role = input.role.as_deref().and_then(|r| r.parse().ok());
 
         let request = t_koma_knowledge::ReferenceSaveRequest {
             topic: input.topic,

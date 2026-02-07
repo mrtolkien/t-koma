@@ -10,8 +10,8 @@ use t_koma_db::SessionRepository;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::{
     chat::history::build_history_messages,
-    prompt::render::build_system_prompt,
     prompt::SystemPrompt,
+    prompt::render::build_system_prompt,
     tools::{Tool, shell::ShellTool},
 };
 #[cfg(feature = "live-tests")]

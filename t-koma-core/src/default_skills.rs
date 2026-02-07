@@ -123,7 +123,10 @@ impl DefaultSkillsManager {
 
         // Skip if already exists
         if skill_file.exists() {
-            debug!("Skill '{}' already exists at {:?}, skipping", name, skill_file);
+            debug!(
+                "Skill '{}' already exists at {:?}, skipping",
+                name, skill_file
+            );
             return Ok(false);
         }
 
@@ -163,8 +166,8 @@ impl Default for DefaultSkillsManager {
 /// to the user's config directory if they don't already exist.
 ///
 /// # Arguments
-    ///
-    /// * `config_path` - Path to the config skills directory
+///
+/// * `config_path` - Path to the config skills directory
 ///
 /// # Returns
 ///
@@ -238,7 +241,9 @@ mod tests {
         fs::write(skill_dir.join("SKILL.md"), "existing content").unwrap();
 
         // Try to write
-        let written = manager.write_skill_if_missing(temp_dir.path(), "skill-creator").unwrap();
+        let written = manager
+            .write_skill_if_missing(temp_dir.path(), "skill-creator")
+            .unwrap();
 
         assert!(!written);
 

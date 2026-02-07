@@ -65,9 +65,7 @@ pub fn build_history_messages(messages: &[Message], limit: Option<usize>) -> Vec
 
     let mut history: Vec<ChatMessage> = messages_to_use.into_iter().map(convert_message).collect();
 
-    if let Some(last_assistant_idx) = history
-        .iter()
-        .rposition(|m| m.role == ChatRole::Assistant)
+    if let Some(last_assistant_idx) = history.iter().rposition(|m| m.role == ChatRole::Assistant)
         && let Some(ChatContentBlock::Text { cache_control, .. }) =
             history[last_assistant_idx].content.last_mut()
     {

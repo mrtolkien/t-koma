@@ -367,8 +367,10 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
             }
 
             let model_alias = heartbeat_model_alias.as_deref();
+            state.set_chat_in_flight(&chat_key).await;
             let result =
                 run_heartbeat_for_session(state.as_ref(), &ghost.name, &session, model_alias).await;
+            state.clear_chat_in_flight(&chat_key).await;
 
             match result {
                 Ok(text) => {

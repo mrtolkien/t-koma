@@ -26,8 +26,8 @@ impl QueryDump {
     pub async fn request(provider: &str, model: &str, value: &Value) -> Option<Self> {
         let timestamp = Utc::now().format("%Y%m%d-%H%M%S%.3f");
         let model_safe = sanitize_model(model);
-        let base = PathBuf::from(QUERY_DIR)
-            .join(format!("{}-{}-{}", timestamp, provider, model_safe));
+        let base =
+            PathBuf::from(QUERY_DIR).join(format!("{}-{}-{}", timestamp, provider, model_safe));
 
         let dir = std::path::Path::new(QUERY_DIR);
         if let Err(e) = tokio::fs::create_dir_all(dir).await {

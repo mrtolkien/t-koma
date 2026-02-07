@@ -26,10 +26,7 @@ impl GhostDbPool {
         let workspace_path = Self::workspace_path_for(&ghost_name)?;
         let db_path = workspace_path.join("db.sqlite3");
 
-        info!(
-            "Initializing GHOST database at: {}",
-            db_path.display()
-        );
+        info!("Initializing GHOST database at: {}", db_path.display());
 
         std::fs::create_dir_all(&workspace_path)?;
 
@@ -84,7 +81,11 @@ impl GhostDbPool {
         self.pool.close().await;
     }
 
-    pub fn from_pool(pool: SqlitePool, ghost_name: &str, workspace_path: PathBuf) -> DbResult<Self> {
+    pub fn from_pool(
+        pool: SqlitePool,
+        ghost_name: &str,
+        workspace_path: PathBuf,
+    ) -> DbResult<Self> {
         let ghost_name = validate_ghost_name(ghost_name)?;
         Ok(Self {
             pool,

@@ -29,12 +29,10 @@ fn approval_required_message(reason: &crate::tools::context::ApprovalReason) -> 
         ApprovalReason::WorkspaceEscape(path) => {
             render_message(ids::APPROVAL_REQUIRED_WITH_PATH, &[("path", path)])
         }
-        ApprovalReason::ReferenceImport { title, summary } => {
-            render_message(
-                ids::APPROVAL_REFERENCE_IMPORT,
-                &[("title", title), ("summary", summary)],
-            )
-        }
+        ApprovalReason::ReferenceImport { title, summary } => render_message(
+            ids::APPROVAL_REFERENCE_IMPORT,
+            &[("title", title), ("summary", summary)],
+        ),
     }
 }
 
@@ -485,7 +483,10 @@ async fn handle_websocket(
                                 Ok(Some(ghost)) => ghost,
                                 Ok(None) => {
                                     let error_response = WsResponse::Error {
-                                        message: render_message(ids::UNKNOWN_GHOST_NAME_SERVER, &[]),
+                                        message: render_message(
+                                            ids::UNKNOWN_GHOST_NAME_SERVER,
+                                            &[],
+                                        ),
                                     };
                                     let _ = sender
                                         .send(Message::Text(
@@ -536,7 +537,10 @@ async fn handle_websocket(
                                 Err(e) => {
                                     error!("Failed to init ghost DB: {}", e);
                                     let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_INIT_GHOST_SESSION, &[]),
+                                        message: render_message(
+                                            ids::FAILED_INIT_GHOST_SESSION,
+                                            &[],
+                                        ),
                                     };
                                     let _ = sender
                                         .send(Message::Text(
@@ -600,7 +604,10 @@ async fn handle_websocket(
                                     let error_response = WsResponse::Error {
                                         message: render_message(
                                             ids::MODEL_NOT_CONFIGURED,
-                                            &[("model", model.as_str()), ("provider", provider_name)],
+                                            &[
+                                                ("model", model.as_str()),
+                                                ("provider", provider_name),
+                                            ],
                                         ),
                                     };
                                     let _ = sender
@@ -801,9 +808,7 @@ async fn handle_websocket(
                                     };
                                     let _ = sender
                                         .send(Message::Text(
-                                            serde_json::to_string(&error_response)
-                                                .unwrap()
-                                                .into(),
+                                            serde_json::to_string(&error_response).unwrap().into(),
                                         ))
                                         .await;
                                     continue;
@@ -815,9 +820,7 @@ async fn handle_websocket(
                                     };
                                     let _ = sender
                                         .send(Message::Text(
-                                            serde_json::to_string(&error_response)
-                                                .unwrap()
-                                                .into(),
+                                            serde_json::to_string(&error_response).unwrap().into(),
                                         ))
                                         .await;
                                     continue;
@@ -1033,8 +1036,7 @@ async fn handle_websocket(
                                                 pending.clone(),
                                             )
                                             .await;
-                                        let message =
-                                            approval_required_message(&pending.reason);
+                                        let message = approval_required_message(&pending.reason);
                                         let ws_response = WsResponse::Response {
                                             id: format!("ws_{}", uuid::Uuid::new_v4()),
                                             content: message,
@@ -1118,8 +1120,7 @@ async fn handle_websocket(
                                             pending.clone(),
                                         )
                                         .await;
-                                    let message =
-                                        approval_required_message(&pending.reason);
+                                    let message = approval_required_message(&pending.reason);
                                     let ws_response = WsResponse::Response {
                                         id: format!("ws_{}", uuid::Uuid::new_v4()),
                                         content: message,
@@ -1197,9 +1198,11 @@ async fn handle_websocket(
                                 Ok(sessions) => {
                                     let mut session_infos = Vec::with_capacity(sessions.len());
                                     for s in sessions {
-                                        let chat_key =
-                                            format!("{}:{}:{}", op_id, ghost_name, s.id);
-                                        let next_due = match state.get_heartbeat_due(&chat_key).await {
+                                        let chat_key = format!("{}:{}:{}", op_id, ghost_name, s.id);
+                                        let next_due = match state
+                                            .get_heartbeat_due(&chat_key)
+                                            .await
+                                        {
                                             Some(ts) => Utc.timestamp_opt(ts, 0).single(),
                                             None => {
                                                 let last_message =

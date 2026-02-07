@@ -65,10 +65,8 @@ impl Tool for ReferenceFileUpdateTool {
             .ok_or("knowledge engine not available")?
             .clone();
 
-        let status: t_koma_knowledge::ReferenceFileStatus = input
-            .status
-            .parse()
-            .map_err(|e: String| e)?;
+        let status: t_koma_knowledge::ReferenceFileStatus =
+            input.status.parse().map_err(|e: String| e)?;
 
         engine
             .reference_file_set_status(&input.note_id, status, input.reason.as_deref())

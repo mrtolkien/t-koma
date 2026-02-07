@@ -14,9 +14,7 @@ pub(crate) fn build_system_info() -> String {
         .unwrap_or_else(|| "unknown".to_string());
     let gpu = detect_gpu().unwrap_or_else(|| "unknown".to_string());
 
-    format!(
-        "# System Info\n- OS: {os}\n- CPU Cores: {cores}\n- RAM: {ram}\n- GPU: {gpu}\n",
-    )
+    format!("# System Info\n- OS: {os}\n- CPU Cores: {cores}\n- RAM: {ram}\n- GPU: {gpu}\n",)
 }
 
 fn total_memory_gb() -> Option<f64> {

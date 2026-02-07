@@ -72,12 +72,18 @@ impl Tool for MemoryCaptureTool {
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: MemoryCaptureInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let engine = context.knowledge_engine()
+        let engine = context
+            .knowledge_engine()
             .ok_or("knowledge engine not available")?;
         let scope = Self::parse_scope(input.scope);
 
         let path = engine
-            .memory_capture(context.ghost_name(), &input.payload, scope, input.source.as_deref())
+            .memory_capture(
+                context.ghost_name(),
+                &input.payload,
+                scope,
+                input.source.as_deref(),
+            )
             .await
             .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&json!({"path": path})).map_err(|e| e.to_string())

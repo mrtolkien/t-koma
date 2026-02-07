@@ -22,7 +22,8 @@ impl SchedulerState {
 
     pub fn set_due(&mut self, kind: JobKind, key: &str, next_due: Option<i64>) {
         if let Some(ts) = next_due {
-            self.schedules.insert((kind, key.to_string()), JobSchedule { next_due: ts });
+            self.schedules
+                .insert((kind, key.to_string()), JobSchedule { next_due: ts });
         } else {
             self.schedules.remove(&(kind, key.to_string()));
         }

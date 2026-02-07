@@ -51,7 +51,8 @@ impl Tool for MemoryNoteCommentTool {
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: NoteCommentInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let engine = context.knowledge_engine()
+        let engine = context
+            .knowledge_engine()
             .ok_or("knowledge engine not available")?;
 
         let result = engine

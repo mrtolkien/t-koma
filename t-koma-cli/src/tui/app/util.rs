@@ -99,7 +99,9 @@ pub(super) fn highlight_toml(content: &str) -> Vec<Line<'static>> {
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
                 return Line::from(Span::styled(
                     line.to_string(),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ));
             }
 
@@ -129,7 +131,9 @@ pub(super) fn highlight_toml_with_diff(content: &str, disk_content: &str) -> Vec
         let changed = disk.get(idx).copied() != Some(*line);
         let marker = if changed { "▋" } else { " " };
         let marker_style = if changed {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         };
@@ -153,11 +157,15 @@ pub(super) fn markdown_to_lines(message: &str) -> Vec<Line<'static>> {
         .lines()
         .map(|line| {
             let trimmed = line.trim_start();
-            if trimmed.starts_with("### ") || trimmed.starts_with("## ") || trimmed.starts_with("# ")
+            if trimmed.starts_with("### ")
+                || trimmed.starts_with("## ")
+                || trimmed.starts_with("# ")
             {
                 return Line::from(Span::styled(
                     trimmed.trim_start_matches('#').trim().to_string(),
-                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::LightCyan)
+                        .add_modifier(Modifier::BOLD),
                 ));
             }
             if let Some(rest) = trimmed.strip_prefix("- ") {
@@ -181,7 +189,9 @@ fn parse_inline_markdown(input: &str) -> Vec<Span<'static>> {
             let bold = &stripped[..end];
             spans.push(Span::styled(
                 bold.to_string(),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ));
             rest = &stripped[end + 2..];
             continue;
@@ -193,7 +203,9 @@ fn parse_inline_markdown(input: &str) -> Vec<Span<'static>> {
             let code = &stripped[..end];
             spans.push(Span::styled(
                 code.to_string(),
-                Style::default().fg(Color::Yellow).bg(Color::Rgb(20, 30, 45)),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .bg(Color::Rgb(20, 30, 45)),
             ));
             rest = &stripped[end + 1..];
             continue;

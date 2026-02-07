@@ -96,9 +96,14 @@ pub(crate) async fn topic_create_execute(
     crate::storage::upsert_note(pool, &ingested.note).await?;
     crate::storage::replace_tags(pool, &topic_id, &ingested.tags).await?;
     crate::storage::replace_links(pool, &topic_id, None, &ingested.links).await?;
-    let chunk_ids =
-        crate::storage::replace_chunks(pool, &topic_id, &request.title, "ReferenceTopic", &ingested.chunks)
-            .await?;
+    let chunk_ids = crate::storage::replace_chunks(
+        pool,
+        &topic_id,
+        &request.title,
+        "ReferenceTopic",
+        &ingested.chunks,
+    )
+    .await?;
     crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
     // Store reference_files mapping with role
@@ -134,8 +139,14 @@ pub(crate) async fn topic_create_execute(
             &file_ingested.chunks,
         )
         .await?;
-        crate::index::embed_chunks(settings, embedder, pool, &file_ingested.chunks, &file_chunk_ids)
-            .await?;
+        crate::index::embed_chunks(
+            settings,
+            embedder,
+            pool,
+            &file_ingested.chunks,
+            &file_chunk_ids,
+        )
+        .await?;
 
         // Determine source_url from the FetchedSource that produced this file
         let source_url = fetched
@@ -267,14 +278,13 @@ pub(crate) async fn topic_list(
 
     let mut entries = Vec::new();
     for (id, title, ghost) in rows {
-        let file_count = sqlx::query_as::<_, (i64,)>(
-            "SELECT COUNT(*) FROM reference_files WHERE topic_id = ?",
-        )
-        .bind(&id)
-        .fetch_one(pool)
-        .await
-        .map(|(c,)| c as usize)
-        .unwrap_or(0);
+        let file_count =
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM reference_files WHERE topic_id = ?")
+                .bind(&id)
+                .fetch_one(pool)
+                .await
+                .map(|(c,)| c as usize)
+                .unwrap_or(0);
 
         let tags = load_topic_tags(pool, &id).await?;
 
@@ -299,22 +309,21 @@ pub(crate) async fn topic_list(
             .unwrap_or(0);
 
             // Derive path from the collection note's filesystem path relative to topic
-            let coll_path = sqlx::query_as::<_, (String,)>(
-                "SELECT path FROM notes WHERE id = ? LIMIT 1",
-            )
-            .bind(&coll_id)
-            .fetch_optional(pool)
-            .await?
-            .map(|(p,)| {
-                // Extract the subdirectory name from the path (parent of _index.md)
-                let path = std::path::Path::new(&p);
-                path.parent()
-                    .and_then(|p| p.file_name())
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string()
-            })
-            .unwrap_or_default();
+            let coll_path =
+                sqlx::query_as::<_, (String,)>("SELECT path FROM notes WHERE id = ? LIMIT 1")
+                    .bind(&coll_id)
+                    .fetch_optional(pool)
+                    .await?
+                    .map(|(p,)| {
+                        // Extract the subdirectory name from the path (parent of _index.md)
+                        let path = std::path::Path::new(&p);
+                        path.parent()
+                            .and_then(|p| p.file_name())
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_string()
+                    })
+                    .unwrap_or_default();
 
             collections.push(CollectionSummary {
                 title: coll_title,
@@ -352,9 +361,8 @@ pub(crate) async fn topic_update(
     .fetch_optional(pool)
     .await?;
 
-    let (path_str, note_type) = row.ok_or_else(|| {
-        KnowledgeError::UnknownNote(request.topic_id.clone())
-    })?;
+    let (path_str, note_type) =
+        row.ok_or_else(|| KnowledgeError::UnknownNote(request.topic_id.clone()))?;
 
     if note_type != "ReferenceTopic" {
         return Err(KnowledgeError::AccessDenied(format!(
@@ -417,7 +425,9 @@ pub(crate) async fn topic_update(
 }
 
 /// Load the 10 most recent reference topics for system prompt injection.
-pub(crate) async fn recent_topics(pool: &SqlitePool) -> KnowledgeResult<Vec<(String, String, Vec<String>)>> {
+pub(crate) async fn recent_topics(
+    pool: &SqlitePool,
+) -> KnowledgeResult<Vec<(String, String, Vec<String>)>> {
     let rows = sqlx::query_as::<_, (String, String)>(
         "SELECT id, title FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC LIMIT 10",
     )
@@ -436,12 +446,10 @@ pub(crate) async fn recent_topics(pool: &SqlitePool) -> KnowledgeResult<Vec<(Str
 // ── Internal helpers ────────────────────────────────────────────────
 
 async fn load_topic_tags(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<Vec<String>> {
-    let rows = sqlx::query_as::<_, (String,)>(
-        "SELECT tag FROM note_tags WHERE note_id = ?",
-    )
-    .bind(topic_id)
-    .fetch_all(pool)
-    .await?;
+    let rows = sqlx::query_as::<_, (String,)>("SELECT tag FROM note_tags WHERE note_id = ?")
+        .bind(topic_id)
+        .fetch_all(pool)
+        .await?;
 
     Ok(rows.into_iter().map(|(t,)| t).collect())
 }

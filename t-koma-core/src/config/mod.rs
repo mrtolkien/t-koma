@@ -38,16 +38,11 @@ mod settings;
 
 use crate::message::ProviderType;
 
-pub use secrets::{Secrets, SecretsError};
 pub use knowledge::{KnowledgeSettings, SearchDefaults};
+pub use secrets::{Secrets, SecretsError};
 pub use settings::{
-    ModelConfig,
-    OpenRouterSettings,
-    Settings,
-    SettingsError,
-    GatewaySettings,
-    KnowledgeToolsSettings,
-    KnowledgeSearchSettings,
+    GatewaySettings, KnowledgeSearchSettings, KnowledgeToolsSettings, ModelConfig,
+    OpenRouterSettings, Settings, SettingsError,
 };
 
 /// Combined configuration containing both secrets and settings.
@@ -223,7 +218,7 @@ mod tests {
     use super::*;
     use std::env;
     use std::sync::Mutex;
-    
+
     // Use a mutex to ensure tests that modify environment variables don't run concurrently
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -296,10 +291,7 @@ mod tests {
         let config = Config { secrets, settings };
 
         assert_eq!(config.default_model_id(), "anthropic-model-a");
-        assert_eq!(
-            config.model_config("b").unwrap().model,
-            "gpt-4"
-        );
+        assert_eq!(config.model_config("b").unwrap().model, "gpt-4");
     }
 
     #[test]

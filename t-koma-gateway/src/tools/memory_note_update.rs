@@ -74,7 +74,8 @@ impl Tool for MemoryNoteUpdateTool {
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: NoteUpdateInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let engine = context.knowledge_engine()
+        let engine = context
+            .knowledge_engine()
             .ok_or("knowledge engine not available")?;
 
         let request = t_koma_knowledge::NoteUpdateRequest {
@@ -86,7 +87,10 @@ impl Tool for MemoryNoteUpdateTool {
             parent: input.parent,
         };
 
-        let result = engine.note_update(context.ghost_name(), request).await.map_err(|e| e.to_string())?;
+        let result = engine
+            .note_update(context.ghost_name(), request)
+            .await
+            .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
     }
 }

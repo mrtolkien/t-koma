@@ -45,24 +45,24 @@ pub async fn load_links_out(
 
     Ok(rows
         .into_iter()
-        .map(|(target_title, id, title, note_type, path, trust_score, scope, source_scope)| {
-            let resolved_title = title.unwrap_or_else(|| target_title.clone());
-            let resolved_id = id.unwrap_or_else(|| target_title.clone());
-            let resolved_type = note_type.unwrap_or_else(|| "Unresolved".to_string());
-            let resolved_scope = scope.unwrap_or(source_scope);
-            NoteSummary {
-                id: resolved_id,
-                title: resolved_title,
-                note_type: resolved_type,
-                path: path
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_default(),
-                scope: resolved_scope.parse().unwrap_or(KnowledgeScope::SharedNote),
-                trust_score: trust_score.unwrap_or(1),
-                score: 0.0,
-                snippet: String::new(),
-            }
-        })
+        .map(
+            |(target_title, id, title, note_type, path, trust_score, scope, source_scope)| {
+                let resolved_title = title.unwrap_or_else(|| target_title.clone());
+                let resolved_id = id.unwrap_or_else(|| target_title.clone());
+                let resolved_type = note_type.unwrap_or_else(|| "Unresolved".to_string());
+                let resolved_scope = scope.unwrap_or(source_scope);
+                NoteSummary {
+                    id: resolved_id,
+                    title: resolved_title,
+                    note_type: resolved_type,
+                    path: path.map(std::path::PathBuf::from).unwrap_or_default(),
+                    scope: resolved_scope.parse().unwrap_or(KnowledgeScope::SharedNote),
+                    trust_score: trust_score.unwrap_or(1),
+                    score: 0.0,
+                    snippet: String::new(),
+                }
+            },
+        )
         .collect())
 }
 
@@ -105,16 +105,18 @@ pub async fn load_links_in(
 
     Ok(rows
         .into_iter()
-        .map(|(id, title, note_type, path, trust_score, scope)| NoteSummary {
-            id,
-            title,
-            note_type,
-            path: path.into(),
-            scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
-            trust_score,
-            score: 0.0,
-            snippet: String::new(),
-        })
+        .map(
+            |(id, title, note_type, path, trust_score, scope)| NoteSummary {
+                id,
+                title,
+                note_type,
+                path: path.into(),
+                scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
+                trust_score,
+                score: 0.0,
+                snippet: String::new(),
+            },
+        )
         .collect())
 }
 
@@ -186,16 +188,18 @@ pub async fn load_parent(
 
     Ok(rows
         .into_iter()
-        .map(|(id, title, note_type, path, trust_score, scope)| NoteSummary {
-            id,
-            title,
-            note_type,
-            path: path.into(),
-            scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
-            trust_score,
-            score: 0.0,
-            snippet: String::new(),
-        })
+        .map(
+            |(id, title, note_type, path, trust_score, scope)| NoteSummary {
+                id,
+                title,
+                note_type,
+                path: path.into(),
+                scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
+                trust_score,
+                score: 0.0,
+                snippet: String::new(),
+            },
+        )
         .collect())
 }
 
@@ -233,7 +237,6 @@ pub async fn load_tags(
     Ok(rows.into_iter().map(|(tag,)| tag).collect())
 }
 
-
 pub async fn expand_links_out(
     pool: &SqlitePool,
     root_id: &str,
@@ -242,7 +245,16 @@ pub async fn expand_links_out(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<NoteSummary>> {
-    expand_links(pool, vec![root_id.to_string()], depth, limit, true, scope, ghost_name).await
+    expand_links(
+        pool,
+        vec![root_id.to_string()],
+        depth,
+        limit,
+        true,
+        scope,
+        ghost_name,
+    )
+    .await
 }
 
 pub async fn expand_links_in(
@@ -253,7 +265,16 @@ pub async fn expand_links_in(
     scope: KnowledgeScope,
     ghost_name: &str,
 ) -> KnowledgeResult<Vec<NoteSummary>> {
-    expand_links(pool, vec![root_id.to_string()], depth, limit, false, scope, ghost_name).await
+    expand_links(
+        pool,
+        vec![root_id.to_string()],
+        depth,
+        limit,
+        false,
+        scope,
+        ghost_name,
+    )
+    .await
 }
 
 pub async fn expand_parents(
@@ -301,9 +322,23 @@ async fn expand_links(
             }
             visited.insert(note_id.clone());
             let links = if outgoing {
-                load_links_out(pool, &note_id, limit.saturating_sub(results.len()), scope, ghost_name).await?
+                load_links_out(
+                    pool,
+                    &note_id,
+                    limit.saturating_sub(results.len()),
+                    scope,
+                    ghost_name,
+                )
+                .await?
             } else {
-                load_links_in(pool, &note_id, limit.saturating_sub(results.len()), scope, ghost_name).await?
+                load_links_in(
+                    pool,
+                    &note_id,
+                    limit.saturating_sub(results.len()),
+                    scope,
+                    ghost_name,
+                )
+                .await?
             };
 
             for link in links {

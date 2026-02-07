@@ -27,10 +27,7 @@ pub(crate) async fn reference_search(
     let top_topic = topics.first().map(|result| result.summary.id.clone());
 
     if let Some(topic_id) = top_topic {
-        let doc_boost = query
-            .options
-            .doc_boost
-            .unwrap_or(settings.search.doc_boost);
+        let doc_boost = query.options.doc_boost.unwrap_or(settings.search.doc_boost);
 
         let results =
             search_reference_files(pool, settings, embedder, &topic_id, query, doc_boost).await?;
@@ -106,11 +103,7 @@ async fn search_reference_files(
         return Ok(Vec::new());
     }
 
-    let filter_ids = note_ids
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(", ");
+    let filter_ids = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
 
     let sql = format!(
         "SELECT chunk_id, bm25(chunk_fts) as score FROM chunk_fts JOIN notes ON notes.id = chunk_fts.note_id WHERE chunk_fts MATCH ? AND notes.id IN ({}) ORDER BY score ASC LIMIT ?",
@@ -201,11 +194,7 @@ async fn search_reference_topics(
         return Ok(Vec::new());
     }
 
-    let placeholders = topic_ids
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(", ");
+    let placeholders = topic_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
     let sql = format!(
         "SELECT chunk_id, bm25(chunk_fts) as score FROM chunk_fts JOIN notes ON notes.id = chunk_fts.note_id WHERE chunk_fts MATCH ? AND notes.id IN ({}) ORDER BY score ASC LIMIT ?",
         placeholders
@@ -351,8 +340,7 @@ pub(crate) async fn search_all_reference_files(
 
     let mut results = Vec::new();
     for summary in summaries {
-        let parents =
-            load_parent(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        let parents = load_parent(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
         let links_out = load_links_out(
             pool,
             &summary.id,
@@ -369,8 +357,7 @@ pub(crate) async fn search_all_reference_files(
             "",
         )
         .await?;
-        let tags =
-            load_tags(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        let tags = load_tags(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
         results.push(NoteResult {
             summary,
             parents,
@@ -518,8 +505,8 @@ pub(crate) async fn reference_get(
         ));
     };
 
-    let doc =
-        super::get::fetch_note(pool, &resolved_note_id, KnowledgeScope::SharedReference, "").await?;
+    let doc = super::get::fetch_note(pool, &resolved_note_id, KnowledgeScope::SharedReference, "")
+        .await?;
     match doc {
         Some(mut d) => {
             if let Some(limit) = max_chars

@@ -92,20 +92,22 @@ fn merge_small_chunks(chunks: Vec<Chunk>, min_chars: usize) -> Vec<Chunk> {
 pub fn chunk_code(source: &str, path: &Path) -> KnowledgeResult<Vec<Chunk>> {
     let language = language_for_path(path)?;
     let mut parser = Parser::new();
-    parser.set_language(&language).map_err(|_| {
-        KnowledgeError::UnsupportedLanguage(path.display().to_string())
-    })?;
+    parser
+        .set_language(&language)
+        .map_err(|_| KnowledgeError::UnsupportedLanguage(path.display().to_string()))?;
 
-    let tree = parser.parse(source, None).ok_or_else(|| {
-        KnowledgeError::UnsupportedLanguage(path.display().to_string())
-    })?;
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| KnowledgeError::UnsupportedLanguage(path.display().to_string()))?;
 
     let mut chunks = Vec::new();
     let root = tree.root_node();
     let mut cursor = root.walk();
 
     for node in root.children(&mut cursor) {
-        if is_chunk_node(node.kind()) && let Ok(text) = node.utf8_text(source.as_bytes()) {
+        if is_chunk_node(node.kind())
+            && let Ok(text) = node.utf8_text(source.as_bytes())
+        {
             let title = format!("{}:{}", node.kind(), node.start_position().row + 1);
             chunks.push(Chunk {
                 title,
@@ -137,7 +139,7 @@ fn language_for_path(path: &Path) -> KnowledgeResult<Language> {
         _ => {
             return Err(KnowledgeError::UnsupportedLanguage(
                 path.display().to_string(),
-            ))
+            ));
         }
     };
 

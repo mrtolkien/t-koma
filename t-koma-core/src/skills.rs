@@ -105,9 +105,9 @@ impl Skill {
         }
 
         // Find the end of frontmatter
-        let end_idx = content[3..]
-            .find("---")
-            .ok_or_else(|| SkillError::InvalidFormat("Frontmatter not properly closed".to_string()))?;
+        let end_idx = content[3..].find("---").ok_or_else(|| {
+            SkillError::InvalidFormat("Frontmatter not properly closed".to_string())
+        })?;
 
         let frontmatter = &content[3..end_idx + 3];
 
@@ -210,7 +210,9 @@ impl Skill {
     /// Returns `Some(&str)` with the content if available, or `None` if
     /// loading fails.
     pub fn get_content(&mut self) -> Option<&str> {
-        if self.content.is_none() && let Err(e) = self.load_content() {
+        if self.content.is_none()
+            && let Err(e) = self.load_content()
+        {
             warn!("Failed to load skill content for '{}': {}", self.name, e);
             return None;
         }
@@ -297,8 +299,8 @@ impl Skill {
 fn safe_child_file_path(base_dir: &Path, name: &str) -> Result<PathBuf, SkillError> {
     let path = Path::new(name);
     let mut components = path.components();
-    let valid_name = matches!(components.next(), Some(Component::Normal(_)))
-        && components.next().is_none();
+    let valid_name =
+        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
 
     if !valid_name {
         return Err(SkillError::InvalidFormat(format!(

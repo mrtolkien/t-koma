@@ -36,10 +36,7 @@ impl std::str::FromStr for Platform {
             "discord" => Ok(Platform::Discord),
             "api" => Ok(Platform::Api),
             "cli" => Ok(Platform::Cli),
-            _ => Err(DbError::Serialization(format!(
-                "Invalid platform: {}",
-                s
-            ))),
+            _ => Err(DbError::Serialization(format!("Invalid platform: {}", s))),
         }
     }
 }
@@ -70,10 +67,7 @@ impl std::str::FromStr for OperatorStatus {
             "pending" => Ok(OperatorStatus::Pending),
             "approved" => Ok(OperatorStatus::Approved),
             "denied" => Ok(OperatorStatus::Denied),
-            _ => Err(DbError::Serialization(format!(
-                "Invalid status: {}",
-                s
-            ))),
+            _ => Err(DbError::Serialization(format!("Invalid status: {}", s))),
         }
     }
 }
@@ -494,23 +488,21 @@ impl OperatorRepository {
     pub async fn prune_pending(pool: &SqlitePool, hours: i64) -> DbResult<i64> {
         let cutoff = Utc::now().timestamp() - (hours * 3600);
 
-        let pending_ids: Vec<(String,)> = sqlx::query_as(
-            "SELECT id FROM operators WHERE status = 'pending' AND created_at < ?",
-        )
-        .bind(cutoff)
-        .fetch_all(pool)
-        .await?;
+        let pending_ids: Vec<(String,)> =
+            sqlx::query_as("SELECT id FROM operators WHERE status = 'pending' AND created_at < ?")
+                .bind(cutoff)
+                .fetch_all(pool)
+                .await?;
 
         for (operator_id,) in &pending_ids {
             Self::log_event(pool, operator_id, "removed", Some("auto-prune")).await?;
         }
 
-        let result = sqlx::query(
-            "DELETE FROM operators WHERE status = 'pending' AND created_at < ?",
-        )
-        .bind(cutoff)
-        .execute(pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM operators WHERE status = 'pending' AND created_at < ?")
+                .bind(cutoff)
+                .execute(pool)
+                .await?;
 
         let count = result.rows_affected() as i64;
         info!(
@@ -638,16 +630,20 @@ mod tests {
             Platform::Discord,
             OperatorAccessLevel::Standard,
         )
+        .await
+        .unwrap();
+
+        let operator = OperatorRepository::approve(pool, "operator1")
             .await
             .unwrap();
-
-        let operator = OperatorRepository::approve(pool, "operator1").await.unwrap();
         assert_eq!(operator.status, OperatorStatus::Approved);
         assert!(operator.approved_at.is_some());
 
-        assert!(OperatorRepository::is_approved(pool, "operator1")
-            .await
-            .unwrap());
+        assert!(
+            OperatorRepository::is_approved(pool, "operator1")
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -662,8 +658,8 @@ mod tests {
             Platform::Discord,
             OperatorAccessLevel::Standard,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let operator = OperatorRepository::deny(pool, "operator1").await.unwrap();
         assert_eq!(operator.status, OperatorStatus::Denied);
@@ -685,8 +681,8 @@ mod tests {
             Platform::Discord,
             OperatorAccessLevel::Standard,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         OperatorRepository::get_or_create(
             pool,
             "operator2",
@@ -694,8 +690,8 @@ mod tests {
             Platform::Discord,
             OperatorAccessLevel::Standard,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         OperatorRepository::get_or_create(
             pool,
             "operator3",
@@ -703,10 +699,12 @@ mod tests {
             Platform::Api,
             OperatorAccessLevel::Standard,
         )
+        .await
+        .unwrap();
+
+        OperatorRepository::approve(pool, "operator1")
             .await
             .unwrap();
-
-        OperatorRepository::approve(pool, "operator1").await.unwrap();
 
         let pending = OperatorRepository::list_by_status(pool, OperatorStatus::Pending, None)
             .await
@@ -740,8 +738,8 @@ mod tests {
             Platform::Discord,
             OperatorAccessLevel::Standard,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         sqlx::query("UPDATE operators SET created_at = ? WHERE id = 'operator1'")
             .bind(Utc::now().timestamp() - 7200)
@@ -752,7 +750,9 @@ mod tests {
         let pruned = OperatorRepository::prune_pending(pool, 1).await.unwrap();
         assert_eq!(pruned, 1);
 
-        let operator = OperatorRepository::get_by_id(pool, "operator1").await.unwrap();
+        let operator = OperatorRepository::get_by_id(pool, "operator1")
+            .await
+            .unwrap();
         assert!(operator.is_none());
     }
 
@@ -768,9 +768,11 @@ mod tests {
             Platform::Discord,
             OperatorAccessLevel::Standard,
         )
+        .await
+        .unwrap();
+        OperatorRepository::approve(pool, "operator1")
             .await
             .unwrap();
-        OperatorRepository::approve(pool, "operator1").await.unwrap();
         OperatorRepository::mark_welcomed(pool, "operator1")
             .await
             .unwrap();
@@ -816,8 +818,8 @@ mod tests {
             Platform::Discord,
             OperatorAccessLevel::Standard,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         OperatorRepository::remove(pool, "operator1").await.unwrap();
 
@@ -838,7 +840,9 @@ mod tests {
         .unwrap();
         assert_eq!(event_rows_left, 0);
 
-        let operator = OperatorRepository::get_by_id(pool, "operator1").await.unwrap();
+        let operator = OperatorRepository::get_by_id(pool, "operator1")
+            .await
+            .unwrap();
         assert!(operator.is_none());
     }
 
@@ -869,10 +873,9 @@ mod tests {
         .await
         .unwrap();
 
-        let updated =
-            OperatorRepository::set_rate_limits(pool, "operator1", None, None)
-                .await
-                .unwrap();
+        let updated = OperatorRepository::set_rate_limits(pool, "operator1", None, None)
+            .await
+            .unwrap();
         assert_eq!(updated.rate_limit_5m_max, None);
         assert_eq!(updated.rate_limit_1h_max, None);
     }

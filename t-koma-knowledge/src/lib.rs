@@ -1,6 +1,8 @@
 //! Knowledge & memory subsystem for T-KOMA.
 
+pub mod chunker;
 pub mod embeddings;
+pub mod engine;
 pub mod errors;
 pub mod graph;
 pub mod index;
@@ -8,22 +10,20 @@ pub mod ingest;
 pub mod models;
 pub mod parser;
 pub mod paths;
-pub mod engine;
 pub mod sources;
 pub mod storage;
-pub mod chunker;
 pub mod watcher;
 
-pub use t_koma_core::config::{KnowledgeSettings, SearchDefaults};
+pub use embeddings::EmbeddingClient;
+pub use engine::KnowledgeEngine;
 pub use errors::KnowledgeError;
 pub use models::{
     CollectionSummary, DiaryQuery, DiarySearchResult, KnowledgeGetQuery, KnowledgeScope,
     KnowledgeSearchQuery, KnowledgeSearchResult, MatchedTopic, NoteCreateRequest, NoteDocument,
     NoteQuery, NoteResult, NoteSummary, NoteUpdateRequest, NoteWriteResult, OwnershipScope,
-    ReferenceFileStatus, ReferenceQuery, ReferenceSearchOutput, ReferenceSearchResult,
-    ReferenceSaveRequest, ReferenceSaveResult, SearchCategory, SourceRole, TopicCreateRequest,
+    ReferenceFileStatus, ReferenceQuery, ReferenceSaveRequest, ReferenceSaveResult,
+    ReferenceSearchOutput, ReferenceSearchResult, SearchCategory, SourceRole, TopicCreateRequest,
     TopicCreateResult, TopicListEntry, TopicSearchResult, TopicSourceInput, TopicUpdateRequest,
     WriteScope,
 };
-pub use engine::KnowledgeEngine;
-pub use embeddings::EmbeddingClient;
+pub use t_koma_core::config::{KnowledgeSettings, SearchDefaults};

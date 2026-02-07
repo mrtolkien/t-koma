@@ -1,9 +1,5 @@
 use tracing::{Event, Subscriber};
-use tracing_subscriber::{
-    Layer,
-    layer::Context,
-    registry::LookupSpan,
-};
+use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 use crate::state::{LogEntry, emit_global_log};
 

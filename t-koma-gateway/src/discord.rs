@@ -55,12 +55,10 @@ fn approval_required_message(reason: &crate::tools::context::ApprovalReason) -> 
         ApprovalReason::WorkspaceEscape(path) => {
             render_message(ids::APPROVAL_REQUIRED_WITH_PATH, &[("path", path)])
         }
-        ApprovalReason::ReferenceImport { title, summary } => {
-            render_message(
-                ids::APPROVAL_REFERENCE_IMPORT,
-                &[("title", title), ("summary", summary)],
-            )
-        }
+        ApprovalReason::ReferenceImport { title, summary } => render_message(
+            ids::APPROVAL_REFERENCE_IMPORT,
+            &[("title", title), ("summary", summary)],
+        ),
     }
 }
 
@@ -155,7 +153,9 @@ impl EventHandler for Bot {
         info!(
             event_kind = "chat_io",
             "[session:-] Discord message from {} ({}): {}",
-            operator_name, operator_external_id, msg.content
+            operator_name,
+            operator_external_id,
+            msg.content
         );
 
         // Extract the actual message content (remove mention if present)
@@ -200,7 +200,10 @@ impl EventHandler for Bot {
                     .channel_id
                     .say(
                         &ctx.http,
-                        format_deterministic_message(&render_message(ids::DISCORD_INTERFACE_PROMPT, &[])),
+                        format_deterministic_message(&render_message(
+                            ids::DISCORD_INTERFACE_PROMPT,
+                            &[],
+                        )),
                     )
                     .await;
                 return;
@@ -227,7 +230,10 @@ impl EventHandler for Bot {
                     .channel_id
                     .say(
                         &ctx.http,
-                        format_deterministic_message(&render_message(ids::DISCORD_INTERFACE_PROMPT, &[])),
+                        format_deterministic_message(&render_message(
+                            ids::DISCORD_INTERFACE_PROMPT,
+                            &[],
+                        )),
                     )
                     .await;
                 return;
@@ -430,7 +436,10 @@ impl EventHandler for Bot {
                     let error_text = e.to_string();
                     let invalid = render_message(
                         "invalid-ghost-name",
-                        &[("error", error_text.as_str()), ("ghost_name_prompt", prompt.as_str())],
+                        &[
+                            ("error", error_text.as_str()),
+                            ("ghost_name_prompt", prompt.as_str()),
+                        ],
                     );
                     let _ = msg
                         .channel_id
@@ -547,10 +556,8 @@ impl EventHandler for Bot {
         if let Some(selection) = parse_ghost_selection(clean_content) {
             if let Some(ghost) = ghosts.iter().find(|g| g.name == selection) {
                 self.state.set_active_ghost(&operator_id, &ghost.name).await;
-                let response = render_message(
-                    "active-ghost-set",
-                    &[("ghost_name", ghost.name.as_str())],
-                );
+                let response =
+                    render_message("active-ghost-set", &[("ghost_name", ghost.name.as_str())]);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, format_deterministic_message(&response))
@@ -635,41 +642,39 @@ impl EventHandler for Bot {
                 }
             };
 
-        let operator = match t_koma_db::OperatorRepository::get_by_id(
-            self.state.koma_db.pool(),
-            &operator_id,
-        )
-        .await
-        {
-            Ok(Some(op)) => op,
-            Ok(None) => {
-                let _ = msg
-                    .channel_id
-                    .say(
-                        &ctx.http,
-                        format_deterministic_message(&render_message(
-                            "error-failed-load-operator-discord",
-                            &[],
-                        )),
-                    )
-                    .await;
-                return;
-            }
-            Err(e) => {
-                error!("Failed to load operator: {}", e);
-                let _ = msg
-                    .channel_id
-                    .say(
-                        &ctx.http,
-                        format_deterministic_message(&render_message(
-                            "error-failed-load-operator-discord",
-                            &[],
-                        )),
-                    )
-                    .await;
-                return;
-            }
-        };
+        let operator =
+            match t_koma_db::OperatorRepository::get_by_id(self.state.koma_db.pool(), &operator_id)
+                .await
+            {
+                Ok(Some(op)) => op,
+                Ok(None) => {
+                    let _ = msg
+                        .channel_id
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(&render_message(
+                                "error-failed-load-operator-discord",
+                                &[],
+                            )),
+                        )
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    error!("Failed to load operator: {}", e);
+                    let _ = msg
+                        .channel_id
+                        .say(
+                            &ctx.http,
+                            format_deterministic_message(&render_message(
+                                "error-failed-load-operator-discord",
+                                &[],
+                            )),
+                        )
+                        .await;
+                    return;
+                }
+            };
 
         match self.state.check_operator_rate_limit(&operator).await {
             RateLimitDecision::Allowed => {}
@@ -685,10 +690,8 @@ impl EventHandler for Bot {
                         .await;
                 }
                 let retry_after = retry_after.as_secs().to_string();
-                let message = render_message(
-                    ids::RATE_LIMITED,
-                    &[("retry_after", retry_after.as_str())],
-                );
+                let message =
+                    render_message(ids::RATE_LIMITED, &[("retry_after", retry_after.as_str())]);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, format_deterministic_message(&message))
@@ -739,8 +742,7 @@ impl EventHandler for Bot {
                                 pending.clone(),
                             )
                             .await;
-                        let message =
-                            approval_required_message(&pending.reason);
+                        let message = approval_required_message(&pending.reason);
                         let _ = msg
                             .channel_id
                             .say(&ctx.http, format_deterministic_message(&message))
@@ -828,8 +830,7 @@ impl EventHandler for Bot {
                             pending.clone(),
                         )
                         .await;
-                    let message =
-                        approval_required_message(&pending.reason);
+                    let message = approval_required_message(&pending.reason);
                     let _ = msg
                         .channel_id
                         .say(&ctx.http, format_deterministic_message(&message))
@@ -886,8 +887,7 @@ impl EventHandler for Bot {
                         pending.clone(),
                     )
                     .await;
-                let message =
-                    approval_required_message(&pending.reason);
+                let message = approval_required_message(&pending.reason);
                 let _ = msg
                     .channel_id
                     .say(&ctx.http, format_deterministic_message(&message))
