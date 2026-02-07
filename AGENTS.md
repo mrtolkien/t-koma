@@ -41,6 +41,17 @@ Relationship summary:
 
 ## Code organization and style
 
+### Code quality
+
+- If you have to use over 4 levels of indentation, you should likely break it
+  down into functions
+- Avoid excess comments: code should be expressive and readable by itself. If it
+  requires comments, it likely needs a refactor.
+- Break down complex systems in clear function or traits, and if required, in
+  multiple files with clear names. A file over 500 LoC (excluding tests) likely
+  means a design issue. Humans search code through filenames.
+- Do not make code live in mod.rs files, they should be mostly barrel files
+
 ### MCPs
 
 Make extensive use of MCPs available to you:
