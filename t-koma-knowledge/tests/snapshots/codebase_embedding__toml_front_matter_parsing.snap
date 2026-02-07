@@ -8,8 +8,8 @@ top_results:
   - rank: 1
     file: knowledge_system.md
     note_type: ReferenceDocs
-    snippet: "- Hybrid: BM25 + embeddings, fused with RRF.\n- Graph expansion includes parent, tags, and 1-hop links.\n\n- `memory_search"
+    snippet: "| Tool | When to use |\n|------|-------------|\n| `memory_search` | Find notes by keyword or concept across scopes |\n| `me"
   - rank: 2
-    file: search.rs
-    note_type: ReferenceCode
-    snippet: "pub(crate) async fn search_store(\n    settings: &KnowledgeSettings,\n    embedder: &EmbeddingClient,\n    pool: &SqlitePoo"
+    file: knowledge_system.md
+    note_type: ReferenceDocs
+    snippet: "1. **Start broad**: use `memory_search` with a conceptual query to find relevant\n   notes across all scopes.\n2. **Narrow"

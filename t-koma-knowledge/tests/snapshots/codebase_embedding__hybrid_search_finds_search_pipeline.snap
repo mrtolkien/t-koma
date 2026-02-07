@@ -8,7 +8,7 @@ top_results:
   - rank: 1
     file: knowledge_system.md
     note_type: ReferenceDocs
-    snippet: "- Hybrid: BM25 + embeddings, fused with RRF.\n- Graph expansion includes parent, tags, and 1-hop links.\n\n- `memory_search"
+    snippet: "You have access to a persistent knowledge base with hybrid search (BM25 +\nembeddings). Use it proactively.\n\n| Scope | Vi"
   - rank: 2
     file: search.rs
     note_type: ReferenceCode

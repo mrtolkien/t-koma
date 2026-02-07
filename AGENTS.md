@@ -25,6 +25,10 @@ important information in vibe/knowledge.
 - GHOST (ゴースト): Agent with its own DB and workspace (same folder as ghost
   DB).
 - SESSION: A chat thread between an operator and a ghost (stored in ghost DB).
+- HEARTBEAT: Background session check triggered after 15 minutes of inactivity
+  when the last message is not `HEARTBEAT_OK`. Uses `HEARTBEAT.md` in the ghost
+  workspace as instructions. `HEARTBEAT_CONTINUE` suppresses output and
+  reschedules in ~30 minutes.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -67,6 +71,8 @@ Make extensive use of MCPs available to you:
   types (with concrete defaults) live in dedicated files like `knowledge.rs`.
 - New config should be editable via the TUI (already supported via "Edit in
   Editor").
+- Heartbeat uses the optional `heartbeat_model` alias in config; when unset it
+  falls back to `default_model`.
 
 ### Locality of Concern
 
@@ -274,14 +280,14 @@ Memory tools:
 - `memory_capture`: Write raw text to ghost inbox. NOT embedded, NOT indexed.
   Accepts optional `source` field for provenance tracking.
 - `memory_get`: Retrieve a note by ID or title. (skill: `note-writer`)
-- `memory_note_create`: Create a structured note with front matter.
-  (skill: `note-writer`)
+- `memory_note_create`: Create a structured note with front matter. (skill:
+  `note-writer`)
 - `memory_note_update`: Patch an existing note (title, body, tags, etc.).
   (skill: `note-writer`)
 - `memory_note_validate`: Mark a note as validated, optionally adjust trust.
   (skill: `note-writer`)
-- `memory_note_comment`: Append a timestamped comment to a note.
-  (skill: `note-writer`)
+- `memory_note_comment`: Append a timestamped comment to a note. (skill:
+  `note-writer`)
 - `search_diary`: Search diary entries by keyword or concept. Diary files are
   plain markdown (YYYY-MM-DD.md, no front matter).
 
@@ -292,12 +298,12 @@ Reference tools:
 - `reference_topic_search`: Semantic search over existing reference topics.
 - `reference_topic_list`: List all topics with staleness info.
 - `reference_topic_create`: Create a new reference topic from git/web sources.
-  Sources can have a `role` (docs/code) to control search boost.
-  (skill: `reference-researcher`)
-- `reference_topic_update`: Update topic metadata (status, body, tags).
-  (skill: `reference-researcher`)
-- `reference_get`: Fetch the full content of a reference file.
-  (skill: `reference-researcher`)
+  Sources can have a `role` (docs/code) to control search boost. (skill:
+  `reference-researcher`)
+- `reference_topic_update`: Update topic metadata (status, body, tags). (skill:
+  `reference-researcher`)
+- `reference_get`: Fetch the full content of a reference file. (skill:
+  `reference-researcher`)
 - `reference_file_update`: Mark a reference file as active/problematic/obsolete.
   (skill: `reference-researcher`)
 
@@ -310,8 +316,8 @@ Administrative operations (refresh, delete) are CLI/TUI-only — not ghost tools
 ### Topic Discovery
 
 - The 10 most recent reference topics are injected into the ghost's system
-  prompt via `build_ghost_context_vars()` in `session.rs`, rendered through
-  the `ghost-context.md` Jinja template.
+  prompt via `build_ghost_context_vars()` in `session.rs`, rendered through the
+  `ghost-context.md` Jinja template.
 - For older topics, use `reference_topic_search` with a semantic query.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
