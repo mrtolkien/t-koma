@@ -35,6 +35,12 @@ struct OperatorRateLimitState {
     last_1h: VecDeque<i64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct HeartbeatOverride {
+    pub next_due: i64,
+    pub last_seen_updated_at: i64,
+}
+
 #[derive(Debug)]
 pub enum RateLimitDecision {
     Allowed,
@@ -73,6 +79,12 @@ pub enum LogEntry {
     GhostMessage {
         ghost_name: String,
         content: String,
+    },
+    /// Heartbeat runner status
+    Heartbeat {
+        ghost_name: String,
+        session_id: String,
+        status: String,
     },
     /// Routing decision for operator -> ghost/session
     Routing {
@@ -139,6 +151,15 @@ impl std::fmt::Display for LogEntry {
                 ghost_name,
                 content,
             } => write!(f, "[{}] [GHOST] {} -> operator: {}", timestamp, ghost_name, content),
+            LogEntry::Heartbeat {
+                ghost_name,
+                session_id,
+                status,
+            } => write!(
+                f,
+                "[{}] [HEARTBEAT] {} ({}) {}",
+                timestamp, ghost_name, session_id, status
+            ),
             LogEntry::Routing {
                 platform,
                 operator_id,
@@ -216,6 +237,12 @@ pub struct AppState {
 
     /// Ghost knowledge watcher handles by ghost name
     ghost_knowledge_watchers: RwLock<HashMap<String, JoinHandle<()>>>,
+
+    /// Heartbeat runner handle
+    heartbeat_runner: RwLock<Option<JoinHandle<()>>>,
+
+    /// Heartbeat override schedule per session (chat_key)
+    heartbeat_overrides: RwLock<HashMap<String, HeartbeatOverride>>,
 }
 
 /// Model entry tracked by the gateway
@@ -255,7 +282,51 @@ impl AppState {
             knowledge_engine,
             shared_knowledge_watcher: RwLock::new(None),
             ghost_knowledge_watchers: RwLock::new(HashMap::new()),
+            heartbeat_runner: RwLock::new(None),
+            heartbeat_overrides: RwLock::new(HashMap::new()),
         }
+    }
+
+    pub async fn set_heartbeat_override(
+        &self,
+        key: &str,
+        next_due: i64,
+        last_seen_updated_at: i64,
+    ) {
+        let mut guard = self.heartbeat_overrides.write().await;
+        guard.insert(
+            key.to_string(),
+            HeartbeatOverride {
+                next_due,
+                last_seen_updated_at,
+            },
+        );
+    }
+
+    pub async fn clear_heartbeat_override(&self, key: &str) {
+        let mut guard = self.heartbeat_overrides.write().await;
+        guard.remove(key);
+    }
+
+    pub async fn get_heartbeat_override(&self, key: &str) -> Option<HeartbeatOverride> {
+        let guard = self.heartbeat_overrides.read().await;
+        guard.get(key).copied()
+    }
+
+    /// Start the heartbeat runner if it isn't already running.
+    pub async fn start_heartbeat_runner(
+        self: &Arc<Self>,
+        heartbeat_model_alias: Option<String>,
+    ) {
+        let mut guard = self.heartbeat_runner.write().await;
+        if let Some(handle) = guard.as_ref()
+            && !handle.is_finished()
+        {
+            return;
+        }
+
+        let handle = crate::heartbeat::start_heartbeat_runner(Arc::clone(self), heartbeat_model_alias);
+        *guard = Some(handle);
     }
 
     /// Access the knowledge settings (from the engine).

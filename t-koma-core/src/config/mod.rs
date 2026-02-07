@@ -79,6 +79,12 @@ pub enum ConfigError {
 
     #[error("Provider '{provider}' for default model '{alias}' has no configured API key")]
     DefaultModelProviderNotConfigured { provider: String, alias: String },
+
+    #[error("Heartbeat model alias '{0}' not found in config")]
+    HeartbeatModelNotFound(String),
+
+    #[error("Provider '{provider}' for heartbeat model '{alias}' has no configured API key")]
+    HeartbeatModelProviderNotConfigured { provider: String, alias: String },
 }
 
 impl Config {
@@ -113,6 +119,24 @@ impl Config {
                 provider: default_model.provider.to_string(),
                 alias: default_alias.to_string(),
             });
+        }
+
+        if let Some(heartbeat_alias) = settings
+            .heartbeat_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|alias| !alias.is_empty())
+        {
+            let heartbeat_model = settings
+                .models
+                .get(heartbeat_alias)
+                .ok_or_else(|| ConfigError::HeartbeatModelNotFound(heartbeat_alias.to_string()))?;
+            if !secrets.has_provider_type(heartbeat_model.provider) {
+                return Err(ConfigError::HeartbeatModelProviderNotConfigured {
+                    provider: heartbeat_model.provider.to_string(),
+                    alias: heartbeat_alias.to_string(),
+                });
+            }
         }
 
         Ok(Self { secrets, settings })

@@ -1,3 +1,5 @@
+#![cfg(feature = "slow-tests")]
+
 use t_koma_knowledge::{EmbeddingClient, KnowledgeSettings};
 
 #[tokio::test]

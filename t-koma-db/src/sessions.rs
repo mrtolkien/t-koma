@@ -191,6 +191,24 @@ impl SessionRepository {
         Ok(rows.into_iter().map(SessionInfo::from).collect())
     }
 
+    /// List active sessions whose last update is at or before the given unix timestamp.
+    pub async fn list_active_before(
+        pool: &SqlitePool,
+        before_unix_seconds: i64,
+    ) -> DbResult<Vec<Session>> {
+        let rows = sqlx::query_as::<_, SessionRow>(
+            "SELECT id, operator_id, title, created_at, updated_at, is_active
+             FROM sessions
+             WHERE is_active = 1 AND updated_at <= ?
+             ORDER BY updated_at ASC",
+        )
+        .bind(before_unix_seconds)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(Session::from).collect())
+    }
+
     /// Switch active session
     pub async fn switch(
         pool: &SqlitePool,
@@ -277,6 +295,48 @@ impl SessionRepository {
         rows.into_iter()
             .map(Message::try_from)
             .collect::<DbResult<Vec<_>>>()
+    }
+
+    /// Get the most recent message in a session (by created_at).
+    pub async fn get_last_message(
+        pool: &SqlitePool,
+        session_id: &str,
+    ) -> DbResult<Option<Message>> {
+        let row = sqlx::query_as::<_, MessageRow>(
+            "SELECT id, session_id, role, content, model, created_at
+             FROM messages
+             WHERE session_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await?;
+
+        row.map(Message::try_from).transpose()
+    }
+
+    /// List all active sessions.
+    pub async fn list_active(pool: &SqlitePool) -> DbResult<Vec<Session>> {
+        let rows = sqlx::query_as::<_, SessionRow>(
+            "SELECT id, operator_id, title, created_at, updated_at, is_active
+             FROM sessions
+             WHERE is_active = 1
+             ORDER BY updated_at ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(Session::from).collect())
+    }
+
+    /// Delete a message by id.
+    pub async fn delete_message(pool: &SqlitePool, message_id: &str) -> DbResult<()> {
+        sqlx::query("DELETE FROM messages WHERE id = ?")
+            .bind(message_id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     /// Alias for list_messages (backwards-compatible)

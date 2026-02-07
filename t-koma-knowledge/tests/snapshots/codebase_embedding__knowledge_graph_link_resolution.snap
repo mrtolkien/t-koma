@@ -11,11 +11,11 @@ top_results:
     tag_count: 0
     links_out: 0
     links_in: 0
-    snippet: "- Hybrid: BM25 + embeddings, fused with RRF.\n- Graph expansion includes parent, tags, and 1-hop links.\n\n- `memory_search"
+    snippet: "Notes can reference any shared content by title using `[[Title]]` or\n`[[Title|alias]]` syntax. Links can target:\n\n- Othe"
   - rank: 2
-    file: graph.rs
+    file: knowledge_system.md
     has_parents: true
     tag_count: 0
     links_out: 0
     links_in: 0
-    snippet: "pub async fn load_parent(\n    pool: &SqlitePool,\n    note_id: &str,\n    scope: KnowledgeScope,\n    ghost_name: &str,\n) -"
+    snippet: "You have access to a persistent knowledge base with hybrid search (BM25 +\nembeddings). Use it proactively.\n\n| Scope | Vi"
