@@ -5,6 +5,7 @@ pub mod heartbeat;
 pub mod log_bridge;
 pub mod prompt;
 pub mod providers;
+pub mod reflection;
 pub mod scheduler;
 pub mod server;
 pub mod session;

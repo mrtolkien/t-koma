@@ -409,6 +409,16 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                             })
                             .await;
                     }
+
+                    // After heartbeat completes, check if reflection should run
+                    crate::reflection::maybe_run_reflection(
+                        &state,
+                        &ghost.name,
+                        &session.id,
+                        &session.operator_id,
+                        model_alias,
+                    )
+                    .await;
                 }
                 Err(err) => {
                     state
