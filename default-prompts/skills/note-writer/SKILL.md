@@ -73,7 +73,7 @@ changes.
 ## Tags
 
 Use consistent, lowercase tags. Prefer existing tags over creating new ones.
-Check what tags exist with `memory_search` before creating notes.
+Check what tags exist with `knowledge_search` before creating notes.
 
 Good tags: `rust`, `architecture`, `debugging`, `api-design`
 Bad tags: `Important`, `TODO`, `misc`
@@ -81,7 +81,7 @@ Bad tags: `Important`, `TODO`, `misc`
 ## Updating vs. Creating
 
 Before creating a new note, search first:
-1. Use `memory_search` to check if a similar note exists
+1. Use `knowledge_search` to check if a similar note exists
 2. If found, use `memory_note_update` to refine it
 3. If not found, create a new note
 
@@ -95,7 +95,7 @@ without changing the main body. Good for:
 
 ## Scope
 
-- **ghost** (default): Private to you. Use for personal observations and
+- **private** (default): Private to you. Use for personal observations and
   working notes.
 - **shared**: Visible to all ghosts. Use for established knowledge that
   benefits everyone.

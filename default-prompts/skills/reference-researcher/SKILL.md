@@ -32,10 +32,10 @@ Do NOT create a reference topic for:
 
 1. **Check the system prompt** for "Available Reference Topics" — the 10 most
    recent topics are listed there.
-2. **Use `reference_topic_search`** with a semantic query. Different models may
-   have used different names for the same concept, so search broadly:
+2. **Use `knowledge_search`** with a topic query. Different models may have used
+   different names for the same concept, so search broadly:
    ```
-   reference_topic_search(query="Rust GUI framework with React-like syntax")
+   knowledge_search(query="Rust GUI framework with React-like syntax", categories=["topics"])
    ```
 3. If a topic exists but is stale, consider updating it with
    `reference_topic_update` rather than creating a duplicate.
@@ -160,7 +160,7 @@ reference_save(
 ```
 
 Key points:
-- **Always search for existing topics first** with `reference_topic_search`.
+- **Always search for existing topics first** with `knowledge_search(categories=["topics"])`.
 - Topic names are fuzzy-matched (e.g. "3d printers" matches "3d-printers").
 - Use subdirectory paths (`collection/file.md`) to organize into collections.
 - Provide `collection_title` and `collection_description` — they're embedded
@@ -170,7 +170,7 @@ Key points:
 
 ## Writing a Good Topic Description
 
-The `body` is passed IN FULL to the LLM as context when `reference_search`
+The `body` is passed IN FULL to the LLM as context when `knowledge_search`
 matches the topic. Write it as a concise briefing — not a tutorial, not a full
 explanation, but the essential context an LLM needs to work with this technology:
 
@@ -185,8 +185,8 @@ explanation, but the essential context an LLM needs to work with this technology
 Do NOT include code examples in the body — those belong in the reference files
 themselves. The body is context, not content.
 
-A good body makes the topic discoverable via `reference_topic_search` even when
-the searcher uses different terminology than the topic title.
+A good body makes the topic discoverable via `knowledge_search` even when the
+searcher uses different terminology than the topic title.
 
 ## Setting max_age_days
 
@@ -223,11 +223,11 @@ researchers (ghosts or humans) understand why the file was flagged.
 
 ## Using Reference Material
 
-After creating a topic, use `reference_search` to find specific information
+After creating a topic, use `knowledge_search` to find specific information
 within the indexed content:
 
 ```
-reference_search(topic="dioxus", question="how to handle form input events")
+knowledge_search(query="how to handle form input events", topic="dioxus")
 ```
 
 This searches the chunked and embedded source files, returning the most relevant
@@ -235,9 +235,9 @@ code snippets and documentation passages. The response also includes the full
 topic body as context.
 
 To read the complete content of a specific reference file (not just snippets),
-use `reference_get`:
+use `knowledge_get`:
 
 ```
-reference_get(topic="dioxus", file_path="examples/form_input.rs")
-reference_get(note_id="abc123")
+knowledge_get(topic="dioxus", path="examples/form_input.rs")
+knowledge_get(id="abc123")
 ```
