@@ -4,11 +4,15 @@ References are curated external knowledge (documentation, articles, code, data)
 organized into searchable topics. Save references during normal conversation
 when you encounter valuable external content.
 
+### When to save references
+
+Any time you use a web tool that lets you answer a user's question, save it as
+reference. Usually, this will be at the end of a tools call chain, together with
+the response to the user.
+
 ### What to Save as References
 
-Save when one of the following let you answer a user's question with information
-you wouldn't have had otherwise:
-
+- Web search results
 - Blog posts, articles, or documentation you fetched with `web_fetch`
 - Wiki pages
 - API specs, protocol docs, or configuration references

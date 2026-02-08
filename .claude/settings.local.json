@@ -23,7 +23,12 @@
       "mcp__github__pull_request_read",
       "mcp__github__add_issue_comment",
       "Bash(find:*)",
-      "Bash(cargo fmt:*)"
+      "Bash(cargo fmt:*)",
+      "WebSearch",
+      "WebFetch(domain:blog.gopenai.com)",
+      "WebFetch(domain:blog.jetbrains.com)",
+      "WebFetch(domain:mem0.ai)",
+      "WebFetch(domain:stevekinney.com)"
     ]
   },
   "enableAllProjectMcpServers": true,
