@@ -181,6 +181,31 @@ async fn send_discord_message(
     Ok(())
 }
 
+async fn persist_ghost_name_to_soul(workspace_path: &std::path::Path, ghost_name: &str) {
+    let soul_path = workspace_path.join("SOUL.md");
+    let line = format!("I am called {}.", ghost_name);
+
+    let existing = tokio::fs::read_to_string(&soul_path)
+        .await
+        .unwrap_or_default();
+    if existing.contains(&line) {
+        return;
+    }
+
+    let new_content = if existing.trim().is_empty() {
+        format!("{line}\n")
+    } else {
+        format!("{}\n\n{line}\n", existing.trim_end())
+    };
+
+    if let Err(err) = tokio::fs::write(&soul_path, new_content).await {
+        error!(
+            "Failed to persist ghost name in SOUL.md for {}: {}",
+            ghost_name, err
+        );
+    }
+}
+
 fn split_discord_embed_description(content: &str) -> Vec<String> {
     if content.chars().count() <= DISCORD_EMBED_DESC_LIMIT {
         return vec![content.to_string()];
@@ -874,6 +899,8 @@ impl EventHandler for Bot {
                 }
             };
 
+            persist_ghost_name_to_soul(ghost_db.workspace_path(), &ghost.name).await;
+
             let session = match t_koma_db::SessionRepository::create(
                 ghost_db.pool(),
                 &operator_id,
@@ -1108,6 +1135,120 @@ impl EventHandler for Bot {
                 let _ = send_gateway_embed(&ctx, msg.channel_id, &message, None).await;
                 return;
             }
+        }
+
+        if clean_content.eq_ignore_ascii_case("new") {
+            let previous_session_id = session.id.clone();
+            let new_session =
+                match t_koma_db::SessionRepository::create(ghost_db.pool(), &operator_id, None)
+                    .await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!(
+                            "Failed to create new session for operator {}: {}",
+                            operator_id, e
+                        );
+                        let _ = send_gateway_embed(
+                            &ctx,
+                            msg.channel_id,
+                            &render_message("error-init-session-discord", &[]),
+                            None,
+                        )
+                        .await;
+                        return;
+                    }
+                };
+
+            let state_for_reflection = Arc::clone(&self.state);
+            let ghost_name_for_reflection = ghost_name.clone();
+            let operator_id_for_reflection = operator_id.clone();
+            tokio::spawn(async move {
+                crate::reflection::run_reflection_now(
+                    &state_for_reflection,
+                    &ghost_name_for_reflection,
+                    &previous_session_id,
+                    &operator_id_for_reflection,
+                    None,
+                )
+                .await;
+            });
+
+            let typing = msg.channel_id.start_typing(&ctx.http);
+            let final_text = match self
+                .state
+                .chat(&ghost_name, &new_session.id, &operator_id, "hello")
+                .await
+            {
+                Ok(text) => text,
+                Err(ChatError::ToolApprovalRequired(pending)) => {
+                    self.state
+                        .set_pending_tool_approval(
+                            &operator_id,
+                            &ghost_name,
+                            &new_session.id,
+                            pending.clone(),
+                        )
+                        .await;
+                    let message = approval_required_gateway_message(&pending.reason);
+                    let _ = send_discord_gateway_message(
+                        self.state.as_ref(),
+                        &ctx,
+                        msg.channel_id,
+                        &operator_external_id,
+                        &operator_id,
+                        &ghost_name,
+                        &new_session.id,
+                        message,
+                    )
+                    .await;
+                    drop(typing);
+                    return;
+                }
+                Err(ChatError::ToolLoopLimitReached(pending)) => {
+                    self.state
+                        .set_pending_tool_loop(&operator_id, &ghost_name, &new_session.id, pending)
+                        .await;
+                    let message = tool_loop_limit_reached_gateway_message(
+                        crate::session::DEFAULT_TOOL_LOOP_LIMIT,
+                        crate::session::DEFAULT_TOOL_LOOP_EXTRA,
+                    );
+                    let _ = send_discord_gateway_message(
+                        self.state.as_ref(),
+                        &ctx,
+                        msg.channel_id,
+                        &operator_external_id,
+                        &operator_id,
+                        &ghost_name,
+                        &new_session.id,
+                        message,
+                    )
+                    .await;
+                    drop(typing);
+                    return;
+                }
+                Err(e) => {
+                    error!("[session:{}] Chat error: {}", new_session.id, e);
+                    let _ = send_gateway_embed(
+                        &ctx,
+                        msg.channel_id,
+                        &render_message("error-processing-request", &[]),
+                        None,
+                    )
+                    .await;
+                    drop(typing);
+                    return;
+                }
+            };
+
+            if let Err(e) = send_discord_message(&ctx, msg.channel_id, &final_text).await {
+                error!(
+                    "[session:{}] Failed to send Discord message: {}",
+                    new_session.id, e
+                );
+            }
+            drop(typing);
+            return;
         }
 
         self.state
