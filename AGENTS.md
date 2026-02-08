@@ -16,6 +16,12 @@ You should ALWAYS EDIT THIS FILE if:
 If you implement a complex feature that will need to be referenced later, save
 important information in vibe/knowledge.
 
+## Frequent mistakes
+
+I often make you work in git worktrees under feat/$feat_name and you try to
+access the repo root, creating permissions issues. Do not do this. Stay in the
+workspace I open you in.
+
 ## Core Concepts
 
 - T-KOMA (ティーコマ): The gateway service. Deterministic logic only.
@@ -302,6 +308,18 @@ SharedReference | GhostReference. `is_note()` → SharedNote | GhostNote.
 Cross-scope rule: ghost notes can link to shared notes and reference topics via
 `[[Title]]` wiki links, but shared notes never see private data.
 
+### Note Structure
+
+Notes have two classification axes:
+
+- **`entry_type`** (structural): `Note`, `ReferenceTopic`, `ReferenceCollection`,
+  `ReferenceDocs`, `ReferenceCode`, `Diary`. Used in WHERE clauses for scope
+  discrimination. Set automatically by the ingest pipeline.
+- **`archetype`** (semantic, optional): `person`, `concept`, `decision`, `event`,
+  `place`, `project`, `organization`, `procedure`, `media`, `quote`. Optional
+  classification for notes — omit when no archetype fits. Filterable via
+  `knowledge_search`. Templates in `default-prompts/skills/note-writer/archetypes/`.
+
 ### Tools
 
 All knowledge tools are always visible to the ghost. Basic reference usage
@@ -311,9 +329,10 @@ guidance is in the system prompt (`reference_system.md`); the
 Query tools:
 
 - `knowledge_search`: Unified search across notes, diary, references, and
-  topics. Supports `categories` filter, `scope` (all/shared/private), and
-  `topic` for narrowing reference searches. Min-1-per-category budget algorithm
-  ensures diverse results. Tags are indexed in FTS and embeddings.
+  topics. Supports `categories` filter, `scope` (all/shared/private), `topic`
+  for narrowing reference searches, and `archetype` for filtering notes by
+  semantic type (e.g. person, concept, decision). Min-1-per-category budget
+  algorithm ensures diverse results. Tags are indexed in FTS and embeddings.
 - `knowledge_get`: Retrieve full content by ID (searches all scopes) or by
   `topic` + `path` for reference files. Supports `max_chars` truncation.
 
