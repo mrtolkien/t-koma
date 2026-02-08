@@ -77,9 +77,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(api_key) = config.openrouter_api_key() {
                     let http_referer = config.settings.openrouter.http_referer.clone();
                     let app_name = config.settings.openrouter.app_name.clone();
-                    let client =
-                        OpenRouterClient::new(api_key, &model_config.model, http_referer, app_name)
-                            .with_dump_queries(config.settings.logging.dump_queries);
+                    let client = OpenRouterClient::new(
+                        api_key,
+                        &model_config.model,
+                        http_referer,
+                        app_name,
+                        config
+                            .settings
+                            .openrouter
+                            .model_provider
+                            .get(alias)
+                            .cloned(),
+                    )
+                    .with_dump_queries(config.settings.logging.dump_queries);
                     info!(
                         "OpenRouter client created for alias '{}' with model: {}",
                         alias, model_config.model

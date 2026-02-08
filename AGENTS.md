@@ -96,6 +96,9 @@ Make extensive use of MCPs available to you:
   Editor").
 - Heartbeat uses the optional `heartbeat_model` alias in config; when unset it
   falls back to `default_model`.
+- OpenRouter upstream routing is configured in `[openrouter.model_provider]`
+  keyed by model alias (for example `[openrouter.model_provider.kimi25]` with
+  `order = ["provider-slug"]` and optional `allow_fallbacks`).
 
 ### Locality of Concern
 

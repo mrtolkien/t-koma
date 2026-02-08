@@ -96,10 +96,6 @@ impl Secrets {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // Use a mutex to ensure tests that modify environment variables don't run concurrently
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     fn clear_env() {
         unsafe {
@@ -112,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_secrets_from_env() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
         unsafe {
             env::set_var("ANTHROPIC_API_KEY", "sk-test");
@@ -124,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_load_anthropic_only() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
         unsafe {
             env::set_var("ANTHROPIC_API_KEY", "sk-test");
@@ -139,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_load_openrouter_only() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
         unsafe {
             env::set_var("OPENROUTER_API_KEY", "sk-or-test");
@@ -153,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_load_both_providers() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
         unsafe {
             env::set_var("ANTHROPIC_API_KEY", "sk-ant");
@@ -176,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_no_provider_error() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
 
         let result = Secrets::from_env_inner();
