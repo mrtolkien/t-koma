@@ -59,8 +59,9 @@ reference files. Use `max_chars` to limit output for large files.
 
 **`note_write`** — Manage knowledge notes.
 Actions: `create`, `update`, `validate`, `comment`, `delete`. Default scope is
-`private`. Use tags for categorization and `[[Title]]` wiki links in body.
-Load the `note-writer` skill for detailed guidance.
+`private`. Use `archetype` (optional) for semantic classification and tags for
+categorization. Use `[[Title]]` wiki links in body. Load the `note-writer` skill
+for detailed guidance.
 
 **`memory_capture`** — Store raw info for later curation.
 Writes to your private inbox only. Always include `source` (URL, "user stated",

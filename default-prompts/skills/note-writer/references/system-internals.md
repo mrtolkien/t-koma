@@ -43,7 +43,7 @@ Notes use TOML front matter delimited by `+++`:
 +++
 id = "uuid-here"
 title = "Note Title"
-type = "Concept"
+archetype = "concept"            # optional
 created_at = "2025-01-15T10:00:00Z"
 trust_score = 8
 tags = ["rust", "async"]
@@ -66,7 +66,7 @@ Links can target any shared note or reference topic by title.
 |-------|----------|-------------|
 | `id` | yes | Unique note ID (UUID) |
 | `title` | yes | Human-readable title |
-| `type` | yes | Note type (must be in `types.toml` if allowlist exists) |
+| `archetype` | no | Optional semantic classification (lowercase). One of: `person`, `concept`, `decision`, `event`, `place`, `project`, `organization`, `procedure`, `media`, `quote` |
 | `created_at` | yes | ISO 8601 timestamp |
 | `trust_score` | yes | 0-10, higher = more trusted |
 | `created_by.ghost` | yes | Ghost that created the note |
