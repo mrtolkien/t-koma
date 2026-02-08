@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::Path;
 
 use chrono::Utc;
@@ -9,7 +8,6 @@ use crate::chunker::{Chunk, chunk_code, chunk_markdown};
 use crate::errors::KnowledgeResult;
 use crate::models::KnowledgeScope;
 use crate::parser::{ParsedNote, extract_links, parse_note};
-use crate::paths::types_allowlist_path;
 use crate::storage::{ChunkRecord, NoteRecord};
 
 #[derive(Debug, Clone)]
@@ -36,8 +34,8 @@ pub async fn ingest_reference_topic(
     let note = NoteRecord {
         id: parsed.front.id.clone(),
         title: parsed.front.title.clone(),
-        note_type: "ReferenceTopic".to_string(),
-        type_valid: true,
+        entry_type: "ReferenceTopic".to_string(),
+        archetype: None,
         path: path.to_path_buf(),
         scope: KnowledgeScope::SharedReference.as_str().to_string(),
         owner_ghost: None,
@@ -93,18 +91,22 @@ pub async fn ingest_markdown(
 ) -> KnowledgeResult<IngestedNote> {
     let parsed = parse_note(raw)?;
     let hash = compute_hash(raw);
-    let type_allowlist = load_type_allowlist(settings).await?;
 
-    let type_valid = type_allowlist
-        .as_ref()
-        .map(|set| set.contains(parsed.front.note_type.as_str()))
-        .unwrap_or(true);
+    // For note scopes, entry_type is always "Note" and the semantic
+    // classification lives in archetype. For reference scopes, preserve
+    // the structural type from front matter (ReferenceTopic, etc.).
+    let (entry_type, archetype) = if scope.is_note() {
+        ("Note".to_string(), parsed.front.effective_archetype())
+    } else {
+        let et = parsed.front.effective_type().unwrap_or("Note").to_string();
+        (et, None)
+    };
 
     let note = NoteRecord {
         id: parsed.front.id.clone(),
         title: parsed.front.title.clone(),
-        note_type: parsed.front.note_type.clone(),
-        type_valid,
+        entry_type,
+        archetype,
         path: path.to_path_buf(),
         scope: scope.as_str().to_string(),
         owner_ghost,
@@ -179,8 +181,8 @@ pub async fn ingest_reference_file_with_context(
     let note = NoteRecord {
         id: note_id.to_string(),
         title: title.to_string(),
-        note_type: note_type.to_string(),
-        type_valid: true,
+        entry_type: note_type.to_string(),
+        archetype: None,
         path: path.to_path_buf(),
         scope: KnowledgeScope::SharedReference.as_str().to_string(),
         owner_ghost: None,
@@ -253,8 +255,8 @@ pub async fn ingest_reference_collection(
     let note = NoteRecord {
         id: parsed.front.id.clone(),
         title: parsed.front.title.clone(),
-        note_type: "ReferenceCollection".to_string(),
-        type_valid: true,
+        entry_type: "ReferenceCollection".to_string(),
+        archetype: None,
         path: path.to_path_buf(),
         scope: KnowledgeScope::SharedReference.as_str().to_string(),
         owner_ghost: None,
@@ -329,8 +331,8 @@ pub async fn ingest_diary_entry(
     let note = NoteRecord {
         id,
         title: date.to_string(),
-        note_type: "Diary".to_string(),
-        type_valid: true,
+        entry_type: "Diary".to_string(),
+        archetype: None,
         path: path.to_path_buf(),
         scope: KnowledgeScope::GhostDiary.as_str().to_string(),
         owner_ghost: Some(owner_ghost.to_string()),
@@ -418,21 +420,4 @@ fn compute_hash(input: &str) -> String {
     hasher.update(input.as_bytes());
     let digest = hasher.finalize();
     hex::encode(digest)
-}
-
-async fn load_type_allowlist(
-    settings: &KnowledgeSettings,
-) -> KnowledgeResult<Option<HashSet<String>>> {
-    let path = types_allowlist_path(settings)?;
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = tokio::fs::read_to_string(path).await?;
-    let value: TypeAllowList = toml::from_str(&raw)?;
-    Ok(Some(value.types.into_iter().collect()))
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct TypeAllowList {
-    pub types: Vec<String>,
 }

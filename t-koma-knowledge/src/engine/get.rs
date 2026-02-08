@@ -97,6 +97,7 @@ pub(crate) async fn fetch_note(
             String,
             String,
             String,
+            Option<String>,
             String,
             String,
             i64,
@@ -110,7 +111,7 @@ pub(crate) async fn fetch_note(
             Option<String>,
             Option<String>,
         )>(
-            r#"SELECT id, title, note_type, path, scope, trust_score, created_at, created_by_ghost,
+            r#"SELECT id, title, entry_type, archetype, path, scope, trust_score, created_at, created_by_ghost,
                       created_by_model, last_validated_at, last_validated_by_ghost, last_validated_by_model,
                       version, parent_id, comments_json
                FROM notes
@@ -127,6 +128,7 @@ pub(crate) async fn fetch_note(
             String,
             String,
             String,
+            Option<String>,
             String,
             String,
             i64,
@@ -140,7 +142,7 @@ pub(crate) async fn fetch_note(
             Option<String>,
             Option<String>,
         )>(
-            r#"SELECT id, title, note_type, path, scope, trust_score, created_at, created_by_ghost,
+            r#"SELECT id, title, entry_type, archetype, path, scope, trust_score, created_at, created_by_ghost,
                       created_by_model, last_validated_at, last_validated_by_ghost, last_validated_by_model,
                       version, parent_id, comments_json
                FROM notes
@@ -158,7 +160,8 @@ pub(crate) async fn fetch_note(
     if let Some((
         id,
         title,
-        note_type,
+        entry_type,
+        archetype,
         path,
         scope,
         trust_score,
@@ -177,7 +180,8 @@ pub(crate) async fn fetch_note(
         return Ok(Some(NoteDocument {
             id,
             title,
-            note_type,
+            entry_type,
+            archetype,
             path: path.into(),
             scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
             trust_score,

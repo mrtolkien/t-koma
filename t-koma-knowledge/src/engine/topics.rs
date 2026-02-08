@@ -101,6 +101,7 @@ pub(crate) async fn topic_create_execute(
         &topic_id,
         &request.title,
         "ReferenceTopic",
+        None,
         &ingested.chunks,
     )
     .await?;
@@ -114,7 +115,7 @@ pub(crate) async fn topic_create_execute(
             Err(_) => continue, // skip unreadable files (binary that slipped through)
         };
 
-        let note_type = role.to_note_type();
+        let note_type = role.to_entry_type();
         let file_note_id = generate_note_id();
         // Use topic title as context prefix for chunk enrichment during initial import
         let context_prefix = format!("[{}]", request.title);
@@ -136,6 +137,7 @@ pub(crate) async fn topic_create_execute(
             &file_note_id,
             file_name,
             note_type,
+            None,
             &file_ingested.chunks,
         )
         .await?;
@@ -202,7 +204,7 @@ pub(crate) async fn topic_search(
 
     // Find all ReferenceTopic note IDs
     let topic_ids = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
+        "SELECT id FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
     )
     .fetch_all(pool)
     .await?
@@ -271,7 +273,7 @@ pub(crate) async fn topic_list(
     let pool = engine.pool();
 
     let rows = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, title, created_by_ghost FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
+        "SELECT id, title, created_by_ghost FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
     )
     .fetch_all(pool)
     .await?;
@@ -290,7 +292,7 @@ pub(crate) async fn topic_list(
 
         // Load collection summaries: ReferenceCollection notes with parent_id = topic id
         let collection_rows = sqlx::query_as::<_, (String, String)>(
-            "SELECT id, title FROM notes WHERE note_type = 'ReferenceCollection' AND parent_id = ? ORDER BY title",
+            "SELECT id, title FROM notes WHERE entry_type = 'ReferenceCollection' AND parent_id = ? ORDER BY title",
         )
         .bind(&id)
         .fetch_all(pool)
@@ -355,16 +357,16 @@ pub(crate) async fn topic_update(
 
     // Fetch the topic note directly from the reference scope
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT path, note_type FROM notes WHERE id = ? AND scope = 'shared_reference' LIMIT 1",
+        "SELECT path, entry_type FROM notes WHERE id = ? AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(&request.topic_id)
     .fetch_optional(pool)
     .await?;
 
-    let (path_str, note_type) =
+    let (path_str, entry_type) =
         row.ok_or_else(|| KnowledgeError::UnknownNote(request.topic_id.clone()))?;
 
-    if note_type != "ReferenceTopic" {
+    if entry_type != "ReferenceTopic" {
         return Err(KnowledgeError::AccessDenied(format!(
             "note '{}' is not a ReferenceTopic",
             request.topic_id
@@ -409,6 +411,7 @@ pub(crate) async fn topic_update(
         &request.topic_id,
         &front.title,
         "ReferenceTopic",
+        None,
         &ingested.chunks,
     )
     .await?;
@@ -429,7 +432,7 @@ pub(crate) async fn recent_topics(
     pool: &SqlitePool,
 ) -> KnowledgeResult<Vec<(String, String, Vec<String>)>> {
     let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC LIMIT 10",
+        "SELECT id, title FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC LIMIT 10",
     )
     .fetch_all(pool)
     .await?;

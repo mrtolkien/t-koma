@@ -95,6 +95,7 @@ impl Tool for KnowledgeSearchTool {
             categories: Self::parse_categories(input.categories),
             scope: Self::parse_scope(input.scope),
             topic: input.topic,
+            archetype: None,
             options: Default::default(),
         };
 

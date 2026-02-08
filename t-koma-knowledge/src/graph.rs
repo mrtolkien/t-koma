@@ -12,7 +12,7 @@ pub async fn load_links_out(
 ) -> KnowledgeResult<Vec<NoteSummary>> {
     let rows = if scope.is_shared() {
         sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>, String)>(
-            r#"SELECT l.target_title, n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, s.scope
+            r#"SELECT l.target_title, n.id, n.title, n.entry_type, n.path, n.trust_score, n.scope, s.scope
                FROM note_links l
                JOIN notes s ON s.id = l.source_id
                LEFT JOIN notes n ON n.id = l.target_id AND n.owner_ghost IS NULL
@@ -26,7 +26,7 @@ pub async fn load_links_out(
         .await?
     } else {
         sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>, String)>(
-            r#"SELECT l.target_title, n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, s.scope
+            r#"SELECT l.target_title, n.id, n.title, n.entry_type, n.path, n.trust_score, n.scope, s.scope
                FROM note_links l
                JOIN notes s ON s.id = l.source_id
                LEFT JOIN notes n ON n.id = l.target_id AND (n.owner_ghost IS NULL OR n.owner_ghost = ?)
@@ -54,7 +54,8 @@ pub async fn load_links_out(
                 NoteSummary {
                     id: resolved_id,
                     title: resolved_title,
-                    note_type: resolved_type,
+                    entry_type: resolved_type,
+                    archetype: None,
                     path: path.map(std::path::PathBuf::from).unwrap_or_default(),
                     scope: resolved_scope.parse().unwrap_or(KnowledgeScope::SharedNote),
                     trust_score: trust_score.unwrap_or(1),
@@ -75,7 +76,7 @@ pub async fn load_links_in(
 ) -> KnowledgeResult<Vec<NoteSummary>> {
     let rows = if scope.is_shared() {
         sqlx::query_as::<_, (String, String, String, String, i64, String)>(
-            r#"SELECT n.id, n.title, n.note_type, n.path, n.trust_score, n.scope
+            r#"SELECT n.id, n.title, n.entry_type, n.path, n.trust_score, n.scope
                FROM note_links l
                JOIN notes n ON n.id = l.source_id
                WHERE l.target_id = ? AND n.scope = ? AND n.owner_ghost IS NULL AND l.owner_ghost IS NULL
@@ -88,7 +89,7 @@ pub async fn load_links_in(
         .await?
     } else {
         sqlx::query_as::<_, (String, String, String, String, i64, String)>(
-            r#"SELECT n.id, n.title, n.note_type, n.path, n.trust_score, n.scope
+            r#"SELECT n.id, n.title, n.entry_type, n.path, n.trust_score, n.scope
                FROM note_links l
                JOIN notes n ON n.id = l.source_id
                WHERE l.target_id = ? AND n.scope = ? AND n.owner_ghost = ? AND l.owner_ghost = ?
@@ -106,10 +107,11 @@ pub async fn load_links_in(
     Ok(rows
         .into_iter()
         .map(
-            |(id, title, note_type, path, trust_score, scope)| NoteSummary {
+            |(id, title, entry_type, path, trust_score, scope)| NoteSummary {
                 id,
                 title,
-                note_type,
+                entry_type,
+                archetype: None,
                 path: path.into(),
                 scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
                 trust_score,
@@ -128,7 +130,7 @@ pub async fn load_parent(
 ) -> KnowledgeResult<Vec<NoteSummary>> {
     let rows: Vec<(String, String, String, String, i64, String)> = if scope.is_shared() {
         sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>, String)>(
-            r#"SELECT child.parent_id, n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, child.scope
+            r#"SELECT child.parent_id, n.id, n.title, n.entry_type, n.path, n.trust_score, n.scope, child.scope
                FROM notes child
                LEFT JOIN notes n ON n.id = child.parent_id AND n.owner_ghost IS NULL
                WHERE child.id = ? AND child.scope = ? AND child.owner_ghost IS NULL
@@ -156,7 +158,7 @@ pub async fn load_parent(
         .collect()
     } else {
         sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>, String)>(
-            r#"SELECT child.parent_id, n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, child.scope
+            r#"SELECT child.parent_id, n.id, n.title, n.entry_type, n.path, n.trust_score, n.scope, child.scope
                FROM notes child
                LEFT JOIN notes n ON n.id = child.parent_id AND (n.owner_ghost IS NULL OR n.owner_ghost = ?)
                WHERE child.id = ? AND child.scope = ? AND child.owner_ghost = ?
@@ -189,10 +191,11 @@ pub async fn load_parent(
     Ok(rows
         .into_iter()
         .map(
-            |(id, title, note_type, path, trust_score, scope)| NoteSummary {
+            |(id, title, entry_type, path, trust_score, scope)| NoteSummary {
                 id,
                 title,
-                note_type,
+                entry_type,
+                archetype: None,
                 path: path.into(),
                 scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
                 trust_score,

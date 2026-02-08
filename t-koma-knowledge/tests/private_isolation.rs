@@ -28,8 +28,8 @@ async fn test_private_note_isolation() {
     let ghost_a_note = NoteRecord {
         id: "ghost-a-note".to_string(),
         title: "Ghost A Note".to_string(),
-        note_type: "Idea".to_string(),
-        type_valid: true,
+        entry_type: "Idea".to_string(),
+        archetype: None,
         path: shared_root.join("ghost-a.md"),
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
@@ -49,8 +49,8 @@ async fn test_private_note_isolation() {
     let ghost_b_note = NoteRecord {
         id: "ghost-b-note".to_string(),
         title: "Ghost B Note".to_string(),
-        note_type: "Idea".to_string(),
-        type_valid: true,
+        entry_type: "Idea".to_string(),
+        archetype: None,
         path: shared_root.join("ghost-b.md"),
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-b".to_string()),
