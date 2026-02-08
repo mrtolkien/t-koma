@@ -534,9 +534,6 @@ mod tests {
                     }
                 })
             }
-            fn prompt(&self) -> Option<&'static str> {
-                None
-            }
             async fn execute(
                 &self,
                 _args: Value,

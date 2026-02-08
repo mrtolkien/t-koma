@@ -39,16 +39,6 @@ impl Tool for MemoryCaptureTool {
         })
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use memory_capture to store raw, unstructured info for later curation.\n\
-            - Writes to your private inbox only.\n\
-            - Always include the source (URL, 'user stated', etc.).\n\
-            - Captured text is written as a timestamped inbox file.\n\
-            - Reflection will process it into structured notes later.",
-        )
-    }
-
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: MemoryCaptureInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 

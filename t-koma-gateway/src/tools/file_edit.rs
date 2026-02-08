@@ -5,51 +5,6 @@ use tokio::fs;
 
 pub struct FileEditTool;
 
-/// Detailed instructions for using the replace tool
-const FILE_EDIT_PROMPT: &str = r#"## File Editing
-
-You have access to a `replace` tool for modifying files.
-When using this tool, you must follow these rules:
-
-1.  **Exact Match**: The `old_string` must match the file content exactly, character for character, including all whitespace, indentation, and newlines.
-    *   Do NOT use ellipses (...) to represent missing content.
-    *   Do NOT truncate the string.
-    *   Do NOT guess at the content. Use `read_file` if you are unsure.
-2.  **Uniqueness**: Provide enough context in `old_string` to ensure it matches only the intended location.
-    *   Include at least 2-3 lines of unchanged context before and after the change.
-    *   If the string matches multiple locations, the tool will fail unless you specify `expected_replacements`.
-3.  **Atomic Changes**:
-    *   To delete code: Set `new_string` to an empty string (or just the context you want to keep).
-    *   To insert code: Include the surrounding context in `old_string`, and the context + new code in `new_string`.
-    *   To move code: Perform a delete in one step and an insert in another.
-4.  **Formatting**: Ensure `new_string` maintains the correct indentation and code style of the file.
-
-### Example
-
-To change `x = 1` to `x = 2` inside a function:
-
-**Good `old_string`:**
-```rust
-    fn calculate() {
-        let x = 1;
-        return x;
-    }
-```
-
-**Good `new_string`:**
-```rust
-    fn calculate() {
-        let x = 2;
-        return x;
-    }
-```
-
-**Bad `old_string` (Ambiguous/No Context):**
-```rust
-x = 1
-```
-"#;
-
 #[async_trait::async_trait]
 impl Tool for FileEditTool {
     fn name(&self) -> &str {
@@ -58,10 +13,6 @@ impl Tool for FileEditTool {
 
     fn description(&self) -> &str {
         "Replaces text within a file. By default, replaces a single occurrence, but can replace multiple occurrences when `expected_replacements` is specified. `old_string` must match the file content exactly, including whitespace and newlines."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(FILE_EDIT_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

@@ -6,37 +6,6 @@ use super::{Tool, ToolContext};
 
 pub struct ListDirTool;
 
-/// Detailed instructions for using the list_dir tool
-const LIST_DIR_PROMPT: &str = r#"## Listing Directories
-
-You have access to a `list_dir` tool for listing directory contents.
-
-**Features:**
-- Shows files and directories separately
-- Sorted alphabetically
-- Shows file sizes for files
-
-**When to use:**
-- Exploring project structure
-- Finding files when you don't know exact names
-- Understanding what's in a directory before taking action
-- Verifying file creation/deletion
-
-**Best practices:**
-- Use before `read_file` to know what files are available
-- Use after `create_file` to verify file was created
-- Use to find relevant files when exploring a new codebase
-- Combine with `find_files` for comprehensive exploration
-
-**Output format:**
-```
-[DIR]  src/
-[DIR]  tests/
-[FILE] Cargo.toml    (1024 bytes)
-[FILE] README.md     (2048 bytes)
-```
-"#;
-
 #[async_trait::async_trait]
 impl Tool for ListDirTool {
     fn name(&self) -> &str {
@@ -45,10 +14,6 @@ impl Tool for ListDirTool {
 
     fn description(&self) -> &str {
         "Lists the contents of a directory. Shows files and subdirectories with type indicators and file sizes."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(LIST_DIR_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

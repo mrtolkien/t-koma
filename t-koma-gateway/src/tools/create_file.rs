@@ -6,31 +6,6 @@ use super::{Tool, ToolContext};
 
 pub struct CreateFileTool;
 
-/// Detailed instructions for using the create_file tool
-const CREATE_FILE_PROMPT: &str = r#"## Creating Files
-
-You have access to a `create_file` tool for creating new files.
-
-**IMPORTANT:** This tool will FAIL if the file already exists. This prevents accidental overwrites.
-
-**Guidelines:**
-1. Use absolute paths or paths relative to the current working directory
-2. Ensure parent directories exist (create them with `run_shell_command` if needed)
-3. The tool will fail if the file already exists - use `read_file` first to check
-4. For editing existing files, use the `replace` tool instead
-
-**When to use:**
-- Creating new source code files
-- Creating configuration files
-- Creating documentation
-- Writing test files
-
-**Best practices:**
-- Always check if file exists first if unsure
-- Create parent directories before creating files in nested paths
-- Use appropriate file extensions
-"#;
-
 #[async_trait::async_trait]
 impl Tool for CreateFileTool {
     fn name(&self) -> &str {
@@ -39,10 +14,6 @@ impl Tool for CreateFileTool {
 
     fn description(&self) -> &str {
         "Creates a new file with the given content. Fails if the file already exists to prevent accidental overwrites. Parent directories must exist."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(CREATE_FILE_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

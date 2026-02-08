@@ -8,15 +8,6 @@ use super::context::{
 
 pub struct ChangeDirectoryTool;
 
-const CHANGE_DIRECTORY_PROMPT: &str = r#"## Changing Directories
-
-Use the `change_directory` tool to move around the filesystem.
-
-**Rules:**
-1. Paths can be absolute or relative to the current working directory.
-2. If you need to leave the ghost workspace, ask the operator for approval first.
-"#;
-
 #[async_trait::async_trait]
 impl Tool for ChangeDirectoryTool {
     fn name(&self) -> &str {
@@ -25,10 +16,6 @@ impl Tool for ChangeDirectoryTool {
 
     fn description(&self) -> &str {
         "Changes the current working directory for this ghost's tools. Paths can be absolute or relative to the current working directory."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(CHANGE_DIRECTORY_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

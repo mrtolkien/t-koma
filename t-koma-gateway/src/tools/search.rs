@@ -10,36 +10,6 @@ use super::{Tool, ToolContext};
 
 pub struct SearchTool;
 
-/// Detailed instructions for using the search tool
-const SEARCH_PROMPT: &str = r#"## Searching Code
-
-You have access to a `search` tool for finding patterns in files.
-
-**Features:**
-- Regex pattern support
-- Respects .gitignore (won't search ignored files)
-- Case-insensitive by default
-- Glob filtering for specific file types
-
-**When to use:**
-- Finding function definitions or usages
-- Searching for specific strings across the codebase
-- Finding where a variable or type is used
-- Locating configuration or documentation
-
-**Best practices:**
-- Use specific patterns to reduce noise
-- Use `glob` to filter by file type (e.g., "*.rs" for Rust files)
-- For case-sensitive searches (e.g., searching for TypeNames), set `case_sensitive: true`
-- Combine with `read_file` to examine found matches in detail
-
-**Example patterns:**
-- `"fn my_function"` - Find function definitions
-- `"struct MyStruct"` - Find struct definitions  
-- `"impl.*Trait"` - Find trait implementations (regex)
-- `"todo!|FIXME"` - Find TODO comments (regex)
-"#;
-
 #[async_trait::async_trait]
 impl Tool for SearchTool {
     fn name(&self) -> &str {
@@ -48,10 +18,6 @@ impl Tool for SearchTool {
 
     fn description(&self) -> &str {
         "Searches for patterns in files using regex. Respects .gitignore by default. Returns matching lines with file paths and line numbers."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(SEARCH_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

@@ -57,15 +57,6 @@ impl Tool for LoadSkillTool {
         })
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "When you identify that a skill is needed for a task, use load_skill \
-             to get the full content. The skill_name parameter should be \
-             the exact name from the available skills list. After loading, follow the \
-             instructions in the skill content to complete the task.",
-        )
-    }
-
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let skill_name = args["skill_name"]
             .as_str()
@@ -195,7 +186,6 @@ This is the skill content."#;
 
         assert_eq!(tool.name(), "load_skill");
         assert!(!tool.description().is_empty());
-        assert!(tool.prompt().is_some());
 
         let schema = tool.input_schema();
         assert!(schema.get("properties").is_some());

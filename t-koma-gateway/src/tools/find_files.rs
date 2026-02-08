@@ -7,35 +7,6 @@ use super::{Tool, ToolContext};
 
 pub struct FindFilesTool;
 
-/// Detailed instructions for using the find_files tool
-const FIND_FILES_PROMPT: &str = r#"## Finding Files
-
-You have access to a `find_files` tool for locating files by name pattern.
-
-**Features:**
-- Glob pattern support (e.g., "*.rs", "**/*.toml")
-- Respects .gitignore (won't return ignored files)
-- Recursive by default
-
-**When to use:**
-- Finding all files of a certain type (e.g., all Rust files)
-- Locating configuration files (e.g., "Cargo.toml", "package.json")
-- Finding test files (e.g., "*_test.rs")
-- Exploring project structure
-
-**Best practices:**
-- Use "*.ext" for all files with a specific extension in the current directory
-- Use "**/*.ext" for all files with a specific extension recursively
-- For exact file names, just use the filename (e.g., "README.md")
-- Combine with `read_file` to examine found files
-
-**Glob pattern examples:**
-- "*.rs" - All Rust files in current directory
-- "**/*.rs" - All Rust files recursively
-- "**/Cargo.toml" - All Cargo.toml files anywhere
-- "src/**/*.rs" - All Rust files under src/
-"#;
-
 #[async_trait::async_trait]
 impl Tool for FindFilesTool {
     fn name(&self) -> &str {
@@ -44,10 +15,6 @@ impl Tool for FindFilesTool {
 
     fn description(&self) -> &str {
         "Finds files matching a glob pattern. Respects .gitignore. Returns a list of file paths."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(FIND_FILES_PROMPT)
     }
 
     fn input_schema(&self) -> Value {
