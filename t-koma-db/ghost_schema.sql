@@ -7,7 +7,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     title TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    is_active INTEGER DEFAULT 1 CHECK (is_active IN (0, 1))
+    is_active INTEGER DEFAULT 1 CHECK (is_active IN (0, 1)),
+    compaction_summary TEXT,
+    compaction_cursor_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_operator_id ON sessions(operator_id);

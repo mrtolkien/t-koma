@@ -205,6 +205,9 @@ pub const UNKNOWN_OPERATOR_STATUS: &str = "unknown-operator-status";
 /// content: prompts/bootstrap.md
 pub const PROMPT_BOOTSTRAP: &str = "bootstrap";
 
+/// content: prompts/compaction-prompt.md
+pub const PROMPT_COMPACTION: &str = "compaction-prompt";
+
 /// content: prompts/coding-guidelines.md
 pub const PROMPT_CODING_GUIDELINES: &str = "coding-guidelines";
 
