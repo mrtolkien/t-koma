@@ -43,6 +43,9 @@ thiserror.workspace = true
 # Time
 chrono.workspace = true
 
+# Embedded content
+include_dir = "0.7"
+
 # Utilities
 futures = "0.3"
 uuid = { version = "1.12", features = ["v4"] }

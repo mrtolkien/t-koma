@@ -1,12 +1,71 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use include_dir::{Dir, DirEntry, include_dir};
 
 use crate::content::message::{MessageEntryRaw, MessageTemplate};
 use crate::content::prompt::{PromptFrontMatter, PromptTemplate};
 use crate::content::template::vars_from_pairs;
 use crate::content::{ContentError, ContentScope};
 use t_koma_core::GatewayMessage;
+
+static MESSAGES_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/messages");
+static PROMPTS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/prompts");
+static KNOWLEDGE_PROMPTS_DIR: Dir =
+    include_dir!("$CARGO_MANIFEST_DIR/../t-koma-knowledge/knowledge/prompts");
+
+/// Read an embedded prompt file by path (for `{{ include }}` resolution).
+///
+/// Simple filenames (e.g. `"tool-guidelines.md"`) are looked up directly in the
+/// gateway prompts directory. Cross-crate paths (e.g.
+/// `"../../t-koma-knowledge/knowledge/prompts/foo.md"`) are normalized relative
+/// to the gateway crate root and dispatched to the appropriate embedded directory.
+pub fn read_embedded_prompt(path: &str) -> Result<String, ContentError> {
+    // Fast path: simple filename lookup in gateway prompts
+    if let Some(file) = PROMPTS_DIR.get_file(path) {
+        return file
+            .contents_utf8()
+            .map(|s| s.to_string())
+            .ok_or_else(|| ContentError::Parse(format!("non-UTF-8 embedded file: {path}")));
+    }
+
+    // Normalize relative path from the prompts/ directory to workspace-relative
+    let normalized = normalize_include_path(path);
+    let knowledge_prefix = "t-koma-knowledge/knowledge/prompts/";
+    if let Some(relative) = normalized.strip_prefix(knowledge_prefix)
+        && let Some(file) = KNOWLEDGE_PROMPTS_DIR.get_file(relative)
+    {
+        return file
+            .contents_utf8()
+            .map(|s| s.to_string())
+            .ok_or_else(|| ContentError::Parse(format!("non-UTF-8 embedded file: {path}")));
+    }
+
+    Err(ContentError::Io(
+        PathBuf::from(path),
+        std::io::Error::new(std::io::ErrorKind::NotFound, "embedded prompt not found"),
+    ))
+}
+
+/// Normalize an include path that is relative to `prompts/` within the gateway crate.
+///
+/// Resolves `..` components so that cross-crate includes like
+/// `../../t-koma-knowledge/knowledge/prompts/foo.md` become
+/// `t-koma-knowledge/knowledge/prompts/foo.md` (workspace-relative).
+fn normalize_include_path(path: &str) -> String {
+    // Start conceptually at t-koma-gateway/prompts/ (2 levels from workspace root)
+    let mut stack: Vec<&str> = vec!["t-koma-gateway", "prompts"];
+    for component in path.split('/') {
+        match component {
+            ".." => {
+                stack.pop();
+            }
+            "." | "" => {}
+            c => stack.push(c),
+        }
+    }
+    stack.join("/")
+}
 
 #[derive(Debug, Default)]
 pub struct ContentRegistry {
@@ -31,12 +90,8 @@ struct PromptVariants {
 impl ContentRegistry {
     pub fn load() -> Result<Self, ContentError> {
         let mut registry = Self::default();
-        let messages_dir = content_dir("messages");
-        let prompts_dir = content_dir("prompts");
-
-        registry.load_messages(&messages_dir)?;
-        registry.load_prompts(&prompts_dir)?;
-
+        registry.load_messages()?;
+        registry.load_prompts()?;
         Ok(registry)
     }
 
@@ -117,57 +172,41 @@ impl ContentRegistry {
             .ok_or_else(|| ContentError::MissingMessage(id.to_string()))
     }
 
-    fn load_messages(&mut self, dir: &Path) -> Result<(), ContentError> {
-        let mut stack = vec![dir.to_path_buf()];
-        while let Some(path) = stack.pop() {
-            let entries = fs::read_dir(&path).map_err(|e| ContentError::Io(path.clone(), e))?;
-            for entry in entries {
-                let entry = entry.map_err(|e| ContentError::Io(path.clone(), e))?;
-                let entry_path = entry.path();
-                if entry_path.is_dir() {
-                    stack.push(entry_path);
-                    continue;
-                }
-                if entry_path.extension().and_then(|s| s.to_str()) != Some("toml") {
-                    continue;
-                }
+    fn load_messages(&mut self) -> Result<(), ContentError> {
+        for file in collect_embedded_files(&MESSAGES_DIR) {
+            let path = file.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("toml") {
+                continue;
+            }
 
-                let raw_text = fs::read_to_string(&entry_path)
-                    .map_err(|e| ContentError::Io(entry_path.clone(), e))?;
-                let doc: toml::Value = toml::from_str(&raw_text)
-                    .map_err(|e| ContentError::Parse(format!("{}: {}", entry_path.display(), e)))?;
-                let table = doc.as_table().ok_or_else(|| {
-                    ContentError::Parse(format!("{}: expected table", entry_path.display()))
+            let raw_text = file.contents_utf8().ok_or_else(|| {
+                ContentError::Parse(format!("non-UTF-8 message file: {}", path.display()))
+            })?;
+            let doc: toml::Value = toml::from_str(raw_text)
+                .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
+            let table = doc.as_table().ok_or_else(|| {
+                ContentError::Parse(format!("{}: expected table", path.display()))
+            })?;
+
+            for (id, value) in table {
+                let entry_table = value.as_table().ok_or_else(|| {
+                    ContentError::Parse(format!("{}: {} must be table", path.display(), id))
                 })?;
+                let entry_raw: MessageEntryRaw = toml::Value::Table(entry_table.clone())
+                    .try_into()
+                    .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
 
-                for (id, value) in table {
-                    let entry_table = value.as_table().ok_or_else(|| {
-                        ContentError::Parse(format!(
-                            "{}: {} must be table",
-                            entry_path.display(),
-                            id
-                        ))
-                    })?;
-                    let entry_raw: MessageEntryRaw = toml::Value::Table(entry_table.clone())
-                        .try_into()
-                        .map_err(|e| {
-                            ContentError::Parse(format!("{}: {}", entry_path.display(), e))
-                        })?;
-
-                    let template = MessageTemplate::from_entry(id.clone(), entry_raw)?;
-                    let variants = self.messages.entry(template.id.clone()).or_default();
-                    insert_message_variant(variants, template)?;
-                }
+                let template = MessageTemplate::from_entry(id.clone(), entry_raw)?;
+                let variants = self.messages.entry(template.id.clone()).or_default();
+                insert_message_variant(variants, template)?;
             }
         }
         Ok(())
     }
 
-    fn load_prompts(&mut self, dir: &Path) -> Result<(), ContentError> {
-        let entries = fs::read_dir(dir).map_err(|e| ContentError::Io(dir.to_path_buf(), e))?;
-        for entry in entries {
-            let entry = entry.map_err(|e| ContentError::Io(dir.to_path_buf(), e))?;
-            let path = entry.path();
+    fn load_prompts(&mut self) -> Result<(), ContentError> {
+        for file in PROMPTS_DIR.files() {
+            let path = file.path();
             if path.extension().and_then(|s| s.to_str()) != Some("md") {
                 continue;
             }
@@ -176,13 +215,14 @@ impl ContentRegistry {
             })?;
             let (id_from_name, suffix) = parse_filename(stem)?;
 
-            let raw_text =
-                fs::read_to_string(&path).map_err(|e| ContentError::Io(path.clone(), e))?;
-            let (front_matter, body) = split_front_matter(&raw_text)
+            let raw_text = file.contents_utf8().ok_or_else(|| {
+                ContentError::Parse(format!("non-UTF-8 prompt file: {}", path.display()))
+            })?;
+            let (front_matter, body) = split_front_matter(raw_text)
                 .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
             let front: PromptFrontMatter = toml::from_str(&front_matter)
                 .map_err(|e| ContentError::Parse(format!("{}: {}", path.display(), e)))?;
-            let template = PromptTemplate::from_parts(front, body, path.clone())?;
+            let template = PromptTemplate::from_parts(front, body)?;
 
             validate_template_identity(
                 &template.id,
@@ -198,8 +238,15 @@ impl ContentRegistry {
     }
 }
 
-fn content_dir(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(name)
+fn collect_embedded_files<'a>(dir: &'a Dir<'a>) -> Vec<&'a include_dir::File<'a>> {
+    let mut files = Vec::new();
+    for entry in dir.entries() {
+        match entry {
+            DirEntry::Dir(d) => files.extend(collect_embedded_files(d)),
+            DirEntry::File(f) => files.push(f),
+        }
+    }
+    files
 }
 
 fn parse_filename(stem: &str) -> Result<(String, Option<String>), ContentError> {

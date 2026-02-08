@@ -28,7 +28,8 @@
       "WebFetch(domain:blog.gopenai.com)",
       "WebFetch(domain:blog.jetbrains.com)",
       "WebFetch(domain:mem0.ai)",
-      "WebFetch(domain:stevekinney.com)"
+      "WebFetch(domain:stevekinney.com)",
+      "WebFetch(domain:docs.rs)"
     ]
   },
   "enableAllProjectMcpServers": true,
