@@ -141,7 +141,6 @@ async fn test_comprehensive_coding_workflow() {
     let system_prompt = SystemPrompt::new(&[
         ("ghost_identity", ""),
         ("ghost_diary", ""),
-        ("ghost_projects", ""),
         ("ghost_skills", ""),
         ("system_info", ""),
     ]);
