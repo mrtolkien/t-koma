@@ -18,9 +18,18 @@ pub(crate) async fn search_store(
     query: &NoteQuery,
     scope: KnowledgeScope,
     ghost_name: &str,
+    archetype: Option<&str>,
 ) -> KnowledgeResult<Vec<NoteResult>> {
     let options = merge_options(settings, &query.options);
-    let bm25_hits = bm25_search(pool, &query.query, options.bm25_limit, scope, ghost_name).await?;
+    let bm25_hits = bm25_search(
+        pool,
+        &query.query,
+        options.bm25_limit,
+        scope,
+        ghost_name,
+        archetype,
+    )
+    .await?;
     let dense_hits = dense_search(
         embedder,
         pool,
@@ -29,6 +38,7 @@ pub(crate) async fn search_store(
         None,
         scope,
         ghost_name,
+        archetype,
     )
     .await?;
 
@@ -96,7 +106,15 @@ pub(crate) async fn search_diary(
 ) -> KnowledgeResult<Vec<DiarySearchResult>> {
     let scope = KnowledgeScope::GhostDiary;
     let options = merge_options(settings, &query.options);
-    let bm25_hits = bm25_search(pool, &query.query, options.bm25_limit, scope, ghost_name).await?;
+    let bm25_hits = bm25_search(
+        pool,
+        &query.query,
+        options.bm25_limit,
+        scope,
+        ghost_name,
+        None,
+    )
+    .await?;
     let dense_hits = dense_search(
         embedder,
         pool,
@@ -105,6 +123,7 @@ pub(crate) async fn search_diary(
         None,
         scope,
         ghost_name,
+        None,
     )
     .await?;
 
@@ -150,43 +169,50 @@ pub(crate) async fn bm25_search(
     limit: usize,
     scope: KnowledgeScope,
     ghost_name: &str,
+    archetype: Option<&str>,
 ) -> KnowledgeResult<Vec<(i64, f32)>> {
     let safe_query = sanitize_fts5_query(query);
     let scope_value = scope.as_str();
-    let rows = if scope.is_shared() {
-        sqlx::query_as::<_, (i64, f32)>(
-            r#"SELECT chunk_id, bm25(chunk_fts) as score
-               FROM chunk_fts
-               JOIN notes ON notes.id = chunk_fts.note_id
-               WHERE chunk_fts MATCH ? AND notes.scope = ? AND notes.owner_ghost IS NULL
-               ORDER BY score ASC
-               LIMIT ?"#,
-        )
-        .bind(&safe_query)
-        .bind(scope_value)
-        .bind(limit as i64)
-        .fetch_all(pool)
-        .await?
+    let archetype_clause = if archetype.is_some() {
+        " AND notes.archetype = ?"
     } else {
-        sqlx::query_as::<_, (i64, f32)>(
-            r#"SELECT chunk_id, bm25(chunk_fts) as score
-               FROM chunk_fts
-               JOIN notes ON notes.id = chunk_fts.note_id
-               WHERE chunk_fts MATCH ? AND notes.scope = ? AND notes.owner_ghost = ?
-               ORDER BY score ASC
-               LIMIT ?"#,
-        )
-        .bind(&safe_query)
-        .bind(scope_value)
-        .bind(ghost_name)
-        .bind(limit as i64)
-        .fetch_all(pool)
-        .await?
+        ""
     };
 
-    Ok(rows)
+    let sql = if scope.is_shared() {
+        format!(
+            "SELECT chunk_id, bm25(chunk_fts) as score \
+             FROM chunk_fts \
+             JOIN notes ON notes.id = chunk_fts.note_id \
+             WHERE chunk_fts MATCH ? AND notes.scope = ? AND notes.owner_ghost IS NULL{} \
+             ORDER BY score ASC LIMIT ?",
+            archetype_clause
+        )
+    } else {
+        format!(
+            "SELECT chunk_id, bm25(chunk_fts) as score \
+             FROM chunk_fts \
+             JOIN notes ON notes.id = chunk_fts.note_id \
+             WHERE chunk_fts MATCH ? AND notes.scope = ? AND notes.owner_ghost = ?{} \
+             ORDER BY score ASC LIMIT ?",
+            archetype_clause
+        )
+    };
+
+    let mut qb = sqlx::query_as::<_, (i64, f32)>(&sql);
+    qb = qb.bind(&safe_query).bind(scope_value);
+    if !scope.is_shared() {
+        qb = qb.bind(ghost_name);
+    }
+    if let Some(arch) = archetype {
+        qb = qb.bind(arch);
+    }
+    qb = qb.bind(limit as i64);
+
+    Ok(qb.fetch_all(pool).await?)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dense_search(
     embedder: &EmbeddingClient,
     pool: &SqlitePool,
@@ -195,6 +221,7 @@ pub(crate) async fn dense_search(
     note_filter: Option<&[String]>,
     scope: KnowledgeScope,
     ghost_name: &str,
+    archetype: Option<&str>,
 ) -> KnowledgeResult<Vec<(i64, f32)>> {
     let embeddings = embedder.embed_batch(&[query.to_string()]).await?;
     if embeddings.is_empty() {
@@ -207,6 +234,12 @@ pub(crate) async fn dense_search(
     // through JOINs. We overfetch in the CTE, then filter+limit in the outer query.
     let knn_k = limit * 4; // overfetch to allow for scope/owner filtering
 
+    let archetype_clause = if archetype.is_some() {
+        " AND n.archetype = ?"
+    } else {
+        ""
+    };
+
     let rows = if let Some(note_ids) = note_filter {
         let placeholders = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
         let sql = if scope.is_shared() {
@@ -215,9 +248,9 @@ pub(crate) async fn dense_search(
                  SELECT c.id, knn.distance FROM knn \
                  JOIN chunks c ON c.id = knn.rowid \
                  JOIN notes n ON n.id = c.note_id \
-                 WHERE n.id IN ({}) AND n.scope = ? AND n.owner_ghost IS NULL \
+                 WHERE n.id IN ({}) AND n.scope = ? AND n.owner_ghost IS NULL{} \
                  ORDER BY knn.distance ASC LIMIT ?",
-                placeholders
+                placeholders, archetype_clause
             )
         } else {
             format!(
@@ -225,9 +258,9 @@ pub(crate) async fn dense_search(
                  SELECT c.id, knn.distance FROM knn \
                  JOIN chunks c ON c.id = knn.rowid \
                  JOIN notes n ON n.id = c.note_id \
-                 WHERE n.id IN ({}) AND n.scope = ? AND n.owner_ghost = ? \
+                 WHERE n.id IN ({}) AND n.scope = ? AND n.owner_ghost = ?{} \
                  ORDER BY knn.distance ASC LIMIT ?",
-                placeholders
+                placeholders, archetype_clause
             )
         };
         let mut query_builder = sqlx::query_as::<_, (i64, f32)>(&sql);
@@ -239,43 +272,43 @@ pub(crate) async fn dense_search(
         if !scope.is_shared() {
             query_builder = query_builder.bind(ghost_name);
         }
+        if let Some(arch) = archetype {
+            query_builder = query_builder.bind(arch);
+        }
         query_builder = query_builder.bind(limit as i64);
         query_builder.fetch_all(pool).await?
-    } else if scope.is_shared() {
-        sqlx::query_as::<_, (i64, f32)>(
-            r#"WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?)
-               SELECT c.id, knn.distance
-               FROM knn
-               JOIN chunks c ON c.id = knn.rowid
-               JOIN notes n ON n.id = c.note_id
-               WHERE n.scope = ? AND n.owner_ghost IS NULL
-               ORDER BY knn.distance ASC
-               LIMIT ?"#,
-        )
-        .bind(&payload)
-        .bind(knn_k as i64)
-        .bind(scope.as_str())
-        .bind(limit as i64)
-        .fetch_all(pool)
-        .await?
     } else {
-        sqlx::query_as::<_, (i64, f32)>(
-            r#"WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?)
-               SELECT c.id, knn.distance
-               FROM knn
-               JOIN chunks c ON c.id = knn.rowid
-               JOIN notes n ON n.id = c.note_id
-               WHERE n.scope = ? AND n.owner_ghost = ?
-               ORDER BY knn.distance ASC
-               LIMIT ?"#,
-        )
-        .bind(&payload)
-        .bind(knn_k as i64)
-        .bind(scope.as_str())
-        .bind(ghost_name)
-        .bind(limit as i64)
-        .fetch_all(pool)
-        .await?
+        let sql = if scope.is_shared() {
+            format!(
+                "WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?) \
+                 SELECT c.id, knn.distance FROM knn \
+                 JOIN chunks c ON c.id = knn.rowid \
+                 JOIN notes n ON n.id = c.note_id \
+                 WHERE n.scope = ? AND n.owner_ghost IS NULL{} \
+                 ORDER BY knn.distance ASC LIMIT ?",
+                archetype_clause
+            )
+        } else {
+            format!(
+                "WITH knn AS (SELECT rowid, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?) \
+                 SELECT c.id, knn.distance FROM knn \
+                 JOIN chunks c ON c.id = knn.rowid \
+                 JOIN notes n ON n.id = c.note_id \
+                 WHERE n.scope = ? AND n.owner_ghost = ?{} \
+                 ORDER BY knn.distance ASC LIMIT ?",
+                archetype_clause
+            )
+        };
+        let mut qb = sqlx::query_as::<_, (i64, f32)>(&sql);
+        qb = qb.bind(&payload).bind(knn_k as i64).bind(scope.as_str());
+        if !scope.is_shared() {
+            qb = qb.bind(ghost_name);
+        }
+        if let Some(arch) = archetype {
+            qb = qb.bind(arch);
+        }
+        qb = qb.bind(limit as i64);
+        qb.fetch_all(pool).await?
     };
 
     Ok(rows)

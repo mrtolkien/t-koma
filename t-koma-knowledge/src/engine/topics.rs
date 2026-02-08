@@ -240,6 +240,7 @@ pub(crate) async fn topic_search(
         Some(&topic_ids),
         KnowledgeScope::SharedReference,
         "",
+        None,
     )
     .await?;
 

@@ -9,6 +9,7 @@ struct KnowledgeSearchInput {
     categories: Option<Vec<String>>,
     scope: Option<String>,
     topic: Option<String>,
+    archetype: Option<String>,
 }
 
 pub struct KnowledgeSearchTool;
@@ -75,6 +76,10 @@ impl Tool for KnowledgeSearchTool {
                 "topic": {
                     "type": "string",
                     "description": "Narrow reference search to a specific topic name."
+                },
+                "archetype": {
+                    "type": "string",
+                    "description": "Filter notes by archetype (e.g. person, concept, decision, event, project)."
                 }
             },
             "required": ["query"],
@@ -95,7 +100,7 @@ impl Tool for KnowledgeSearchTool {
             categories: Self::parse_categories(input.categories),
             scope: Self::parse_scope(input.scope),
             topic: input.topic,
-            archetype: None,
+            archetype: input.archetype,
             options: Default::default(),
         };
 
