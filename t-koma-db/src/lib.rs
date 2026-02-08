@@ -10,6 +10,7 @@ pub mod error;
 pub mod ghost_db;
 pub mod ghosts;
 pub mod interfaces;
+pub mod job_logs;
 pub mod koma_db;
 pub mod operators;
 pub mod sessions;
@@ -25,6 +26,7 @@ pub use operators::{
     DEFAULT_RATE_LIMIT_1H_MAX, DEFAULT_RATE_LIMIT_5M_MAX, Operator, OperatorAccessLevel,
     OperatorRepository, OperatorStatus, Platform,
 };
+pub use job_logs::{JobKind, JobLog, JobLogRepository, TranscriptEntry};
 pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, SessionRepository};
 
 // Re-export test helpers when running tests or when test-helpers feature is enabled
