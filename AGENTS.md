@@ -31,7 +31,8 @@ important information in vibe/knowledge.
   suppresses output and reschedules in ~30 minutes.
 - REFLECTION: Background job triggered after heartbeat. Processes unread inbox
   captures into structured knowledge (notes, diary, identity files) using the
-  `knowledge-writer` skill. 30-minute cooldown between runs.
+  `reflection-prompt.md` template (which includes `note-guidelines.md`).
+  30-minute cooldown between runs.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -348,10 +349,11 @@ deletion is available via `note_write` action `delete`.
 
 After each heartbeat tick completes, the reflection runner
 (`t-koma-gateway/src/reflection.rs`) checks whether the ghost has unprocessed
-inbox files. If so, and the last reflection was > 30 minutes ago, it builds a
-prompt with the `knowledge-writer` skill instructions and all inbox items, then
-sends it through the normal chat pipeline. The ghost curates inbox captures into
-structured notes, diary entries, or identity file updates.
+inbox files. If so, and the last reflection was > 30 minutes ago, it renders
+`prompts/reflection-prompt.md` (which includes `note-guidelines.md` via
+`{{ include }}`) with the inbox items, then sends it through the normal chat
+pipeline. The ghost curates inbox captures into structured notes, diary entries,
+or identity file updates.
 
 Reflection uses `JobKind::Reflection` in the scheduler with a 30-minute
 cooldown.
@@ -368,16 +370,16 @@ Available skills are listed in the system prompt under "Available Skills".
 Ghosts can create their own skills by adding `SKILL.md` files with YAML
 frontmatter (`name`, `description`) to their workspace `skills/` directory.
 
-Default skills: `note-writer`, `knowledge-writer`, `reference-researcher`,
-`knowledge-organizer`.
+Default skills: `note-writer`, `reference-researcher`, `skill-creator`.
 
 ### Topic Discovery
 
 - Use `knowledge_search` with `categories: ["topics"]` to find reference topics.
 - The `reference-researcher` default skill teaches ghosts how to research and
   create reference topics effectively.
-- The `knowledge-organizer` skill explains the physical file layout and indexing
-  pipeline for agents that need lower-level understanding.
+- The `note-writer` skill's `references/system-internals.md` explains the
+  physical file layout and indexing pipeline for agents that need lower-level
+  understanding.
 
 ### Three-Tier Reference Hierarchy
 
@@ -418,6 +420,9 @@ On approval, Phase 2 re-executes with `has_approval()` returning true. See
   `body` and optional `vars`/`title`/`kind`/`actions`. Use `{{var}}`.
 - Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
   and a `# loaded:` comment to know where they are used.
+- **Tool usage guidance** lives in `prompts/tool-guidelines.md`, included in the
+  system prompt via `{{ include "tool-guidelines.md" }}`. Prompt text must never
+  be inline Rust strings — always use `.md` files in the content system.
 - `ghost-context.md` uses Jinja template variables (`{{ ghost_identity }}`,
   `{{ ghost_diary }}`, etc.) rendered per-session with ghost-specific data.
   Template vars must be declared in front matter `vars = [...]`.
