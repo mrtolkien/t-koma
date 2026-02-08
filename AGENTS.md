@@ -32,13 +32,17 @@ workspace I open you in.
   DB).
 - SESSION: A chat thread between an operator and a ghost (stored in ghost DB).
 - HEARTBEAT: Background session check triggered after 15 minutes of inactivity
-  when the last message is not `HEARTBEAT_OK`. Uses `HEARTBEAT.md` in the ghost
-  workspace as instructions (auto-created on first use). `HEARTBEAT_CONTINUE`
-  suppresses output and reschedules in ~30 minutes.
+  when no successful heartbeat has run since the last session activity (checked
+  via `job_logs` table). Uses `HEARTBEAT.md` in the ghost workspace as
+  instructions (auto-created on first use). `HEARTBEAT_CONTINUE` suppresses
+  output and reschedules in ~30 minutes. Heartbeat transcripts are stored in
+  `job_logs`, not in session messages. Only meaningful content (status "ran")
+  posts a summary to the session.
 - REFLECTION: Background job triggered after heartbeat. Processes unread inbox
   captures into structured knowledge (notes, diary, identity files) using the
   `reflection-prompt.md` template (which includes `note-guidelines.md`).
-  30-minute cooldown between runs.
+  30-minute cooldown between runs. Reflection transcripts are stored in
+  `job_logs` and do NOT appear in session messages.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -102,7 +106,7 @@ Make extensive use of MCPs available to you:
 ### Project Layout (Short)
 
 - `t-koma-core`: Shared types, config, WebSocket message schema.
-- `t-koma-db`: SQLite layer for operators/ghosts/interfaces/sessions.
+- `t-koma-db`: SQLite layer for operators/ghosts/interfaces/sessions/job_logs.
 - `t-koma-knowledge`: Knowledge and memory indexing/search crate (tools-only
   gateway surface).
 - `t-koma-gateway`: T-KOMA server, providers, chat/session orchestration, tools,
@@ -121,8 +125,22 @@ Key types:
 
 - `KomaDbPool`, `GhostDbPool`
 - `OperatorRepository`, `GhostRepository`, `InterfaceRepository`,
-  `SessionRepository`
+  `SessionRepository`, `JobLogRepository`
 - `OperatorStatus`, `Platform`, `ContentBlock`
+- `JobLog`, `JobKind`, `TranscriptEntry`
+
+### Job Logs
+
+Background jobs (heartbeat, reflection) use `SessionChat::chat_job()` instead of
+`chat()`. This keeps their full transcript (prompt, tool calls, tool results,
+final response) out of the session `messages` table. Instead, each run is stored
+as a single row in the `job_logs` table (ghost DB) with the transcript as JSON.
+
+- `JobLog::start(kind, session_id)` creates an in-progress log.
+- `JobLog::finish(status)` sets `finished_at` and status.
+- `JobLogRepository::insert()` persists the completed log.
+- `JobLogRepository::latest_ok_since()` checks for recent successful runs
+  (used by heartbeat skip logic).
 
 Path override knobs for testing:
 
