@@ -1,16 +1,20 @@
 ---
 name: note-writer
-description: Create and manage structured knowledge notes. Use when you need to persist important information, create concept notes, record decisions, or maintain a knowledge base.
+description: Create and manage structured knowledge notes, diary entries, and identity files. Use when you need to persist important information, curate inbox captures, or maintain a knowledge base.
 license: MIT
 metadata:
   author: t-koma
-  version: "1.0"
+  version: "2.0"
 ---
 
 # Note Writer Skill
 
-You are now in note-writing mode. This skill gives you access to tools for
-creating, updating, validating, and commenting on structured knowledge notes.
+You are now in note-writing mode. This skill covers creating, updating,
+validating, and commenting on structured knowledge notes, as well as diary
+conventions and identity file management.
+
+For details on the physical file layout, formats, and indexing pipeline, see
+`references/system-internals.md` (load with `load_skill`).
 
 ## When to Create Notes
 
@@ -23,7 +27,7 @@ Create notes when:
 Do NOT create notes for:
 - Ephemeral chat context (use `memory_capture` instead for quick inbox items)
 - Reference material from external sources (use the reference-researcher skill)
-- Diary entries (those are automatic)
+- Diary entries (use diary conventions below)
 
 ## Note Structure
 
@@ -127,3 +131,27 @@ links).
 
 Start with ghost scope. Promote to shared when the note is validated and
 broadly useful.
+
+## Diary Conventions
+
+Diary entries are date-based (`YYYY-MM-DD.md`), plain markdown with no front
+matter. They are append-only.
+
+- Use bullet points for events, decisions, and observations.
+- Keep entries brief — details belong in notes, diary is the timeline.
+- The system generates a deterministic ID (`diary:{ghost}:{date}`) so
+  re-indexing produces upserts, not duplicates.
+
+## Identity Files
+
+Ghosts maintain three identity files in the workspace root:
+
+- **BOOT.md**: Core personality, values, and behavioral constraints. Rarely
+  changes. Only modify when explicitly directed by the operator.
+- **SOUL.md**: Evolving self-model, communication style, and preferences.
+  Update during reflection when significant self-awareness insights emerge.
+- **USER.md**: Accumulated knowledge about the operator (preferences, context,
+  communication style). Update when new operator information is captured.
+
+These files are loaded into the system prompt context, so keep them concise and
+well-structured. Edit them with the shell tool or `file_edit`.

@@ -97,11 +97,8 @@ enabling graph-depth traversal during search.
 For advanced knowledge operations, load the dedicated skills with `load_skill`:
 
 - **`note-writer`**: Create structured notes with `note_write`, manage tags,
-  trust scores, and wiki links.
-- **`knowledge-writer`**: Curate inbox captures into structured knowledge during
-  reflection. Covers Zettelkasten/PARA principles, diary conventions, and
-  identity file editing.
+  trust scores, wiki links, diary conventions, and identity files. Includes a
+  `references/system-internals.md` supplement covering physical file layout,
+  formats, and the indexing pipeline.
 - **`reference-researcher`**: Advanced research strategies, import patterns,
   crawl strategies, and staleness management for reference topics.
-- **`knowledge-organizer`**: Understand the physical file layout, formats, and
-  indexing pipeline in detail.
