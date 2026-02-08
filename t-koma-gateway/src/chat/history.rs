@@ -3,7 +3,7 @@
 use chrono::{SecondsFormat, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use t_koma_db::{ContentBlock, Message, MessageRole};
+use t_koma_db::{ContentBlock, Message, MessageRole, TranscriptEntry};
 
 use crate::prompt::CacheControl;
 
@@ -139,6 +139,31 @@ fn convert_content_block(
     }
 }
 
+/// Convert a DB content block to a chat content block (no timestamp).
+pub(crate) fn convert_db_block(block: &ContentBlock) -> ChatContentBlock {
+    let mut stamped = false;
+    convert_content_block(block, None, &mut stamped)
+}
+
+/// Build chat messages from job transcript entries.
+///
+/// Unlike `build_history_messages`, this does NOT add timestamps to user
+/// messages (job prompts are internal) and does NOT add cache_control
+/// on the last assistant block.
+pub fn build_transcript_messages(entries: &[TranscriptEntry]) -> Vec<ChatMessage> {
+    entries
+        .iter()
+        .map(|entry| {
+            let role = match entry.role {
+                MessageRole::Operator => ChatRole::User,
+                MessageRole::Ghost => ChatRole::Assistant,
+            };
+            let content = entry.content.iter().map(convert_db_block).collect();
+            ChatMessage { role, content }
+        })
+        .collect()
+}
+
 /// Build a user tool-result message.
 pub fn build_tool_result_message(results: Vec<ToolResultData>) -> ChatMessage {
     let content = results
@@ -203,6 +228,70 @@ mod tests {
 
         let history = build_history_messages(&messages, Some(2));
         assert_eq!(history.len(), 2);
+    }
+
+    #[test]
+    fn test_build_transcript_messages_no_timestamp_no_cache() {
+        let entries = vec![
+            TranscriptEntry {
+                role: MessageRole::Operator,
+                content: vec![ContentBlock::Text {
+                    text: "prompt".to_string(),
+                }],
+                model: None,
+            },
+            TranscriptEntry {
+                role: MessageRole::Ghost,
+                content: vec![
+                    ContentBlock::Text {
+                        text: "thinking".to_string(),
+                    },
+                    ContentBlock::ToolUse {
+                        id: "tu_1".to_string(),
+                        name: "search".to_string(),
+                        input: serde_json::json!({}),
+                    },
+                ],
+                model: Some("m".to_string()),
+            },
+            TranscriptEntry {
+                role: MessageRole::Operator,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "tu_1".to_string(),
+                    content: "result".to_string(),
+                    is_error: None,
+                }],
+                model: None,
+            },
+            TranscriptEntry {
+                role: MessageRole::Ghost,
+                content: vec![ContentBlock::Text {
+                    text: "done".to_string(),
+                }],
+                model: Some("m".to_string()),
+            },
+        ];
+
+        let messages = build_transcript_messages(&entries);
+        assert_eq!(messages.len(), 4);
+
+        // User messages should NOT have timestamps (unlike build_history_messages)
+        let ChatContentBlock::Text { ref text, .. } = messages[0].content[0] else {
+            panic!("expected text");
+        };
+        assert_eq!(text, "prompt");
+        assert!(!text.starts_with('['));
+
+        // Last assistant message should NOT have cache_control
+        let last = messages.last().unwrap();
+        assert_eq!(last.role, ChatRole::Assistant);
+        assert!(last.content.iter().all(|b| matches!(
+            b,
+            ChatContentBlock::Text {
+                cache_control: None,
+                ..
+            }
+        )));
     }
 
     #[test]
