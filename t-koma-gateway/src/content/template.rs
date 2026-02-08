@@ -1,10 +1,11 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
 
 use super::ContentError;
 
 pub type TemplateVars = HashMap<String, String>;
+
+/// A function that resolves an include path to its file content.
+pub type IncludeReader = dyn Fn(&str) -> Result<String, ContentError>;
 
 pub fn vars_from_pairs(pairs: &[(&str, &str)]) -> TemplateVars {
     let mut vars = HashMap::with_capacity(pairs.len());
@@ -21,16 +22,15 @@ pub fn render_template(template: &str, vars: &TemplateVars) -> Result<String, Co
 pub fn render_template_with_includes(
     template: &str,
     vars: &TemplateVars,
-    source_path: &Path,
+    read_include: &IncludeReader,
 ) -> Result<String, ContentError> {
-    let base_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
-    render_template_inner(template, vars, Some(base_dir), 0)
+    render_template_inner(template, vars, Some(read_include), 0)
 }
 
 fn render_template_inner(
     template: &str,
     vars: &TemplateVars,
-    base_dir: Option<&Path>,
+    read_include: Option<&IncludeReader>,
     depth: usize,
 ) -> Result<String, ContentError> {
     if depth > 8 {
@@ -57,14 +57,12 @@ fn render_template_inner(
             ));
         }
         if let Some(path) = parse_include(var) {
-            let base = base_dir.ok_or_else(|| {
+            let reader = read_include.ok_or_else(|| {
                 ContentError::TemplateParse("Include is not allowed here".to_string())
             })?;
-            let resolved = resolve_include_path(base, &path);
-            let raw =
-                fs::read_to_string(&resolved).map_err(|e| ContentError::Io(resolved.clone(), e))?;
+            let raw = reader(&path)?;
             let body = strip_front_matter(&raw);
-            let rendered = render_template_inner(&body, vars, resolved.parent(), depth + 1)?;
+            let rendered = render_template_inner(&body, vars, read_include, depth + 1)?;
             out.push_str(&rendered);
         } else {
             let value = vars
@@ -93,15 +91,6 @@ fn parse_include(value: &str) -> Option<String> {
         return Some(rest[1..rest.len() - 1].to_string());
     }
     None
-}
-
-fn resolve_include_path(base: &Path, include: &str) -> PathBuf {
-    let path = PathBuf::from(include);
-    if path.is_absolute() {
-        path
-    } else {
-        base.join(path)
-    }
 }
 
 /// Strip TOML (`+++`) or YAML (`---`) front matter from included content.
