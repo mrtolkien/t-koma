@@ -4,6 +4,7 @@ use chrono::NaiveDate;
 use tracing::{info, warn};
 
 use crate::chat::history::{ChatMessage, build_history_messages, build_transcript_messages};
+use crate::chat::prompt_cache::{PromptCacheManager, hash_context};
 use crate::prompt::SystemPrompt;
 use crate::prompt::render::{SystemBlock, build_system_prompt};
 use crate::providers::provider::{
@@ -95,6 +96,7 @@ impl GhostContextVars {
 pub struct SessionChat {
     pub(crate) tool_manager: ToolManager,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
+    prompt_cache: PromptCacheManager,
     system_info: String,
     skill_paths: Vec<std::path::PathBuf>,
 }
@@ -363,6 +365,7 @@ impl SessionChat {
         Self {
             tool_manager: ToolManager::new(skill_paths.clone()),
             knowledge_engine,
+            prompt_cache: PromptCacheManager::new(),
             system_info: system_info::build_system_info(),
             skill_paths,
         }
@@ -429,12 +432,10 @@ impl SessionChat {
         // Fetch conversation history
         let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
 
-        // Build system prompt with ghost context
-        let ghost_vars = self
-            .build_ghost_context_vars(ghost_db.workspace_path())
+        // Build system prompt with ghost context (cached for 5 min)
+        let system_blocks = self
+            .build_cached_system_blocks(ghost_db, session_id)
             .await?;
-        let system_prompt = SystemPrompt::new(&ghost_vars.as_pairs());
-        let system_blocks = build_system_prompt(&system_prompt);
 
         // Build API messages from history
         let api_messages = build_history_messages(&history, Some(50));
@@ -495,12 +496,10 @@ impl SessionChat {
             "[session:{}] Job chat (detached) for operator {}", session_id, operator_id
         );
 
-        // Build system prompt
-        let ghost_vars = self
-            .build_ghost_context_vars(ghost_db.workspace_path())
+        // Build system prompt (cached for 5 min)
+        let system_blocks = self
+            .build_cached_system_blocks(ghost_db, session_id)
             .await?;
-        let system_prompt = SystemPrompt::new(&ghost_vars.as_pairs());
-        let system_blocks = build_system_prompt(&system_prompt);
 
         // Optionally load session history (read-only context for LLM)
         let session_history = if load_session_history {
@@ -982,11 +981,9 @@ impl SessionChat {
     ) -> Result<String, ChatError> {
         let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
 
-        let ghost_vars = self
-            .build_ghost_context_vars(ghost_db.workspace_path())
+        let system_blocks = self
+            .build_cached_system_blocks(ghost_db, session_id)
             .await?;
-        let system_prompt = SystemPrompt::new(&ghost_vars.as_pairs());
-        let system_blocks = build_system_prompt(&system_prompt);
         let api_messages = build_history_messages(&history, Some(50));
 
         self.send_with_tool_loop(
@@ -1069,11 +1066,38 @@ impl SessionChat {
         Ok(())
     }
 
+    /// Build system prompt blocks with caching.
+    ///
+    /// Returns cached blocks if the ghost context hasn't changed within the
+    /// 5-minute TTL, otherwise rebuilds and caches fresh blocks.
+    async fn build_cached_system_blocks(
+        &self,
+        ghost_db: &GhostDbPool,
+        session_id: &str,
+    ) -> Result<Vec<SystemBlock>, ChatError> {
+        // Build context vars to compute hash
+        let ghost_vars = self
+            .build_ghost_context_vars(ghost_db.workspace_path())
+            .await?;
+        let pairs = ghost_vars.as_pairs();
+        let ctx_hash = hash_context(&pairs);
+
+        // Use cache: only rebuilds if hash changed or TTL expired
+        let blocks = self
+            .prompt_cache
+            .get_or_build(session_id, ghost_db, &ctx_hash, || {
+                let system_prompt = SystemPrompt::new(&pairs);
+                async move { build_system_prompt(&system_prompt) }
+            })
+            .await;
+
+        Ok(blocks)
+    }
+
     /// Build template variables for ghost-context.md rendering
     ///
-    /// Collects reference topics, identity files, diary entries, and project
-    /// summaries from the ghost workspace into string values for template
-    /// substitution.
+    /// Collects identity files, diary entries, and skill listings from the
+    /// ghost workspace into string values for template substitution.
     async fn build_ghost_context_vars(
         &self,
         workspace_root: &std::path::Path,
