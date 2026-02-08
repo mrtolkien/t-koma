@@ -83,15 +83,6 @@ impl Tool for WebSearchTool {
         Self::schema()
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use web_search to look up current information on the web.\n\
-- Only send concise queries.\n\
-- Results are cached briefly and rate-limited (1 request/second).\n\
-- Do not include secrets or private data in queries.",
-        )
-    }
-
     async fn execute(&self, args: Value, _context: &mut ToolContext) -> Result<String, String> {
         let input: WebSearchInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 

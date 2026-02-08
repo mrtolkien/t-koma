@@ -48,20 +48,17 @@ async fn test_file_create_edit_delete_workflow() {
     // Create temp file path
     let temp_file = format!("/tmp/t_koma_test_{}.txt", uuid::Uuid::new_v4());
 
-    // Set up system prompt with tools
+    // Set up system prompt and tools
     let shell_tool = ShellTool;
     let file_edit_tool = FileEditTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
-    let system_prompt = SystemPrompt::with_tools(
-        &tools,
-        &[
-            ("ghost_identity", ""),
-            ("ghost_diary", ""),
-            ("ghost_projects", ""),
-            ("ghost_skills", ""),
-            ("system_info", ""),
-        ],
-    );
+    let system_prompt = SystemPrompt::new(&[
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+        ("ghost_skills", ""),
+        ("system_info", ""),
+    ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();
 
@@ -267,20 +264,17 @@ async fn test_replace_tool_exact_match_requirement() {
 
     println!("Created test file at: {}", temp_file);
 
-    // Set up system prompt with tools
+    // Set up system prompt and tools
     let shell_tool = ShellTool;
     let file_edit_tool = FileEditTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool, &file_edit_tool];
-    let system_prompt = SystemPrompt::with_tools(
-        &tools,
-        &[
-            ("ghost_identity", ""),
-            ("ghost_diary", ""),
-            ("ghost_projects", ""),
-            ("ghost_skills", ""),
-            ("system_info", ""),
-        ],
-    );
+    let system_prompt = SystemPrompt::new(&[
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+        ("ghost_skills", ""),
+        ("system_info", ""),
+    ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let model = state.default_model().model.as_str();
 

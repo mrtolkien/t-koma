@@ -82,19 +82,6 @@ impl Tool for KnowledgeSearchTool {
         })
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use knowledge_search as your primary search tool across all knowledge.\n\
-            - Searches notes, diary, references, and topics by default.\n\
-            - Use `categories` to focus on specific subsystems (e.g. [\"references\", \"topics\"]).\n\
-            - Use `topic` to narrow reference search to a specific topic.\n\
-            - Use `scope` to filter by ownership: 'shared', 'private', or 'all' (default).\n\
-            - Diary is always private-only (scope 'shared' excludes diary).\n\
-            - Results are grouped by category with at least 1 result per active category.\n\
-            - Prefer concise, specific queries for better retrieval quality.",
-        )
-    }
-
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: KnowledgeSearchInput =
             serde_json::from_value(args).map_err(|e| e.to_string())?;

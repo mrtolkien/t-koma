@@ -135,19 +135,16 @@ async fn test_comprehensive_coding_workflow() {
 
     println!("Created session: {}", session.id);
 
-    // Set up system prompt with all tools
+    // Set up system prompt and tools
     let tool_manager = ToolManager::new(vec![]);
     let tools = tool_manager.get_tools();
-    let system_prompt = SystemPrompt::with_tools(
-        &tools,
-        &[
-            ("ghost_identity", ""),
-            ("ghost_diary", ""),
-            ("ghost_projects", ""),
-            ("ghost_skills", ""),
-            ("system_info", ""),
-        ],
-    );
+    let system_prompt = SystemPrompt::new(&[
+        ("ghost_identity", ""),
+        ("ghost_diary", ""),
+        ("ghost_projects", ""),
+        ("ghost_skills", ""),
+        ("system_info", ""),
+    ]);
     let system_blocks = build_system_prompt(&system_prompt);
     let model = default_model.model.as_str();
 

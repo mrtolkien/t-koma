@@ -42,35 +42,6 @@ impl SystemPrompt {
         prompt
     }
 
-    /// Create a new system prompt with tools' prompts auto-composed
-    ///
-    /// This constructor collects all non-None prompts from the provided tools
-    /// and adds them to the system prompt as a tools instruction block.
-    ///
-    /// # Arguments
-    /// * `tools` - Slice of tool references to collect prompts from
-    /// * `ghost_vars` - Template variables for ghost-context rendering
-    pub fn with_tools(tools: &[&dyn crate::tools::Tool], ghost_vars: &[(&str, &str)]) -> Self {
-        let mut prompt = Self::new(ghost_vars);
-        prompt.add_tools_prompts(tools);
-        prompt
-    }
-
-    /// Add tool prompts to the system prompt
-    ///
-    /// Collects all non-None prompts from tools and adds them as instruction blocks.
-    ///
-    /// # Arguments
-    /// * `tools` - Slice of tool references to collect prompts from
-    pub fn add_tools_prompts(&mut self, tools: &[&dyn crate::tools::Tool]) {
-        let tool_prompts: Vec<&str> = tools.iter().filter_map(|tool| tool.prompt()).collect();
-
-        if !tool_prompts.is_empty() {
-            let combined = tool_prompts.join("\n\n");
-            self.add_instruction(combined, false);
-        }
-    }
-
     /// Add an instruction block
     ///
     /// # Arguments

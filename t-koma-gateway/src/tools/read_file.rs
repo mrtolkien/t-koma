@@ -6,28 +6,6 @@ use super::{Tool, ToolContext};
 
 pub struct ReadFileTool;
 
-/// Detailed instructions for using the read_file tool
-const READ_FILE_PROMPT: &str = r#"## Reading Files
-
-You have access to a `read_file` tool for reading file contents.
-
-**Guidelines:**
-1. Use absolute paths or paths relative to the current working directory
-2. For large files, use `offset` and `limit` to read specific sections
-3. If you need to see the full file structure first, use `list_dir` or `find_files`
-
-**When to use:**
-- Before editing a file (to see current content)
-- To understand code structure
-- To verify changes after using `replace` tool
-- To read configuration files, logs, or documentation
-
-**Best practices:**
-- Read files in chunks for large files (>1000 lines)
-- Use line numbers shown in output to calculate offsets for subsequent reads
-- If a file doesn't exist, the tool will return an error
-"#;
-
 #[async_trait::async_trait]
 impl Tool for ReadFileTool {
     fn name(&self) -> &str {
@@ -36,10 +14,6 @@ impl Tool for ReadFileTool {
 
     fn description(&self) -> &str {
         "Reads the contents of a file. Returns the file content with line numbers. Supports reading specific line ranges with offset and limit parameters."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(READ_FILE_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

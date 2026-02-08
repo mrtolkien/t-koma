@@ -8,15 +8,6 @@ use crate::tools::context::{APPROVAL_REQUIRED_PREFIX, resolve_local_path};
 
 pub struct ShellTool;
 
-const SHELL_PROMPT: &str = r#"## Running Shell Commands
-
-Commands run from the current working directory.
-
-**Guidelines:**
-1. Use `change_directory` to move around the filesystem, not this tool.
-2. Do not leave the ghost workspace without operator approval.
-"#;
-
 #[async_trait::async_trait]
 impl Tool for ShellTool {
     fn name(&self) -> &str {
@@ -25,10 +16,6 @@ impl Tool for ShellTool {
 
     fn description(&self) -> &str {
         "Executes a shell command on the host system. Use with caution. Returns stdout and stderr."
-    }
-
-    fn prompt(&self) -> Option<&'static str> {
-        Some(SHELL_PROMPT)
     }
 
     fn input_schema(&self) -> Value {

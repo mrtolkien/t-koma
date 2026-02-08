@@ -37,15 +37,4 @@ pub trait Tool: Send + Sync {
 
     /// Execute the tool with the given arguments
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String>;
-
-    /// Optional prompt/instructions for how to use this tool.
-    ///
-    /// Returns `Some(&str)` with detailed instructions, or `None` if no
-    /// additional prompt is needed. These prompts are automatically composed
-    /// into the system prompt when using `SystemPrompt::with_tools()`.
-    ///
-    /// Default implementation returns `None`.
-    fn prompt(&self) -> Option<&'static str> {
-        None
-    }
 }

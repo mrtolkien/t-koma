@@ -57,15 +57,6 @@ impl Tool for WebFetchTool {
         Self::schema()
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use web_fetch to retrieve the textual content of a URL.\n\
-- Only http/https URLs are supported.\n\
-- The result may be truncated to a safe length.\n\
-- Do not fetch sensitive or private URLs.",
-        )
-    }
-
     async fn execute(&self, args: Value, _context: &mut ToolContext) -> Result<String, String> {
         let input: WebFetchInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 

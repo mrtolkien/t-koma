@@ -49,16 +49,6 @@ impl Tool for KnowledgeGetTool {
         })
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use knowledge_get to fetch the full content of a note, diary entry, or reference file.\n\
-            - Provide `id` to fetch by note ID (searches all scopes: shared, private, diary, references).\n\
-            - Provide `topic` + `path` to fetch a reference file by location.\n\
-            - Use `max_chars` to limit output for very large files.\n\
-            - Load note-writer or reference-researcher skills for write operations.",
-        )
-    }
-
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: KnowledgeGetInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 

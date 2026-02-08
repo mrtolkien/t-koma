@@ -316,12 +316,11 @@ impl SessionChat {
         // Fetch conversation history
         let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
 
-        // Build system prompt with tools and ghost context
+        // Build system prompt with ghost context
         let ghost_vars = self
             .build_ghost_context_vars(ghost_db.workspace_path())
             .await?;
-        let tools = self.tool_manager.get_tools();
-        let system_prompt = SystemPrompt::with_tools(&tools, &ghost_vars.as_pairs());
+        let system_prompt = SystemPrompt::new(&ghost_vars.as_pairs());
         let system_blocks = build_system_prompt(&system_prompt);
 
         // Build API messages from history
@@ -680,8 +679,7 @@ impl SessionChat {
         let ghost_vars = self
             .build_ghost_context_vars(ghost_db.workspace_path())
             .await?;
-        let tools = self.tool_manager.get_tools();
-        let system_prompt = SystemPrompt::with_tools(&tools, &ghost_vars.as_pairs());
+        let system_prompt = SystemPrompt::new(&ghost_vars.as_pairs());
         let system_blocks = build_system_prompt(&system_prompt);
         let api_messages = build_history_messages(&history, Some(50));
 

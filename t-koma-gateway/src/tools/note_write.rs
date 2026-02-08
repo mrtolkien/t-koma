@@ -104,19 +104,6 @@ impl Tool for NoteWriteTool {
         })
     }
 
-    fn prompt(&self) -> Option<&'static str> {
-        Some(
-            "Use note_write with an action to manage knowledge notes.\n\
-            Actions:\n\
-            - create: New note. Requires title, type, body. Optional: scope, parent, tags, source, trust_score.\n\
-            - update: Patch existing. Requires note_id. Optional: title, body, tags, trust_score, parent.\n\
-            - validate: Mark reviewed. Requires note_id. Optional: trust_score.\n\
-            - comment: Add timestamped comment. Requires note_id, comment.\n\
-            - delete: Remove note and all DB records. Requires note_id.\n\
-            Default scope is 'private'. Use tags for categorization and [[Title]] wiki links in body.",
-        )
-    }
-
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: NoteWriteInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
