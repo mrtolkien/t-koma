@@ -38,11 +38,12 @@ workspace I open you in.
   output and reschedules in ~30 minutes. Heartbeat transcripts are stored in
   `job_logs`, not in session messages. Only meaningful content (status "ran")
   posts a summary to the session.
-- REFLECTION: Background job triggered after heartbeat. Processes unread inbox
-  captures into structured knowledge (notes, diary, identity files) using the
-  `reflection-prompt.md` template (which includes `note-guidelines.md`).
-  30-minute cooldown between runs. Reflection transcripts are stored in
-  `job_logs` and do NOT appear in session messages.
+- REFLECTION: Background job checked after each heartbeat tick (including when
+  heartbeat is skipped). Processes unread inbox captures into structured
+  knowledge (notes, diary, identity files) using the `reflection-prompt.md`
+  template (which includes `note-guidelines.md`). 30-minute cooldown between
+  runs. Reflection transcripts are stored in `job_logs` and do NOT appear in
+  session messages.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
