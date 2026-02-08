@@ -13,6 +13,7 @@ pub mod interfaces;
 pub mod job_logs;
 pub mod koma_db;
 pub mod operators;
+pub mod prompt_cache;
 pub mod sessions;
 mod sqlite_runtime;
 pub mod usage_log;
@@ -28,6 +29,7 @@ pub use operators::{
     DEFAULT_RATE_LIMIT_1H_MAX, DEFAULT_RATE_LIMIT_5M_MAX, Operator, OperatorAccessLevel,
     OperatorRepository, OperatorStatus, Platform,
 };
+pub use prompt_cache::{PromptCacheEntry, PromptCacheRepository};
 pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, SessionRepository};
 pub use usage_log::{UsageLog, UsageLogRepository, UsageTotals};
 
