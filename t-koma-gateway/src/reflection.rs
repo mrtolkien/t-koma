@@ -3,16 +3,17 @@
 //! After heartbeat completes for a session, the reflection runner checks if
 //! the ghost has unprocessed inbox files. If so, it renders the
 //! `reflection-prompt.md` template (which includes note-guidelines.md) with
-//! the inbox items, then sends it through the normal chat pipeline so the
-//! ghost can create/update notes.
+//! the inbox items, then sends it through `chat_job()` so the ghost can
+//! create/update notes without polluting the session history.
 
 use std::sync::Arc;
 
 use chrono::Utc;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::scheduler::JobKind;
 use crate::state::{AppState, LogEntry};
+use t_koma_db::{JobKind as DbJobKind, JobLog, JobLogRepository};
 
 const REFLECTION_COOLDOWN_SECS: i64 = 30 * 60; // 30 minutes
 
@@ -75,7 +76,7 @@ pub async fn maybe_run_reflection(
 
     let result = state
         .session_chat
-        .chat(
+        .chat_job(
             &ghost_db,
             &state.koma_db,
             model.client.as_ref(),
@@ -84,6 +85,7 @@ pub async fn maybe_run_reflection(
             session_id,
             operator_id,
             &prompt,
+            true, // load session history for reference context
         )
         .await;
 
@@ -96,21 +98,36 @@ pub async fn maybe_run_reflection(
         .await;
 
     match result {
-        Ok(_) => {
+        Ok(job_result) => {
+            let status = format!("processed {} items", inbox_items.len());
+            let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
+            job_log.transcript = job_result.transcript;
+            job_log.finish(&status);
+
+            if let Err(err) = JobLogRepository::insert(ghost_db.pool(), &job_log).await {
+                warn!("reflection: failed to write job log for {ghost_name}:{session_id}: {err}");
+            }
+
             state
                 .log(LogEntry::Reflection {
                     ghost_name: ghost_name.to_string(),
                     session_id: session_id.to_string(),
-                    status: format!("processed {} items", inbox_items.len()),
+                    status,
                 })
                 .await;
         }
         Err(err) => {
+            let status = format!("error: {err}");
+            let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
+            job_log.finish(&status);
+
+            let _ = JobLogRepository::insert(ghost_db.pool(), &job_log).await;
+
             state
                 .log(LogEntry::Reflection {
                     ghost_name: ghost_name.to_string(),
                     session_id: session_id.to_string(),
-                    status: format!("error: {err}"),
+                    status,
                 })
                 .await;
         }
