@@ -33,6 +33,9 @@ default_model = ""
 # [models.example]
 # provider = "openrouter"
 # model = "your-model-id"
+# [openrouter.model_provider.example]
+# order = ["anthropic"]
+# allow_fallbacks = false
 
 [gateway]
 host = "127.0.0.1"
@@ -133,6 +136,16 @@ pub struct ModelConfig {
     pub model: String,
 }
 
+/// OpenRouter upstream provider-routing options.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OpenRouterProviderRoutingSettings {
+    /// Ordered list of OpenRouter upstream provider slugs.
+    pub order: Vec<String>,
+
+    /// Whether OpenRouter may fall back to providers outside `order`.
+    pub allow_fallbacks: Option<bool>,
+}
+
 /// OpenRouter-specific settings
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct OpenRouterSettings {
@@ -141,6 +154,10 @@ pub struct OpenRouterSettings {
 
     /// App name for OpenRouter rankings
     pub app_name: Option<String>,
+
+    /// Optional upstream provider routing keyed by model alias.
+    #[serde(default)]
+    pub model_provider: BTreeMap<String, OpenRouterProviderRoutingSettings>,
 }
 
 /// Gateway server settings
@@ -564,6 +581,7 @@ mod tests {
 
         assert!(settings.openrouter.http_referer.is_none());
         assert!(settings.openrouter.app_name.is_none());
+        assert!(settings.openrouter.model_provider.is_empty());
 
         assert!(!settings.tools.web.enabled);
         assert!(!settings.tools.web.search.enabled);
@@ -605,13 +623,17 @@ heartbeat_model = "alpha"
 provider = "openrouter"
 model = "moonshotai/kimi-k2.5"
 
-[models.alpha]
-provider = "anthropic"
-model = "anthropic-model-a"
-
 [openrouter]
 http_referer = "https://example.com"
 app_name = "Example App"
+
+[openrouter.model_provider.kimi25]
+order = ["anthropic"]
+allow_fallbacks = false
+
+[models.alpha]
+provider = "anthropic"
+model = "anthropic-model-a"
 
 [gateway]
 host = "0.0.0.0"
@@ -651,6 +673,9 @@ cache_ttl_minutes = 2
             settings.models.get("kimi25").unwrap().model,
             "moonshotai/kimi-k2.5"
         );
+        let routing = settings.openrouter.model_provider.get("kimi25").unwrap();
+        assert_eq!(routing.order, vec!["anthropic".to_string()]);
+        assert_eq!(routing.allow_fallbacks, Some(false));
         assert_eq!(
             settings.models.get("alpha").unwrap().provider,
             ProviderType::Anthropic
@@ -706,6 +731,13 @@ host = "0.0.0.0"
                 model: "moonshotai/kimi-k2.5".to_string(),
             },
         );
+        settings.openrouter.model_provider.insert(
+            "kimi25".to_string(),
+            OpenRouterProviderRoutingSettings {
+                order: vec!["anthropic".to_string()],
+                allow_fallbacks: Some(false),
+            },
+        );
         settings.default_model = "kimi25".to_string();
         settings.gateway.port = 4000;
 
@@ -725,6 +757,9 @@ host = "0.0.0.0"
             loaded.models.get("kimi25").unwrap().model,
             "moonshotai/kimi-k2.5"
         );
+        let routing = loaded.openrouter.model_provider.get("kimi25").unwrap();
+        assert_eq!(routing.order, vec!["anthropic".to_string()]);
+        assert_eq!(routing.allow_fallbacks, Some(false));
         assert_eq!(loaded.gateway.port, 4000);
 
         let _ = fs::remove_file(path);
