@@ -1178,15 +1178,32 @@ impl SessionChat {
         )
         .await
         {
-            // If Phase 2 (LLM summarization) produced a summary, persist it
-            if let Some(ref summary) = result.summary
-                && let Some(last_msg) = raw_messages.last()
-            {
-                if let Err(e) = SessionRepository::update_compaction(
+            // If Phase 2 (LLM summarization) produced a summary, persist it.
+            // The cursor must point to the last raw message that was *summarized*,
+            // not the last message overall. Messages after the cursor are kept
+            // verbatim and loaded on the next request.
+            if let Some(ref summary) = result.summary {
+                let has_synthetic_prefix = session.compaction_summary.is_some();
+                let raw_summarized = if has_synthetic_prefix {
+                    // The synthetic summary prefix occupies one slot in compacted_count
+                    result.compacted_count.saturating_sub(1)
+                } else {
+                    result.compacted_count
+                };
+
+                if raw_summarized == 0 || raw_summarized > raw_messages.len() {
+                    warn!(
+                        session_id = session.id,
+                        compacted_count = result.compacted_count,
+                        raw_len = raw_messages.len(),
+                        has_synthetic_prefix,
+                        "Unexpected compaction count — skipping cursor update"
+                    );
+                } else if let Err(e) = SessionRepository::update_compaction(
                     ghost_db.pool(),
                     &session.id,
                     summary,
-                    &last_msg.id,
+                    &raw_messages[raw_summarized - 1].id,
                 )
                 .await
                 {
