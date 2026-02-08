@@ -56,7 +56,6 @@ async fn test_pwd_tool_execution() {
     let system_prompt = t_koma_gateway::prompt::SystemPrompt::new(&[
         ("ghost_identity", ""),
         ("ghost_diary", ""),
-        ("ghost_projects", ""),
         ("ghost_skills", ""),
         ("system_info", ""),
     ]);

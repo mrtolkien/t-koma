@@ -72,7 +72,6 @@ pub enum ToolApprovalDecision {
 struct GhostContextVars {
     ghost_identity: String,
     ghost_diary: String,
-    ghost_projects: String,
     ghost_skills: String,
     system_info: String,
 }
@@ -83,7 +82,6 @@ impl GhostContextVars {
         vec![
             ("ghost_identity", self.ghost_identity.as_str()),
             ("ghost_diary", self.ghost_diary.as_str()),
-            ("ghost_projects", self.ghost_projects.as_str()),
             ("ghost_skills", self.ghost_skills.as_str()),
             ("system_info", self.system_info.as_str()),
         ]
@@ -1101,37 +1099,6 @@ impl SessionChat {
         }
         let ghost_diary = diary_parts.join("\n\n");
 
-        // Active project summaries
-        let projects_root = workspace_root.join("projects");
-        let mut project_parts = Vec::new();
-        if let Ok(mut entries) = tokio::fs::read_dir(&projects_root).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let path = entry.path();
-                if !path.is_dir() {
-                    continue;
-                }
-                if path.file_name().and_then(|v| v.to_str()) == Some(".archive") {
-                    continue;
-                }
-                let readme = path.join("README.md");
-                if let Ok(content) = tokio::fs::read_to_string(&readme).await {
-                    let paragraph = content
-                        .split("\n\n")
-                        .find(|para| !para.trim().is_empty())
-                        .unwrap_or("")
-                        .trim();
-                    if !paragraph.is_empty() {
-                        let name = path
-                            .file_name()
-                            .and_then(|v| v.to_str())
-                            .unwrap_or("project");
-                        project_parts.push(format!("# Ongoing Projects {}\n\n{}", name, paragraph));
-                    }
-                }
-            }
-        }
-        let ghost_projects = project_parts.join("\n\n");
-
         // Sync default skills into ghost workspace so they're accessible via read_file
         sync_default_skills(workspace_root, &self.skill_paths).await;
 
@@ -1141,7 +1108,6 @@ impl SessionChat {
         Ok(GhostContextVars {
             ghost_identity,
             ghost_diary,
-            ghost_projects,
             ghost_skills,
             system_info: self.system_info.clone(),
         })

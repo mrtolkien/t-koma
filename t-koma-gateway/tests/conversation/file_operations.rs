@@ -55,7 +55,6 @@ async fn test_file_create_edit_delete_workflow() {
     let system_prompt = SystemPrompt::new(&[
         ("ghost_identity", ""),
         ("ghost_diary", ""),
-        ("ghost_projects", ""),
         ("ghost_skills", ""),
         ("system_info", ""),
     ]);
@@ -271,7 +270,6 @@ async fn test_replace_tool_exact_match_requirement() {
     let system_prompt = SystemPrompt::new(&[
         ("ghost_identity", ""),
         ("ghost_diary", ""),
-        ("ghost_projects", ""),
         ("ghost_skills", ""),
         ("system_info", ""),
     ]);
