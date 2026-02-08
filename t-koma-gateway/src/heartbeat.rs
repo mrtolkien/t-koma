@@ -325,6 +325,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     &state,
                     &ghost.name,
                     &session.id,
+                    session.updated_at,
                     &session.operator_id,
                     model_alias,
                 )
@@ -337,6 +338,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     &state,
                     &ghost.name,
                     &session.id,
+                    session.updated_at,
                     &session.operator_id,
                     model_alias,
                 )
@@ -349,6 +351,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     &state,
                     &ghost.name,
                     &session.id,
+                    session.updated_at,
                     &session.operator_id,
                     model_alias,
                 )
@@ -361,6 +364,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     &state,
                     &ghost.name,
                     &session.id,
+                    session.updated_at,
                     &session.operator_id,
                     model_alias,
                 )
@@ -443,6 +447,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                         &state,
                         &ghost.name,
                         &session.id,
+                        session.updated_at,
                         &session.operator_id,
                         model_alias,
                     )

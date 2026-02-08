@@ -31,6 +31,9 @@ workspace I open you in.
 - GHOST (ゴースト): Agent with its own DB and workspace (same folder as ghost
   DB).
 - SESSION: A chat thread between an operator and a ghost (stored in ghost DB).
+  Operator `NEW` command creates a fresh active session, seeds it with a
+  synthetic first user message (`hello`) to get an initial ghost reply, and
+  triggers immediate reflection on the previously active session.
 - HEARTBEAT: Background session check triggered after 15 minutes of inactivity
   when no successful heartbeat has run since the last session activity (checked
   via `job_logs` table). Uses `HEARTBEAT.md` in the ghost workspace as
@@ -41,9 +44,10 @@ workspace I open you in.
 - REFLECTION: Background job checked after each heartbeat tick (including when
   heartbeat is skipped). Processes unread inbox captures into structured
   knowledge (notes, diary, identity files) using the `reflection-prompt.md`
-  template (which includes `note-guidelines.md`). 30-minute cooldown between
-  runs. Reflection transcripts are stored in `job_logs` and do NOT appear in
-  session messages.
+  template (which includes `note-guidelines.md`). Reflection only runs after at
+  least 30 minutes of session inactivity and also has a 30-minute cooldown
+  between runs. Reflection transcripts are stored in `job_logs` and do NOT
+  appear in session messages.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -395,11 +399,11 @@ deletion is available via `note_write` action `delete`.
 
 After each heartbeat tick completes, the reflection runner
 (`t-koma-gateway/src/reflection.rs`) checks whether the ghost has unprocessed
-inbox files. If so, and the last reflection was > 30 minutes ago, it renders
-`prompts/reflection-prompt.md` (which includes `note-guidelines.md` via
-`{{ include }}`) with the inbox items, then sends it through the normal chat
-pipeline. The ghost curates inbox captures into structured notes, diary entries,
-or identity file updates.
+inbox files. If so, and the session has been idle for at least 30 minutes, and
+the last reflection was > 30 minutes ago, it renders `prompts/reflection-prompt.md`
+(which includes `note-guidelines.md` via `{{ include }}`) with the inbox items,
+then sends it through the normal chat pipeline. The ghost curates inbox captures
+into structured notes, diary entries, or identity file updates.
 
 Reflection uses `JobKind::Reflection` in the scheduler with a 30-minute
 cooldown.
@@ -417,6 +421,11 @@ Ghosts can create their own skills by adding `SKILL.md` files with YAML
 frontmatter (`name`, `description`) to their workspace `skills/` directory.
 
 Default skills: `note-writer`, `reference-researcher`, `skill-creator`.
+
+### Ghost Initialization
+
+- When a ghost is created via operator-facing gateway flows, the workspace
+  `SOUL.md` is initialized/updated with `I am called <ghost-name>.`
 
 ### Topic Discovery
 
