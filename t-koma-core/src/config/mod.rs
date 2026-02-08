@@ -375,6 +375,7 @@ mod tests {
             ModelConfig {
                 provider: ProviderType::OpenRouter,
                 model: "anthropic/claude-3.5-sonnet".to_string(),
+                context_window: None,
             },
         );
         settings.openrouter.model_provider.insert(
@@ -395,6 +396,7 @@ mod tests {
             ModelConfig {
                 provider: ProviderType::Anthropic,
                 model: "claude".to_string(),
+                context_window: None,
             },
         );
         bad_provider_settings.openrouter.model_provider.insert(
@@ -431,6 +433,7 @@ mod tests {
             ModelConfig {
                 provider: ProviderType::OpenRouter,
                 model: "anthropic/claude-3.5-sonnet".to_string(),
+                context_window: None,
             },
         );
         unknown_alias_settings.default_model = "default".to_string();
