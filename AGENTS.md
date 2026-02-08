@@ -126,9 +126,17 @@ Key types:
 
 - `KomaDbPool`, `GhostDbPool`
 - `OperatorRepository`, `GhostRepository`, `InterfaceRepository`,
-  `SessionRepository`, `JobLogRepository`
+  `SessionRepository`, `JobLogRepository`, `UsageLogRepository`
 - `OperatorStatus`, `Platform`, `ContentBlock`
-- `JobLog`, `JobKind`, `TranscriptEntry`
+- `JobLog`, `JobKind`, `TranscriptEntry`, `UsageLog`
+
+Ghost DB tables (beyond messages/sessions):
+
+- `usage_log`: per-request token usage (input, output, cache_read,
+  cache_creation). Linked to session_id.
+- `prompt_cache`: cached system prompt blocks per session (survives restarts).
+- `sessions.compaction_summary` / `sessions.compaction_cursor_id`: persisted
+  compaction state. Original messages are never deleted.
 
 ### Job Logs
 
@@ -191,7 +199,7 @@ scheduler state owned by `AppState`.
 ### Gateway module ownership
 
 - `t-koma-gateway/src/chat/`: conversation domain only (history, orchestration,
-  tool loop state).
+  token budget, prompt caching, compaction).
 - `t-koma-gateway/src/providers/`: provider adapters only (Anthropic,
   OpenRouter). No transport logic here.
 - `t-koma-gateway/src/prompt/`: prompt composition/rendering only.
@@ -467,6 +475,92 @@ On approval, Phase 2 re-executes with `has_approval()` returning true. See
 - Update `t-koma-gateway/src/content/ids.rs` after changes.
 - Debug logging: set `dump_queries = true` in `[logging]` config to write raw
   LLM request/response JSON to `./logs/queries/`.
+
+## Context Management (Token Budget, Caching, Compaction)
+
+The chat pipeline manages context window usage through three subsystems in
+`t-koma-gateway/src/chat/`:
+
+### Token Budget (`token_budget.rs`)
+
+Pure functions for estimating token usage without a tokenizer. Uses Anthropic's
+recommended `ceil(chars / 3.5)` heuristic (~20% margin).
+
+- `estimate_tokens(text) -> u32`: core heuristic
+- `estimate_system_tokens(blocks)`, `estimate_history_tokens(messages)`,
+  `estimate_tool_tokens(tools)`: component estimates
+- `context_window_for_model(model) -> u32`: lookup table for known models
+  (Claude 200K, Gemini 1M, GPT-4 128K, etc.), fallback 200K
+- `compute_budget(model, override, system, tools, history, threshold) ->
+  TokenBudget`: computes total usage and `needs_compaction` flag
+
+### Prompt Cache (`prompt_cache.rs`)
+
+In-memory + DB-backed cache for rendered system prompt blocks. Guarantees
+identical system prompt bytes within a 5-minute window, maximizing Anthropic
+server-side cache hits (90% input cost savings).
+
+- `PromptCacheManager::get_or_build()`: returns cached blocks if context hash
+  matches and age < 5 min; otherwise renders fresh, caches, and returns
+- `hash_context(vars)`: deterministic hash of ghost context variables
+- DB table: `prompt_cache` (session_id, system_blocks_json, context_hash,
+  cached_at) — survives gateway restarts within the 5-min window
+
+### Compaction (`compaction.rs`)
+
+Two-phase context compaction triggered when the token budget exceeds threshold.
+
+**Phase 1 — Observation masking** (free, no LLM call): Replaces verbose
+`ToolResult` blocks outside the "keep window" with compact placeholders:
+`[tool_result: {tool_name} — {preview}... (truncated)]`. Preserves the
+action/reasoning skeleton while removing verbose output.
+
+**Phase 2 — LLM summarization** (one LLM call): When masking alone is
+insufficient, summarizes the oldest messages into a single summary block. The
+summary is persisted to the session (`compaction_summary`, `compaction_cursor_id`
+columns) so subsequent requests start from a smaller history.
+
+Key functions:
+
+- `mask_tool_results(messages, config)`: Phase 1 pure function
+- `summarize_and_compact(messages, keep_window, provider)`: Phase 2 async
+- `compact_if_needed(...)`: main entry point, tries Phase 1 first
+
+Wiring in `session.rs`:
+
+- `load_compacted_history()`: compaction-aware history loading. If the session
+  has a previous summary, loads only messages after the cursor and prepends the
+  summary. Then runs `compact_if_needed()` and persists new state if Phase 2 ran.
+- `apply_masking_if_needed()`: lightweight Phase 1 only, used mid-tool-loop
+- Original `Some(50)` message limit is removed — context budget is token-based
+
+Prompt: `prompts/compaction-prompt.md` (summarization instructions for Phase 2).
+
+### Usage Logging
+
+API token usage (input, output, cache_read, cache_creation) is logged to the
+ghost DB `usage_log` table after every `send_conversation()` call. Fire-and-forget
+pattern — failures are warned but never fail the chat request.
+
+- `UsageLog::new(session_id, message_id, model, ...)`: creates a log entry
+- `UsageLogRepository::insert()`: persists to DB
+- `UsageLogRepository::session_totals()`: SUM aggregation per session
+
+### Configuration
+
+```toml
+# Per-model context window override (optional)
+[models.my-model]
+provider = "anthropic"
+model = "claude-sonnet-4-5-20250929"
+context_window = 200000  # overrides built-in lookup
+
+# Compaction settings (all optional, shown with defaults)
+[compaction]
+threshold = 0.85        # fraction of context window triggering compaction
+keep_window = 20        # recent messages kept verbatim
+mask_preview_chars = 100 # chars retained from masked tool results
+```
 
 ## Common Tasks (Pointer Only)
 
