@@ -32,7 +32,9 @@ pub async fn maybe_run_reflection(
     let now_ts = Utc::now().timestamp();
 
     // Check cooldown
-    if let Some(next_due) = state.scheduler_get(JobKind::Reflection, &scheduler_key).await
+    if let Some(next_due) = state
+        .scheduler_get(JobKind::Reflection, &scheduler_key)
+        .await
         && now_ts < next_due
     {
         return;

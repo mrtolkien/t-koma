@@ -191,9 +191,7 @@ async fn discover_skills_listing(
 }
 
 /// Scan a directory for skill subdirectories and extract name + description.
-async fn scan_skills_dir(
-    dir: &std::path::Path,
-) -> std::io::Result<Vec<(String, String)>> {
+async fn scan_skills_dir(dir: &std::path::Path) -> std::io::Result<Vec<(String, String)>> {
     let mut results = Vec::new();
     if !dir.exists() {
         return Ok(results);

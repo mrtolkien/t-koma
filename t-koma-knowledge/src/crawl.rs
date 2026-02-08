@@ -15,7 +15,7 @@ pub struct CrawlConfig {
     pub seed_url: Url,
     /// Max link-hop depth from the seed (default 1, max 3).
     pub max_depth: u8,
-    /// Max pages to fetch (default 20, max 100).
+    /// Max pages to fetch (default 50, max 200).
     pub max_pages: usize,
 }
 
@@ -215,6 +215,9 @@ mod tests {
     fn test_resolve_link_resolves_relative() {
         let base = Url::parse("https://docs.example.com/guide/").unwrap();
         let result = resolve_link("state", Some(&base), "docs.example.com");
-        assert_eq!(result, Some("https://docs.example.com/guide/state".to_string()));
+        assert_eq!(
+            result,
+            Some("https://docs.example.com/guide/state".to_string())
+        );
     }
 }

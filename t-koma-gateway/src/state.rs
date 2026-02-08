@@ -300,8 +300,7 @@ impl AppState {
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
         let _ = GLOBAL_LOG_TX.set(log_tx.clone());
-        let session_chat =
-            SessionChat::new(Some(Arc::clone(&knowledge_engine)), skill_paths);
+        let session_chat = SessionChat::new(Some(Arc::clone(&knowledge_engine)), skill_paths);
 
         Self {
             default_model_alias,
