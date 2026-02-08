@@ -64,6 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             provider: model_config.provider.to_string(),
                             model: model_config.model.clone(),
                             client: Arc::new(client),
+                            context_window: model_config.context_window,
                         },
                     );
                 } else {
@@ -91,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             provider: model_config.provider.to_string(),
                             model: model_config.model.clone(),
                             client: Arc::new(client),
+                            context_window: model_config.context_window,
                         },
                     );
                 } else {
@@ -140,12 +142,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         skill_paths.push(project_path.to_path_buf());
     }
 
+    let compaction_config = {
+        let cs = &config.settings.compaction;
+        t_koma_gateway::chat::compaction::CompactionConfig {
+            threshold: cs.threshold,
+            keep_window: cs.keep_window,
+            mask_preview_chars: cs.mask_preview_chars,
+        }
+    };
     let state = Arc::new(AppState::new(
         default_model_alias,
         models,
         koma_db,
         knowledge_engine,
         skill_paths,
+        compaction_config,
     ));
     state.set_discord_bot_token(discord_token.clone()).await;
     state.start_shared_knowledge_watcher().await;

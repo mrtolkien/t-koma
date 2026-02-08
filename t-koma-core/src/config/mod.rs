@@ -243,6 +243,7 @@ mod tests {
             ModelConfig {
                 provider: ProviderType::Anthropic,
                 model: "test-model".to_string(),
+                context_window: None,
             },
         );
         settings.default_model = "default".to_string();
@@ -277,6 +278,7 @@ mod tests {
             ModelConfig {
                 provider: ProviderType::Anthropic,
                 model: "anthropic-model-a".to_string(),
+                context_window: None,
             },
         );
         settings.models.insert(
@@ -284,6 +286,7 @@ mod tests {
             ModelConfig {
                 provider: ProviderType::OpenRouter,
                 model: "gpt-4".to_string(),
+                context_window: None,
             },
         );
         settings.default_model = "a".to_string();

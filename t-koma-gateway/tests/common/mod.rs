@@ -70,6 +70,7 @@ pub async fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
             provider: default_model.provider.clone(),
             model: default_model.model.clone(),
             client: default_model.client.clone(),
+            context_window: None,
         },
     );
 
@@ -85,6 +86,7 @@ pub async fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
         db,
         knowledge_engine,
         vec![],
+        t_koma_gateway::chat::compaction::CompactionConfig::default(),
     ))
 }
 

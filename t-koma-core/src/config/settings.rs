@@ -118,6 +118,10 @@ pub struct Settings {
     /// Tooling configuration
     #[serde(default)]
     pub tools: ToolsSettings,
+
+    /// Context compaction settings
+    #[serde(default)]
+    pub compaction: CompactionSettings,
 }
 
 /// Model configuration entry
@@ -131,6 +135,9 @@ pub struct ModelConfig {
     pub provider: ProviderType,
     /// Model identifier
     pub model: String,
+    /// Override the built-in context window lookup (in tokens).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
 }
 
 /// OpenRouter-specific settings
@@ -250,6 +257,42 @@ pub struct KnowledgeSearchSettings {
     pub dense_limit: Option<usize>,
     /// Boost multiplier for documentation files in reference search.
     pub doc_boost: Option<f32>,
+}
+
+/// Context compaction settings
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CompactionSettings {
+    /// Fraction of context window at which compaction triggers (default: 0.85).
+    #[serde(default = "default_compaction_threshold")]
+    pub threshold: f32,
+    /// Number of recent messages kept verbatim during compaction (default: 20).
+    #[serde(default = "default_compaction_keep_window")]
+    pub keep_window: usize,
+    /// Characters retained from masked tool results (default: 100).
+    #[serde(default = "default_compaction_mask_preview_chars")]
+    pub mask_preview_chars: usize,
+}
+
+impl Default for CompactionSettings {
+    fn default() -> Self {
+        Self {
+            threshold: default_compaction_threshold(),
+            keep_window: default_compaction_keep_window(),
+            mask_preview_chars: default_compaction_mask_preview_chars(),
+        }
+    }
+}
+
+fn default_compaction_threshold() -> f32 {
+    0.85
+}
+
+fn default_compaction_keep_window() -> usize {
+    20
+}
+
+fn default_compaction_mask_preview_chars() -> usize {
+    100
 }
 
 /// Web search settings
@@ -704,6 +747,7 @@ host = "0.0.0.0"
             ModelConfig {
                 provider: ProviderType::OpenRouter,
                 model: "moonshotai/kimi-k2.5".to_string(),
+                context_window: None,
             },
         );
         settings.default_model = "kimi25".to_string();

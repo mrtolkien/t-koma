@@ -3,7 +3,10 @@ use std::sync::Arc;
 use chrono::NaiveDate;
 use tracing::{info, warn};
 
-use crate::chat::history::{ChatMessage, build_history_messages, build_transcript_messages};
+use crate::chat::compaction::{CompactionConfig, compact_if_needed, mask_tool_results};
+use crate::chat::history::{
+    ChatContentBlock, ChatMessage, ChatRole, build_history_messages, build_transcript_messages,
+};
 use crate::chat::prompt_cache::{PromptCacheManager, hash_context};
 use crate::prompt::SystemPrompt;
 use crate::prompt::render::{SystemBlock, build_system_prompt};
@@ -16,7 +19,7 @@ use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
     ContentBlock as DbContentBlock, GhostDbPool, GhostRepository, KomaDbPool, MessageRole,
-    OperatorRepository, SessionRepository, TranscriptEntry, UsageLog, UsageLogRepository,
+    OperatorRepository, Session, SessionRepository, TranscriptEntry, UsageLog, UsageLogRepository,
 };
 
 /// Errors that can occur during session chat
@@ -97,6 +100,7 @@ pub struct SessionChat {
     pub(crate) tool_manager: ToolManager,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
     prompt_cache: PromptCacheManager,
+    compaction_config: CompactionConfig,
     system_info: String,
     skill_paths: Vec<std::path::PathBuf>,
 }
@@ -361,11 +365,13 @@ impl SessionChat {
     pub fn new(
         knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
         skill_paths: Vec<std::path::PathBuf>,
+        compaction_config: CompactionConfig,
     ) -> Self {
         Self {
             tool_manager: ToolManager::new(skill_paths.clone()),
             knowledge_engine,
             prompt_cache: PromptCacheManager::new(),
+            compaction_config,
             system_info: system_info::build_system_info(),
             skill_paths,
         }
@@ -398,6 +404,7 @@ impl SessionChat {
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
+        context_window_override: Option<u32>,
         session_id: &str,
         operator_id: &str,
         message: &str,
@@ -429,16 +436,22 @@ impl SessionChat {
         )
         .await?;
 
-        // Fetch conversation history
-        let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
-
         // Build system prompt with ghost context (cached for 5 min)
         let system_blocks = self
             .build_cached_system_blocks(ghost_db, session_id)
             .await?;
 
-        // Build API messages from history
-        let api_messages = build_history_messages(&history, Some(50));
+        // Load history (compaction-aware) and apply compaction if needed
+        let api_messages = self
+            .load_compacted_history(
+                ghost_db,
+                provider,
+                model,
+                context_window_override,
+                &session,
+                &system_blocks,
+            )
+            .await?;
 
         // Send to provider with tool loop
         let response = self
@@ -448,6 +461,7 @@ impl SessionChat {
                 provider,
                 provider_name,
                 model,
+                context_window_override,
                 session_id,
                 operator_id,
                 system_blocks,
@@ -477,6 +491,7 @@ impl SessionChat {
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
+        context_window_override: Option<u32>,
         session_id: &str,
         operator_id: &str,
         prompt: &str,
@@ -501,10 +516,17 @@ impl SessionChat {
             .build_cached_system_blocks(ghost_db, session_id)
             .await?;
 
-        // Optionally load session history (read-only context for LLM)
+        // Optionally load session history (compaction-aware)
         let session_history = if load_session_history {
-            let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
-            build_history_messages(&history, Some(50))
+            self.load_compacted_history(
+                ghost_db,
+                provider,
+                model,
+                context_window_override,
+                &session,
+                &system_blocks,
+            )
+            .await?
         } else {
             Vec::new()
         };
@@ -678,6 +700,7 @@ impl SessionChat {
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
+        context_window_override: Option<u32>,
         session_id: &str,
         operator_id: &str,
         system_blocks: Vec<SystemBlock>,
@@ -744,9 +767,17 @@ impl SessionChat {
             self.save_tool_results(ghost_db, session_id, &tool_results)
                 .await?;
 
-            // Build new API messages including the tool results
+            // Rebuild history with masking only (no Phase 2 mid-tool-loop)
             let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
-            let new_api_messages = build_history_messages(&history, Some(50));
+            let raw_messages = build_history_messages(&history, None);
+            let tool_refs: Vec<&dyn crate::tools::Tool> = tools.to_vec();
+            let new_api_messages = self.apply_masking_if_needed(
+                model,
+                context_window_override,
+                &system_blocks,
+                &tool_refs,
+                raw_messages,
+            );
 
             // Send tool results back to the provider
             response = provider
@@ -868,6 +899,7 @@ impl SessionChat {
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
+        context_window_override: Option<u32>,
         session_id: &str,
         operator_id: &str,
         pending: PendingToolApproval,
@@ -918,6 +950,7 @@ impl SessionChat {
             provider,
             provider_name,
             model,
+            context_window_override,
             session_id,
             operator_id,
             DEFAULT_TOOL_LOOP_LIMIT,
@@ -933,6 +966,7 @@ impl SessionChat {
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
+        context_window_override: Option<u32>,
         session_id: &str,
         operator_id: &str,
         pending: PendingToolContinuation,
@@ -960,6 +994,7 @@ impl SessionChat {
             provider,
             provider_name,
             model,
+            context_window_override,
             session_id,
             operator_id,
             extra_iterations,
@@ -975,16 +1010,29 @@ impl SessionChat {
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
+        context_window_override: Option<u32>,
         session_id: &str,
         operator_id: &str,
         max_iterations: usize,
     ) -> Result<String, ChatError> {
-        let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
+        let session = SessionRepository::get_by_id(ghost_db.pool(), session_id)
+            .await?
+            .ok_or(ChatError::SessionNotFound)?;
 
         let system_blocks = self
             .build_cached_system_blocks(ghost_db, session_id)
             .await?;
-        let api_messages = build_history_messages(&history, Some(50));
+
+        let api_messages = self
+            .load_compacted_history(
+                ghost_db,
+                provider,
+                model,
+                context_window_override,
+                &session,
+                &system_blocks,
+            )
+            .await?;
 
         self.send_with_tool_loop(
             ghost_db,
@@ -992,6 +1040,7 @@ impl SessionChat {
             provider,
             provider_name,
             model,
+            context_window_override,
             session_id,
             operator_id,
             system_blocks,
@@ -1064,6 +1113,126 @@ impl SessionChat {
             .await?;
         context.clear_dirty();
         Ok(())
+    }
+
+    /// Load history messages with compaction awareness.
+    ///
+    /// If the session already has a compaction summary from a previous run,
+    /// loads only messages after the cursor and prepends the summary as a
+    /// synthetic user message. Then runs `compact_if_needed()` to handle
+    /// any further growth since the last compaction.
+    ///
+    /// Persists new compaction state to the DB if Phase 2 ran.
+    #[allow(clippy::too_many_arguments)]
+    async fn load_compacted_history(
+        &self,
+        ghost_db: &GhostDbPool,
+        provider: &dyn Provider,
+        model: &str,
+        context_window_override: Option<u32>,
+        session: &Session,
+        system_blocks: &[SystemBlock],
+    ) -> Result<Vec<ChatMessage>, ChatError> {
+        // Load messages: if we have a compaction cursor, load only newer messages
+        let raw_messages = if let Some(cursor_id) = &session.compaction_cursor_id {
+            SessionRepository::get_messages_after(ghost_db.pool(), &session.id, cursor_id).await?
+        } else {
+            SessionRepository::get_messages(ghost_db.pool(), &session.id).await?
+        };
+
+        let mut api_messages = build_history_messages(&raw_messages, None);
+
+        // Prepend existing compaction summary as a synthetic user message
+        if let Some(summary) = &session.compaction_summary {
+            let summary_msg = ChatMessage {
+                role: ChatRole::User,
+                content: vec![ChatContentBlock::Text {
+                    text: format!(
+                        "[Conversation summary — earlier messages compacted]\n\n{summary}"
+                    ),
+                    cache_control: None,
+                }],
+            };
+            api_messages.insert(0, summary_msg);
+        }
+
+        // Run compaction if context budget is exceeded
+        let tools = self.tool_manager.get_tools();
+        let tool_refs: Vec<&dyn crate::tools::Tool> = tools.to_vec();
+
+        if let Some(result) = compact_if_needed(
+            model,
+            context_window_override,
+            system_blocks,
+            &tool_refs,
+            &api_messages,
+            &self.compaction_config,
+            provider,
+        )
+        .await
+        {
+            // If Phase 2 (LLM summarization) produced a summary, persist it
+            if let Some(ref summary) = result.summary
+                && let Some(last_msg) = raw_messages.last()
+            {
+                if let Err(e) = SessionRepository::update_compaction(
+                    ghost_db.pool(),
+                    &session.id,
+                    summary,
+                    &last_msg.id,
+                )
+                .await
+                {
+                    warn!(
+                        session_id = session.id,
+                        error = %e,
+                        "Failed to persist compaction state"
+                    );
+                } else {
+                    info!(
+                        session_id = session.id,
+                        compacted_count = result.compacted_count,
+                        masked = result.masked,
+                        summarized = result.summarized,
+                        "Compaction state persisted"
+                    );
+                }
+            }
+
+            Ok(result.messages)
+        } else {
+            Ok(api_messages)
+        }
+    }
+
+    /// Apply Phase 1 masking only (no LLM calls) during tool loop iterations.
+    ///
+    /// This is a lightweight version of compaction used mid-tool-loop to keep
+    /// context usage reasonable without the overhead of an LLM summarization call.
+    fn apply_masking_if_needed(
+        &self,
+        model: &str,
+        context_window_override: Option<u32>,
+        system_blocks: &[SystemBlock],
+        tools: &[&dyn crate::tools::Tool],
+        messages: Vec<ChatMessage>,
+    ) -> Vec<ChatMessage> {
+        use crate::chat::token_budget::compute_budget;
+
+        let budget = compute_budget(
+            model,
+            context_window_override,
+            system_blocks,
+            tools,
+            &messages,
+            self.compaction_config.threshold,
+        );
+
+        if budget.needs_compaction {
+            mask_tool_results(&messages, &self.compaction_config)
+        } else {
+            messages
+        }
     }
 
     /// Build system prompt blocks with caching.
@@ -1223,7 +1392,7 @@ impl SessionChat {
 
 impl Default for SessionChat {
     fn default() -> Self {
-        Self::new(None, vec![])
+        Self::new(None, vec![], CompactionConfig::default())
     }
 }
 
