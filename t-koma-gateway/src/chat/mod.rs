@@ -1,4 +1,5 @@
 pub mod history;
+pub mod prompt_cache;
 pub mod token_budget;
 
 pub use history::{
