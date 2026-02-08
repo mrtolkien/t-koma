@@ -104,17 +104,27 @@ fn resolve_include_path(base: &Path, include: &str) -> PathBuf {
     }
 }
 
+/// Strip TOML (`+++`) or YAML (`---`) front matter from included content.
+///
+/// A lone `---` at the top of a file that is actually a horizontal rule (no
+/// matching closing `---`) is left untouched because the function requires a
+/// closing delimiter to strip anything.
 fn strip_front_matter(raw: &str) -> String {
     let trimmed = raw.trim_start();
-    if !trimmed.starts_with("+++") {
+    let delimiter = if trimmed.starts_with("+++") {
+        "+++"
+    } else if trimmed.starts_with("---") {
+        "---"
+    } else {
         return raw.to_string();
-    }
+    };
+
     let mut lines = trimmed.lines();
-    lines.next();
+    lines.next(); // skip opening delimiter
     let mut found = false;
     let mut body = Vec::new();
     for line in lines {
-        if !found && line.trim() == "+++" {
+        if !found && line.trim() == delimiter {
             found = true;
             continue;
         }
@@ -126,5 +136,49 @@ fn strip_front_matter(raw: &str) -> String {
         body.join("\n")
     } else {
         raw.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_toml_front_matter() {
+        let input = "+++\nid = \"test\"\n+++\n# Body";
+        assert_eq!(strip_front_matter(input), "# Body");
+    }
+
+    #[test]
+    fn strip_yaml_front_matter() {
+        let input = "---\nname: test\ndescription: A test.\n---\n\n# Body content";
+        assert_eq!(strip_front_matter(input), "\n# Body content");
+    }
+
+    #[test]
+    fn no_front_matter_passthrough() {
+        let input = "# Just a heading\n\nSome text.";
+        assert_eq!(strip_front_matter(input), input);
+    }
+
+    #[test]
+    fn lone_yaml_delimiter_not_stripped() {
+        // A single --- with no closing delimiter is a horizontal rule, not front matter
+        let input = "---\nSome text with no closing delimiter.";
+        assert_eq!(strip_front_matter(input), input);
+    }
+
+    #[test]
+    fn render_simple_variable() {
+        let vars = vars_from_pairs(&[("name", "Alice")]);
+        let result = render_template("Hello {{ name }}!", &vars).unwrap();
+        assert_eq!(result, "Hello Alice!");
+    }
+
+    #[test]
+    fn render_missing_variable_errors() {
+        let vars = TemplateVars::new();
+        let result = render_template("{{ missing }}", &vars);
+        assert!(result.is_err());
     }
 }
