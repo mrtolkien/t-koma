@@ -171,8 +171,8 @@ impl TryFrom<JobLogRow> for JobLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::create_test_ghost_pool;
     use crate::sessions::SessionRepository;
+    use crate::test_helpers::create_test_ghost_pool;
 
     #[tokio::test]
     async fn test_insert_and_retrieve_job_log() {
@@ -223,9 +223,7 @@ mod tests {
         let db = create_test_ghost_pool("JobLogGhost2").await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1", None)
-            .await
-            .unwrap();
+        let session = SessionRepository::create(pool, "op1", None).await.unwrap();
 
         let mut log = JobLog::start(JobKind::Heartbeat, &session.id);
         log.finish("error: something went wrong");

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::NaiveDate;
 use tracing::info;
 
-use crate::chat::history::{ChatMessage, build_history_messages};
+use crate::chat::history::{ChatMessage, build_history_messages, build_transcript_messages};
 use crate::prompt::SystemPrompt;
 use crate::prompt::render::{SystemBlock, build_system_prompt};
 use crate::providers::provider::{
@@ -15,7 +15,7 @@ use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
     ContentBlock as DbContentBlock, GhostDbPool, GhostRepository, KomaDbPool, MessageRole,
-    OperatorRepository, SessionRepository,
+    OperatorRepository, SessionRepository, TranscriptEntry,
 };
 
 /// Errors that can occur during session chat
@@ -321,6 +321,37 @@ async fn sync_skill_dir(src: &std::path::Path, dest: &std::path::Path) -> std::i
     Ok(())
 }
 
+/// Result of a detached job conversation.
+pub struct JobChatResult {
+    pub response_text: String,
+    pub transcript: Vec<TranscriptEntry>,
+}
+
+/// Convert provider response blocks to DB content blocks.
+fn provider_to_db_blocks(response: &ProviderResponse) -> Vec<DbContentBlock> {
+    response
+        .content
+        .iter()
+        .map(|block| match block {
+            ProviderContentBlock::Text { text } => DbContentBlock::Text { text: text.clone() },
+            ProviderContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
+                id: id.clone(),
+                name: name.clone(),
+                input: input.clone(),
+            },
+            ProviderContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => DbContentBlock::ToolResult {
+                tool_use_id: tool_use_id.clone(),
+                content: content.clone(),
+                is_error: *is_error,
+            },
+        })
+        .collect()
+}
+
 impl SessionChat {
     /// Create a new SessionChat instance.
     ///
@@ -428,6 +459,215 @@ impl SessionChat {
             .await?;
 
         Ok(response)
+    }
+
+    /// Run a background job conversation without persisting to session messages.
+    ///
+    /// Similar to `chat()` but collects the full transcript in memory instead
+    /// of writing each message to the database. The caller is responsible for
+    /// persisting the returned `JobChatResult` into the `job_logs` table.
+    ///
+    /// When `load_session_history` is true, the existing session messages are
+    /// loaded as read-only context for the LLM (e.g. heartbeat needs
+    /// conversation context).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn chat_job(
+        &self,
+        ghost_db: &GhostDbPool,
+        koma_db: &KomaDbPool,
+        provider: &dyn Provider,
+        provider_name: &str,
+        model: &str,
+        session_id: &str,
+        operator_id: &str,
+        prompt: &str,
+        load_session_history: bool,
+    ) -> Result<JobChatResult, ChatError> {
+        // Verify session exists
+        let session = SessionRepository::get_by_id(ghost_db.pool(), session_id)
+            .await?
+            .ok_or(ChatError::SessionNotFound)?;
+
+        if session.operator_id != operator_id {
+            return Err(ChatError::SessionNotFound);
+        }
+
+        info!(
+            event_kind = "chat_io",
+            "[session:{}] Job chat (detached) for operator {}", session_id, operator_id
+        );
+
+        // Build system prompt
+        let ghost_vars = self
+            .build_ghost_context_vars(ghost_db.workspace_path())
+            .await?;
+        let system_prompt = SystemPrompt::new(&ghost_vars.as_pairs());
+        let system_blocks = build_system_prompt(&system_prompt);
+
+        // Optionally load session history (read-only context for LLM)
+        let session_history = if load_session_history {
+            let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
+            build_history_messages(&history, Some(50))
+        } else {
+            Vec::new()
+        };
+
+        // Initialize transcript with the prompt
+        let mut transcript = vec![TranscriptEntry {
+            role: MessageRole::Operator,
+            content: vec![DbContentBlock::Text {
+                text: prompt.to_string(),
+            }],
+            model: None,
+        }];
+
+        let text = self
+            .send_job_with_tool_loop(
+                ghost_db,
+                koma_db,
+                provider,
+                provider_name,
+                model,
+                session_id,
+                operator_id,
+                system_blocks,
+                &session_history,
+                &mut transcript,
+                DEFAULT_TOOL_LOOP_LIMIT,
+            )
+            .await?;
+
+        Ok(JobChatResult {
+            response_text: text,
+            transcript,
+        })
+    }
+
+    /// Tool loop for detached job conversations.
+    ///
+    /// Instead of persisting each message to the DB, appends to the
+    /// in-memory `transcript`. The LLM sees `session_history ++ transcript`
+    /// on each iteration.
+    #[allow(clippy::too_many_arguments)]
+    async fn send_job_with_tool_loop(
+        &self,
+        ghost_db: &GhostDbPool,
+        koma_db: &KomaDbPool,
+        provider: &dyn Provider,
+        provider_name: &str,
+        model: &str,
+        session_id: &str,
+        operator_id: &str,
+        system_blocks: Vec<SystemBlock>,
+        session_history: &[ChatMessage],
+        transcript: &mut Vec<TranscriptEntry>,
+        max_iterations: usize,
+    ) -> Result<String, ChatError> {
+        let tools = self.tool_manager.get_tools();
+
+        // Build initial API messages: session history + transcript so far
+        let mut api_messages: Vec<ChatMessage> = session_history.to_vec();
+        api_messages.extend(build_transcript_messages(transcript));
+
+        let mut response = provider
+            .send_conversation(
+                Some(system_blocks.clone()),
+                api_messages,
+                tools.clone(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| ChatError::Api(e.to_string()))?;
+
+        let mut tool_context = self
+            .load_tool_context(koma_db, ghost_db, operator_id)
+            .await?;
+
+        for iteration in 0..max_iterations {
+            if !has_tool_uses(&response) {
+                break;
+            }
+
+            info!(
+                "[session:{}] Job tool use (iteration {})",
+                session_id,
+                iteration + 1
+            );
+
+            // Append ghost response blocks to transcript
+            transcript.push(TranscriptEntry {
+                role: MessageRole::Ghost,
+                content: provider_to_db_blocks(&response),
+                model: Some(model.to_string()),
+            });
+
+            if iteration + 1 == max_iterations {
+                return Err(ChatError::ToolLoopLimitReached(PendingToolContinuation {
+                    pending_tool_uses: collect_pending_tool_uses(&response),
+                }));
+            }
+
+            // Execute tools
+            let tool_uses = collect_pending_tool_uses(&response);
+            let mut tool_results = Vec::new();
+            self.execute_tool_uses(
+                session_id,
+                &tool_uses,
+                koma_db,
+                &mut tool_context,
+                &mut tool_results,
+            )
+            .await?;
+
+            // Append tool results to transcript
+            transcript.push(TranscriptEntry {
+                role: MessageRole::Operator,
+                content: tool_results,
+                model: None,
+            });
+
+            // Rebuild API messages and re-send
+            let mut api_messages: Vec<ChatMessage> = session_history.to_vec();
+            api_messages.extend(build_transcript_messages(transcript));
+
+            response = provider
+                .send_conversation(
+                    Some(system_blocks.clone()),
+                    api_messages,
+                    tools.clone(),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .map_err(|e| ChatError::Api(e.to_string()))?;
+        }
+
+        // Extract final text and append to transcript
+        let text = extract_all_text(&response);
+
+        info!(
+            event_kind = "chat_io",
+            "[session:{}] Job final response ({} / {}): {}",
+            session_id,
+            provider_name,
+            model,
+            if text.len() > 100 {
+                &text[..100]
+            } else {
+                &text
+            }
+        );
+
+        transcript.push(TranscriptEntry {
+            role: MessageRole::Ghost,
+            content: vec![DbContentBlock::Text { text: text.clone() }],
+            model: Some(model.to_string()),
+        });
+
+        Ok(text)
     }
 
     /// Internal method: Send conversation to the provider with full tool use loop
@@ -538,27 +778,7 @@ impl SessionChat {
         model: &str,
         response: &ProviderResponse,
     ) -> Result<(), ChatError> {
-        let ghost_content: Vec<DbContentBlock> = response
-            .content
-            .iter()
-            .map(|block| match block {
-                ProviderContentBlock::Text { text } => DbContentBlock::Text { text: text.clone() },
-                ProviderContentBlock::ToolUse { id, name, input } => DbContentBlock::ToolUse {
-                    id: id.clone(),
-                    name: name.clone(),
-                    input: input.clone(),
-                },
-                ProviderContentBlock::ToolResult {
-                    tool_use_id,
-                    content,
-                    is_error,
-                } => DbContentBlock::ToolResult {
-                    tool_use_id: tool_use_id.clone(),
-                    content: content.clone(),
-                    is_error: *is_error,
-                },
-            })
-            .collect();
+        let ghost_content = provider_to_db_blocks(response);
 
         SessionRepository::add_message(
             ghost_db.pool(),
