@@ -148,6 +148,8 @@ pub struct KnowledgeSearchQuery {
     pub scope: OwnershipScope,
     /// Narrow reference search to a specific topic.
     pub topic: Option<String>,
+    /// Filter notes by archetype (e.g. "person", "concept", "decision").
+    pub archetype: Option<String>,
     #[serde(default)]
     pub options: SearchOptions,
 }
@@ -190,7 +192,8 @@ pub struct KnowledgeGetQuery {
 pub struct NoteSummary {
     pub id: String,
     pub title: String,
-    pub note_type: String,
+    pub entry_type: String,
+    pub archetype: Option<String>,
     pub path: PathBuf,
     pub scope: KnowledgeScope,
     pub trust_score: i64,
@@ -211,7 +214,8 @@ pub struct NoteResult {
 pub struct NoteDocument {
     pub id: String,
     pub title: String,
-    pub note_type: String,
+    pub entry_type: String,
+    pub archetype: Option<String>,
     pub path: PathBuf,
     pub scope: KnowledgeScope,
     pub trust_score: i64,
@@ -243,7 +247,7 @@ pub enum WriteScope {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteCreateRequest {
     pub title: String,
-    pub note_type: String,
+    pub archetype: Option<String>,
     pub scope: WriteScope,
     pub body: String,
     pub parent: Option<String>,
@@ -274,7 +278,7 @@ pub struct NoteWriteResult {
 
 /// Role of a reference source: documentation or code.
 ///
-/// Determines the `note_type` stored in the DB (`ReferenceDocs` vs `ReferenceCode`)
+/// Determines the `entry_type` stored in the DB (`ReferenceDocs` vs `ReferenceCode`)
 /// and influences search ranking via `doc_boost`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -300,8 +304,8 @@ impl SourceRole {
         }
     }
 
-    /// Map to the reference note_type for DB storage.
-    pub fn to_note_type(&self) -> &'static str {
+    /// Map to the reference entry_type for DB storage.
+    pub fn to_entry_type(&self) -> &'static str {
         match self {
             Self::Docs => "ReferenceDocs",
             Self::Code => "ReferenceCode",

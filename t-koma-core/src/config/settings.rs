@@ -234,9 +234,6 @@ pub struct KnowledgeToolsSettings {
     /// Optional override for knowledge index DB path
     pub knowledge_db_path_override: Option<String>,
 
-    /// Optional override for types allowlist path
-    pub types_allowlist_path: Option<String>,
-
     /// Search defaults
     #[serde(default)]
     pub search: KnowledgeSearchSettings,
