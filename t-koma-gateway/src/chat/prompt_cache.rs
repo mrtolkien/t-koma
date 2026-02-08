@@ -1,9 +1,9 @@
-//! Session prompt cache for maximizing Anthropic server-side cache hits.
+//! Session prompt cache for maximizing server-side cache hits.
 //!
 //! Caches the rendered system prompt blocks for a configurable TTL (default
 //! 5 minutes). Within that window, every API call for the same session uses
-//! byte-identical system blocks, guaranteeing Anthropic cache hits (~90%
-//! input cost savings).
+//! byte-identical system blocks, enabling prefix-based caching by providers
+//! that support it (e.g. Anthropic prompt caching, OpenRouter).
 //!
 //! The cache is backed by both an in-memory map (fast path) and a DB table
 //! (survives gateway restarts within the TTL window).
@@ -18,7 +18,7 @@ use tracing::{debug, warn};
 use crate::prompt::render::SystemBlock;
 use t_koma_db::{GhostDbPool, PromptCacheEntry, PromptCacheRepository};
 
-/// Default cache TTL in seconds (5 minutes matches Anthropic's cache window).
+/// Default cache TTL in seconds (5 minutes — matches common provider cache windows).
 const DEFAULT_TTL_SECS: i64 = 300;
 
 /// A cached system prompt entry for a session.

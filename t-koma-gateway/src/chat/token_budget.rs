@@ -1,7 +1,7 @@
 //! Token estimation and context budget management.
 //!
 //! Pure functions for estimating token usage without requiring a tokenizer.
-//! Uses Anthropic's recommended `ceil(chars / 3.5)` heuristic (~20% margin).
+//! Uses a `ceil(chars / 3.5)` heuristic (~20% margin, works across providers).
 
 use crate::chat::history::{ChatContentBlock, ChatMessage};
 use crate::prompt::render::SystemBlock;

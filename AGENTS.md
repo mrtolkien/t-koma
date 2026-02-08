@@ -483,8 +483,8 @@ The chat pipeline manages context window usage through three subsystems in
 
 ### Token Budget (`token_budget.rs`)
 
-Pure functions for estimating token usage without a tokenizer. Uses Anthropic's
-recommended `ceil(chars / 3.5)` heuristic (~20% margin).
+Pure functions for estimating token usage without a tokenizer. Uses a
+`ceil(chars / 3.5)` heuristic (~20% margin, works across providers).
 
 - `estimate_tokens(text) -> u32`: core heuristic
 - `estimate_system_tokens(blocks)`, `estimate_history_tokens(messages)`,
@@ -497,8 +497,8 @@ recommended `ceil(chars / 3.5)` heuristic (~20% margin).
 ### Prompt Cache (`prompt_cache.rs`)
 
 In-memory + DB-backed cache for rendered system prompt blocks. Guarantees
-identical system prompt bytes within a 5-minute window, maximizing Anthropic
-server-side cache hits (90% input cost savings).
+identical system prompt bytes within a 5-minute window, enabling prefix-based
+caching by providers that support it (e.g. Anthropic prompt caching).
 
 - `PromptCacheManager::get_or_build()`: returns cached blocks if context hash
   matches and age < 5 min; otherwise renders fresh, caches, and returns
