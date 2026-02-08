@@ -42,8 +42,11 @@ pub use knowledge::{KnowledgeSettings, SearchDefaults};
 pub use secrets::{Secrets, SecretsError};
 pub use settings::{
     GatewaySettings, KnowledgeSearchSettings, KnowledgeToolsSettings, ModelConfig,
-    OpenRouterSettings, Settings, SettingsError,
+    OpenRouterProviderRoutingSettings, OpenRouterSettings, Settings, SettingsError,
 };
+
+#[cfg(test)]
+pub(crate) static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Combined configuration containing both secrets and settings.
 ///
@@ -80,6 +83,17 @@ pub enum ConfigError {
 
     #[error("Provider '{provider}' for heartbeat model '{alias}' has no configured API key")]
     HeartbeatModelProviderNotConfigured { provider: String, alias: String },
+
+    #[error(
+        "OpenRouter model_provider alias '{alias}' points to provider '{provider}' (must be 'openrouter')"
+    )]
+    OpenRouterProviderOnNonOpenRouterModel { alias: String, provider: String },
+
+    #[error("OpenRouter model_provider alias '{alias}' is not a configured model alias")]
+    OpenRouterProviderUnknownAlias { alias: String },
+
+    #[error("OpenRouter model_provider alias '{alias}' has empty order")]
+    OpenRouterProviderOrderEmpty { alias: String },
 }
 
 impl Config {
@@ -98,7 +112,10 @@ impl Config {
     pub fn load() -> Result<Self, ConfigError> {
         let secrets = Secrets::from_env()?;
         let settings = Settings::load()?;
+        Self::from_parts(secrets, settings)
+    }
 
+    fn from_parts(secrets: Secrets, settings: Settings) -> Result<Self, ConfigError> {
         let default_alias = settings.default_model.trim();
         if default_alias.is_empty() {
             return Err(ConfigError::DefaultModelNotSet);
@@ -130,6 +147,28 @@ impl Config {
                 return Err(ConfigError::HeartbeatModelProviderNotConfigured {
                     provider: heartbeat_model.provider.to_string(),
                     alias: heartbeat_alias.to_string(),
+                });
+            }
+        }
+
+        for (alias, routing) in &settings.openrouter.model_provider {
+            let Some(model) = settings.models.get(alias) else {
+                return Err(ConfigError::OpenRouterProviderUnknownAlias {
+                    alias: alias.clone(),
+                });
+            };
+
+            if model.provider != ProviderType::OpenRouter {
+                return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
+                    alias: alias.clone(),
+                    provider: model.provider.to_string(),
+                });
+            }
+
+            let has_non_empty_order = routing.order.iter().any(|item| !item.trim().is_empty());
+            if !has_non_empty_order {
+                return Err(ConfigError::OpenRouterProviderOrderEmpty {
+                    alias: alias.clone(),
                 });
             }
         }
@@ -217,10 +256,6 @@ pub fn load_dotenv() {
 mod tests {
     use super::*;
     use std::env;
-    use std::sync::Mutex;
-
-    // Use a mutex to ensure tests that modify environment variables don't run concurrently
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     fn clear_env() {
         unsafe {
@@ -233,7 +268,7 @@ mod tests {
 
     #[test]
     fn test_config_default_model_validation() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
 
         // Create settings with a default model alias
@@ -267,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_model_selection() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
         unsafe { env::set_var("ANTHROPIC_API_KEY", "sk-test") }
 
@@ -299,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_discord_enabled() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
         unsafe {
             env::set_var("ANTHROPIC_API_KEY", "sk-test");
@@ -321,5 +356,95 @@ mod tests {
         settings.discord.enabled = true;
         let config = Config { secrets, settings };
         assert!(config.discord_enabled());
+    }
+
+    #[test]
+    fn test_openrouter_provider_routing_validation() {
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
+        clear_env();
+        unsafe {
+            env::set_var("ANTHROPIC_API_KEY", "sk-test");
+            env::set_var("OPENROUTER_API_KEY", "sk-or-test");
+        }
+
+        let secrets = Secrets::from_env_inner().unwrap();
+
+        let mut settings = Settings::default();
+        settings.models.insert(
+            "default".to_string(),
+            ModelConfig {
+                provider: ProviderType::OpenRouter,
+                model: "anthropic/claude-3.5-sonnet".to_string(),
+            },
+        );
+        settings.openrouter.model_provider.insert(
+            "default".to_string(),
+            OpenRouterProviderRoutingSettings {
+                order: vec!["anthropic".to_string()],
+                allow_fallbacks: Some(false),
+            },
+        );
+        settings.default_model = "default".to_string();
+
+        let valid = Config::from_parts(secrets.clone(), settings.clone()).unwrap();
+        assert_eq!(valid.default_provider(), ProviderType::OpenRouter);
+
+        let mut bad_provider_settings = settings.clone();
+        bad_provider_settings.models.insert(
+            "anthropic".to_string(),
+            ModelConfig {
+                provider: ProviderType::Anthropic,
+                model: "claude".to_string(),
+            },
+        );
+        bad_provider_settings.openrouter.model_provider.insert(
+            "anthropic".to_string(),
+            OpenRouterProviderRoutingSettings {
+                order: vec!["anthropic".to_string()],
+                allow_fallbacks: None,
+            },
+        );
+        let err = Config::from_parts(secrets.clone(), bad_provider_settings).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::OpenRouterProviderOnNonOpenRouterModel { .. }
+        ));
+
+        let mut empty_order_settings = settings;
+        empty_order_settings.openrouter.model_provider.insert(
+            "default".to_string(),
+            OpenRouterProviderRoutingSettings {
+                order: vec!["   ".to_string()],
+                allow_fallbacks: None,
+            },
+        );
+        let err = Config::from_parts(secrets, empty_order_settings).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::OpenRouterProviderOrderEmpty { .. }
+        ));
+
+        let secrets = Secrets::from_env_inner().unwrap();
+        let mut unknown_alias_settings = Settings::default();
+        unknown_alias_settings.models.insert(
+            "default".to_string(),
+            ModelConfig {
+                provider: ProviderType::OpenRouter,
+                model: "anthropic/claude-3.5-sonnet".to_string(),
+            },
+        );
+        unknown_alias_settings.default_model = "default".to_string();
+        unknown_alias_settings.openrouter.model_provider.insert(
+            "missing".to_string(),
+            OpenRouterProviderRoutingSettings {
+                order: vec!["anthropic".to_string()],
+                allow_fallbacks: None,
+            },
+        );
+        let err = Config::from_parts(secrets, unknown_alias_settings).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::OpenRouterProviderUnknownAlias { .. }
+        ));
     }
 }

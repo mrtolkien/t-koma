@@ -47,6 +47,12 @@ pub fn load_default_model() -> DefaultModelInfo {
                 &model_config.model,
                 config.settings.openrouter.http_referer.clone(),
                 config.settings.openrouter.app_name.clone(),
+                config
+                    .settings
+                    .openrouter
+                    .model_provider
+                    .get(&alias)
+                    .cloned(),
             );
             DefaultModelInfo {
                 alias,
