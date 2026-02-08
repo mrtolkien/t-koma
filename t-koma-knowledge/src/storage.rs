@@ -145,8 +145,8 @@ pub async fn ensure_vec_table_dim(pool: &SqlitePool, dimension: usize) -> Knowle
 pub struct NoteRecord {
     pub id: String,
     pub title: String,
-    pub note_type: String,
-    pub type_valid: bool,
+    pub entry_type: String,
+    pub archetype: Option<String>,
     pub path: PathBuf,
     pub scope: String,
     pub owner_ghost: Option<String>,
@@ -178,14 +178,14 @@ pub async fn upsert_note(pool: &SqlitePool, record: &NoteRecord) -> KnowledgeRes
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         r#"INSERT INTO notes (
-            id, title, note_type, type_valid, path, scope, owner_ghost, created_at, created_by_ghost, created_by_model,
+            id, title, entry_type, archetype, path, scope, owner_ghost, created_at, created_by_ghost, created_by_model,
             trust_score, last_validated_at, last_validated_by_ghost, last_validated_by_model,
             version, parent_id, comments_json, content_hash, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title=excluded.title,
-            note_type=excluded.note_type,
-            type_valid=excluded.type_valid,
+            entry_type=excluded.entry_type,
+            archetype=excluded.archetype,
             path=excluded.path,
             scope=excluded.scope,
             owner_ghost=excluded.owner_ghost,
@@ -201,8 +201,8 @@ pub async fn upsert_note(pool: &SqlitePool, record: &NoteRecord) -> KnowledgeRes
     )
     .bind(&record.id)
     .bind(&record.title)
-    .bind(&record.note_type)
-    .bind(record.type_valid as i64)
+    .bind(&record.entry_type)
+    .bind(&record.archetype)
     .bind(record.path.to_string_lossy().to_string())
     .bind(&record.scope)
     .bind(&record.owner_ghost)
@@ -307,7 +307,8 @@ pub async fn replace_chunks(
     pool: &SqlitePool,
     note_id: &str,
     note_title: &str,
-    note_type: &str,
+    entry_type: &str,
+    archetype: Option<&str>,
     chunks: &[ChunkRecord],
 ) -> KnowledgeResult<Vec<i64>> {
     let existing_ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM chunks WHERE note_id = ?")
@@ -359,13 +360,14 @@ pub async fn replace_chunks(
         ids.push(chunk_id);
 
         sqlx::query(
-            r#"INSERT INTO chunk_fts (content, title, note_title, note_type, note_id, chunk_id)
-               VALUES (?, ?, ?, ?, ?, ?)"#,
+            r#"INSERT INTO chunk_fts (content, title, note_title, entry_type, archetype, note_id, chunk_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(&chunk.content)
         .bind(&chunk.title)
         .bind(note_title)
-        .bind(note_type)
+        .bind(entry_type)
+        .bind(archetype)
         .bind(note_id)
         .bind(chunk_id)
         .execute(pool)
