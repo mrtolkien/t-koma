@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use chrono::NaiveDate;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::chat::history::{ChatMessage, build_history_messages, build_transcript_messages};
 use crate::prompt::SystemPrompt;
@@ -15,7 +15,7 @@ use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
     ContentBlock as DbContentBlock, GhostDbPool, GhostRepository, KomaDbPool, MessageRole,
-    OperatorRepository, SessionRepository, TranscriptEntry,
+    OperatorRepository, SessionRepository, TranscriptEntry, UsageLog, UsageLogRepository,
 };
 
 /// Errors that can occur during session chat
@@ -578,6 +578,7 @@ impl SessionChat {
             )
             .await
             .map_err(|e| ChatError::Api(e.to_string()))?;
+        Self::log_usage(ghost_db, session_id, model, &response).await;
 
         let mut tool_context = self
             .load_tool_context(koma_db, ghost_db, operator_id)
@@ -641,6 +642,7 @@ impl SessionChat {
                 )
                 .await
                 .map_err(|e| ChatError::Api(e.to_string()))?;
+            Self::log_usage(ghost_db, session_id, model, &response).await;
         }
 
         // Extract final text and append to transcript
@@ -698,6 +700,7 @@ impl SessionChat {
             )
             .await
             .map_err(|e| ChatError::Api(e.to_string()))?;
+        Self::log_usage(ghost_db, session_id, model, &response).await;
 
         // Handle tool use loop (bounded to prevent infinite loops)
         let mut tool_context = self
@@ -758,6 +761,7 @@ impl SessionChat {
                 )
                 .await
                 .map_err(|e| ChatError::Api(e.to_string()))?;
+            Self::log_usage(ghost_db, session_id, model, &response).await;
         }
 
         // Extract and save final text response
@@ -1166,6 +1170,30 @@ impl SessionChat {
         .await?;
 
         Ok(text)
+    }
+
+    /// Log API usage data (fire-and-forget; failures are warned, not propagated).
+    async fn log_usage(
+        ghost_db: &GhostDbPool,
+        session_id: &str,
+        model: &str,
+        response: &ProviderResponse,
+    ) {
+        let Some(usage) = &response.usage else {
+            return;
+        };
+        let log = UsageLog::new(
+            session_id,
+            None,
+            model,
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cache_read_tokens.unwrap_or(0),
+            usage.cache_creation_tokens.unwrap_or(0),
+        );
+        if let Err(e) = UsageLogRepository::insert(ghost_db.pool(), &log).await {
+            warn!(session_id, error = %e, "Failed to log API usage");
+        }
     }
 }
 
