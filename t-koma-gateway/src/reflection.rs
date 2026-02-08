@@ -1,9 +1,10 @@
 //! Reflection job: curate inbox captures into structured knowledge.
 //!
 //! After heartbeat completes for a session, the reflection runner checks if
-//! the ghost has unprocessed inbox files. If so, it builds a prompt with the
-//! `knowledge-writer` skill and all inbox items, then sends it through the
-//! normal chat pipeline so the ghost can create/update notes.
+//! the ghost has unprocessed inbox files. If so, it renders the
+//! `reflection-prompt.md` template (which includes note-guidelines.md) with
+//! the inbox items, then sends it through the normal chat pipeline so the
+//! ghost can create/update notes.
 
 use std::sync::Arc;
 
@@ -148,16 +149,9 @@ struct InboxItem {
 }
 
 fn build_reflection_prompt(items: &[InboxItem]) -> String {
-    let mut prompt = String::new();
-    prompt.push_str(
-        "You are in reflection mode. Load the `knowledge-writer` skill \
-         for detailed instructions, then process the following inbox items.\n\n\
-         For each item: search existing knowledge, decide what to create/update/discard, \
-         and delete the inbox file when done.\n\n",
-    );
-
+    let mut inbox_text = String::new();
     for (i, item) in items.iter().enumerate() {
-        prompt.push_str(&format!(
+        inbox_text.push_str(&format!(
             "## Inbox Item {} — `{}`\n\n{}\n\n---\n\n",
             i + 1,
             item.filename,
@@ -165,10 +159,16 @@ fn build_reflection_prompt(items: &[InboxItem]) -> String {
         ));
     }
 
-    prompt.push_str(
-        "Process all items above. Create notes, update existing ones, \
-         or append to diary as appropriate. Delete each inbox file after processing.",
-    );
-
-    prompt
+    crate::content::prompt_text(
+        crate::content::ids::PROMPT_REFLECTION,
+        None,
+        &[("inbox_items", &inbox_text)],
+    )
+    .unwrap_or_else(|e| {
+        tracing::warn!("Failed to render reflection prompt: {e}, using fallback");
+        format!(
+            "You are in reflection mode. Process the following inbox items into \
+             structured knowledge, then delete each inbox file.\n\n{inbox_text}"
+        )
+    })
 }
