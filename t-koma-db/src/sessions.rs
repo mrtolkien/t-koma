@@ -76,6 +76,10 @@ pub struct Session {
     pub created_at: i64,
     pub updated_at: i64,
     pub is_active: bool,
+    /// LLM-generated summary of compacted (older) messages.
+    pub compaction_summary: Option<String>,
+    /// ID of the last message included in the compaction summary.
+    pub compaction_cursor_id: Option<String>,
 }
 
 /// Session info for listing
@@ -134,13 +138,15 @@ impl SessionRepository {
             created_at: now,
             updated_at: now,
             is_active: true,
+            compaction_summary: None,
+            compaction_cursor_id: None,
         })
     }
 
     /// Get session by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Session>> {
         let row = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, title, created_at, updated_at, is_active
+            "SELECT id, operator_id, title, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
              WHERE id = ?",
         )
@@ -154,7 +160,7 @@ impl SessionRepository {
     /// Get active session for an operator
     pub async fn get_active(pool: &SqlitePool, operator_id: &str) -> DbResult<Option<Session>> {
         let row = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, title, created_at, updated_at, is_active
+            "SELECT id, operator_id, title, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
              WHERE operator_id = ? AND is_active = 1",
         )
@@ -206,7 +212,7 @@ impl SessionRepository {
         before_unix_seconds: i64,
     ) -> DbResult<Vec<Session>> {
         let rows = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, title, created_at, updated_at, is_active
+            "SELECT id, operator_id, title, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
              WHERE is_active = 1 AND updated_at <= ?
              ORDER BY updated_at ASC",
@@ -328,7 +334,7 @@ impl SessionRepository {
     /// List all active sessions.
     pub async fn list_active(pool: &SqlitePool) -> DbResult<Vec<Session>> {
         let rows = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, title, created_at, updated_at, is_active
+            "SELECT id, operator_id, title, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
              WHERE is_active = 1
              ORDER BY updated_at ASC",
@@ -416,6 +422,51 @@ impl SessionRepository {
         let tool_uses = Self::get_tool_uses(pool, session_id).await?;
         Ok(tool_uses.into_iter().last())
     }
+
+    /// Persist compaction state for a session.
+    pub async fn update_compaction(
+        pool: &SqlitePool,
+        session_id: &str,
+        summary: &str,
+        cursor_id: &str,
+    ) -> DbResult<()> {
+        sqlx::query(
+            "UPDATE sessions SET compaction_summary = ?, compaction_cursor_id = ? WHERE id = ?",
+        )
+        .bind(summary)
+        .bind(cursor_id)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Load messages after a compaction cursor (by created_at ordering).
+    ///
+    /// Returns messages whose `created_at` is strictly greater than the cursor
+    /// message's `created_at`. This is used for compaction-aware history loading.
+    pub async fn get_messages_after(
+        pool: &SqlitePool,
+        session_id: &str,
+        cursor_id: &str,
+    ) -> DbResult<Vec<Message>> {
+        let rows = sqlx::query_as::<_, MessageRow>(
+            "SELECT id, session_id, role, content, model, created_at
+             FROM messages
+             WHERE session_id = ? AND created_at > (
+                 SELECT created_at FROM messages WHERE id = ?
+             )
+             ORDER BY created_at ASC",
+        )
+        .bind(session_id)
+        .bind(cursor_id)
+        .fetch_all(pool)
+        .await?;
+
+        rows.into_iter()
+            .map(Message::try_from)
+            .collect::<DbResult<Vec<_>>>()
+    }
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -426,6 +477,8 @@ struct SessionRow {
     created_at: i64,
     updated_at: i64,
     is_active: i64,
+    compaction_summary: Option<String>,
+    compaction_cursor_id: Option<String>,
 }
 
 impl From<SessionRow> for Session {
@@ -437,6 +490,8 @@ impl From<SessionRow> for Session {
             created_at: row.created_at,
             updated_at: row.updated_at,
             is_active: row.is_active != 0,
+            compaction_summary: row.compaction_summary,
+            compaction_cursor_id: row.compaction_cursor_id,
         }
     }
 }
