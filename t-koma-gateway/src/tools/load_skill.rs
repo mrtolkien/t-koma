@@ -4,8 +4,11 @@
 //! skill directories, searched in priority order. Ghost-local skills
 //! (from the workspace) override user config and project defaults.
 
+use std::path::{Path, PathBuf};
+
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use tokio::fs;
 
 use super::{Tool, ToolContext};
 
@@ -83,11 +86,27 @@ impl Tool for LoadSkillTool {
         search_paths.extend(self.paths.iter().cloned());
 
         for dir in &search_paths {
-            let skill_path = dir.join(skill_name).join("SKILL.md");
+            let skill_dir = dir.join(skill_name);
+            let skill_path = skill_dir.join("SKILL.md");
             if skill_path.exists() {
-                return tokio::fs::read_to_string(&skill_path)
+                let mut content = tokio::fs::read_to_string(&skill_path)
                     .await
-                    .map_err(|e| format!("Failed to read skill '{}': {}", skill_name, e));
+                    .map_err(|e| format!("Failed to read skill '{}': {}", skill_name, e))?;
+
+                // Append reference file listing if any extra files exist
+                let ref_files = list_skill_files(&skill_dir).await;
+                if !ref_files.is_empty() {
+                    content.push_str("\n---\n\n## Reference Files\n\n");
+                    content.push_str(
+                        "The following reference files are available for this skill. \
+                         Use `read_file` to view them:\n\n",
+                    );
+                    for path in &ref_files {
+                        content.push_str(&format!("- `{}`\n", path.display()));
+                    }
+                }
+
+                return Ok(content);
             }
         }
 
@@ -96,6 +115,31 @@ impl Tool for LoadSkillTool {
             skill_name,
             search_paths.len()
         ))
+    }
+}
+
+/// Recursively list all files in a skill directory except `SKILL.md`.
+///
+/// Returns sorted absolute paths suitable for `read_file` usage.
+async fn list_skill_files(skill_dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    collect_files(skill_dir, &mut files).await;
+    files.sort();
+    files
+}
+
+/// Recursive helper that collects files from a directory tree.
+async fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(mut entries) = fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.is_dir() {
+            Box::pin(collect_files(&path, out)).await;
+        } else if path.file_name().and_then(|n| n.to_str()) != Some("SKILL.md") {
+            out.push(path);
+        }
     }
 }
 
@@ -178,6 +222,43 @@ This is the skill content."#;
         let result = tool.execute(args, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Missing"));
+    }
+
+    #[tokio::test]
+    async fn test_load_skill_lists_reference_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let skill_dir = temp_dir.path().join("my-skill");
+        let refs_dir = skill_dir.join("references");
+        std::fs::create_dir_all(&refs_dir).unwrap();
+
+        std::fs::write(skill_dir.join("SKILL.md"), "# My Skill\n\nContent.").unwrap();
+        std::fs::write(refs_dir.join("guide.md"), "Guide content").unwrap();
+        std::fs::write(refs_dir.join("api.md"), "API content").unwrap();
+
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
+        let tool = LoadSkillTool::new(vec![temp_dir.path().to_path_buf()]);
+        let args = json!({"skill_name": "my-skill"});
+
+        let result = tool.execute(args, &mut context).await.unwrap();
+        assert!(result.contains("## Reference Files"));
+        assert!(result.contains("references/api.md"));
+        assert!(result.contains("references/guide.md"));
+        assert!(result.contains("read_file"));
+    }
+
+    #[tokio::test]
+    async fn test_load_skill_no_reference_section_when_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let skill_dir = temp_dir.path().join("bare-skill");
+        std::fs::create_dir(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), "# Bare Skill").unwrap();
+
+        let mut context = ToolContext::new_for_tests(temp_dir.path());
+        let tool = LoadSkillTool::new(vec![temp_dir.path().to_path_buf()]);
+        let args = json!({"skill_name": "bare-skill"});
+
+        let result = tool.execute(args, &mut context).await.unwrap();
+        assert!(!result.contains("## Reference Files"));
     }
 
     #[test]
