@@ -182,7 +182,7 @@ struct SearchResultSnapshot {
 struct SearchHit {
     rank: usize,
     title: String,
-    note_type: String,
+    entry_type: String,
     snippet_preview: String,
 }
 
@@ -201,7 +201,7 @@ fn build_search_snapshot(query: &str, results: &[NoteResult], n: usize) -> Searc
             .map(|(i, r)| SearchHit {
                 rank: i + 1,
                 title: r.summary.title.clone(),
-                note_type: r.summary.note_type.clone(),
+                entry_type: r.summary.entry_type.clone(),
                 snippet_preview: r.summary.snippet.chars().take(150).collect(),
             })
             .collect(),

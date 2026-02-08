@@ -50,7 +50,7 @@ async fn create_private_note() {
 
     let request = NoteCreateRequest {
         title: "Test Note".to_string(),
-        note_type: "Concept".to_string(),
+        archetype: Some("concept".to_string()),
         scope: WriteScope::GhostNote,
         body: "This is the body.".to_string(),
         parent: None,
@@ -91,7 +91,7 @@ async fn create_shared_note() {
 
     let request = NoteCreateRequest {
         title: "Shared Knowledge".to_string(),
-        note_type: "HowTo".to_string(),
+        archetype: Some("howto".to_string()),
         scope: WriteScope::SharedNote,
         body: "Shared body content.".to_string(),
         parent: None,
@@ -134,8 +134,8 @@ async fn get_own_private_note_succeeds() {
     let note = NoteRecord {
         id: "ghost-a-own".to_string(),
         title: "My Note".to_string(),
-        note_type: "Concept".to_string(),
-        type_valid: true,
+        entry_type: "Concept".to_string(),
+        archetype: None,
         path: shared_root.join("ghost-a-own.md"),
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
@@ -172,8 +172,8 @@ async fn get_other_ghost_private_note_fails() {
     let note = NoteRecord {
         id: "ghost-b-secret".to_string(),
         title: "Secret Note".to_string(),
-        note_type: "Concept".to_string(),
-        type_valid: true,
+        entry_type: "Concept".to_string(),
+        archetype: None,
         path: shared_root.join("ghost-b-secret.md"),
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-b".to_string()),
@@ -213,8 +213,8 @@ async fn get_shared_note_from_any_ghost() {
     let note = NoteRecord {
         id: "shared-note".to_string(),
         title: "Shared Note".to_string(),
-        note_type: "Reference".to_string(),
-        type_valid: true,
+        entry_type: "Reference".to_string(),
+        archetype: None,
         path: shared_root.join("shared-note.md"),
         scope: "shared_note".to_string(),
         owner_ghost: None,
@@ -270,8 +270,8 @@ Original body.
     let note = NoteRecord {
         id: "updatable-note".to_string(),
         title: "Original Title".to_string(),
-        note_type: "Concept".to_string(),
-        type_valid: true,
+        entry_type: "Concept".to_string(),
+        archetype: None,
         path: note_path.clone(),
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
@@ -345,8 +345,8 @@ Ghost B content.
     let note = NoteRecord {
         id: "ghost-b-note".to_string(),
         title: "Ghost B Note".to_string(),
-        note_type: "Concept".to_string(),
-        type_valid: true,
+        entry_type: "Concept".to_string(),
+        archetype: None,
         path: note_path,
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-b".to_string()),
@@ -406,8 +406,8 @@ Content.
     let note = NoteRecord {
         id: "val-note".to_string(),
         title: "Validatable Note".to_string(),
-        note_type: "Concept".to_string(),
-        type_valid: true,
+        entry_type: "Concept".to_string(),
+        archetype: None,
         path: note_path,
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
@@ -477,8 +477,8 @@ Body text.
     let note = NoteRecord {
         id: "comment-note".to_string(),
         title: "Commentable Note".to_string(),
-        note_type: "Concept".to_string(),
-        type_valid: true,
+        entry_type: "Concept".to_string(),
+        archetype: None,
         path: note_path,
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost-a".to_string()),
@@ -605,8 +605,8 @@ Description of {title}.
     let note = NoteRecord {
         id: id.to_string(),
         title: title.to_string(),
-        note_type: "ReferenceTopic".to_string(),
-        type_valid: true,
+        entry_type: "ReferenceTopic".to_string(),
+        archetype: None,
         path: path.clone(),
         scope: "shared_reference".to_string(),
         owner_ghost: None,
@@ -813,7 +813,7 @@ mod slow {
 
         let request = NoteCreateRequest {
             title: "Rust Error Handling".to_string(),
-            note_type: "Concept".to_string(),
+            archetype: Some("concept".to_string()),
             scope: WriteScope::GhostNote,
             body: "Rust uses Result and Option types for error handling. \
                    The ? operator propagates errors up the call stack."

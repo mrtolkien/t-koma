@@ -61,8 +61,8 @@ async fn test_cross_scope_link_resolution() {
     let shared_note_record = NoteRecord {
         id: "shared-1".to_string(),
         title: "Shared Note".to_string(),
-        note_type: "Concept".to_string(),
-        type_valid: true,
+        entry_type: "Concept".to_string(),
+        archetype: None,
         path: shared_note.clone(),
         scope: "shared_note".to_string(),
         owner_ghost: None,
@@ -85,8 +85,8 @@ async fn test_cross_scope_link_resolution() {
     let ghost_note_record = NoteRecord {
         id: "ghost-1".to_string(),
         title: "Ghost Note".to_string(),
-        note_type: "Idea".to_string(),
-        type_valid: true,
+        entry_type: "Idea".to_string(),
+        archetype: None,
         path: ghost_note.clone(),
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost".to_string()),
@@ -147,8 +147,8 @@ async fn test_ghost_note_links_to_reference_topic() {
     let ref_topic = NoteRecord {
         id: "ref-topic-1".to_string(),
         title: "Dioxus Framework".to_string(),
-        note_type: "ReferenceTopic".to_string(),
-        type_valid: true,
+        entry_type: "ReferenceTopic".to_string(),
+        archetype: None,
         path: reference_root.join("dioxus/topic.md"),
         scope: "shared_reference".to_string(),
         owner_ghost: None,
@@ -170,8 +170,8 @@ async fn test_ghost_note_links_to_reference_topic() {
     let ghost_note = NoteRecord {
         id: "ghost-note-2".to_string(),
         title: "UI Research Notes".to_string(),
-        note_type: "Idea".to_string(),
-        type_valid: true,
+        entry_type: "Idea".to_string(),
+        archetype: None,
         path: ghost_root.join("ui-research.md"),
         scope: "ghost_note".to_string(),
         owner_ghost: Some("ghost".to_string()),

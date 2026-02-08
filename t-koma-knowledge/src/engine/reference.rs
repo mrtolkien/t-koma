@@ -182,7 +182,7 @@ async fn search_reference_topics(
     query: &ReferenceQuery,
 ) -> KnowledgeResult<Vec<NoteResult>> {
     let topic_ids = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE note_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
+        "SELECT id FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
     )
     .fetch_all(pool)
     .await?
@@ -526,7 +526,7 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
 
     // Try exact title match first
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE title = ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id FROM notes WHERE title = ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(topic_name)
     .fetch_optional(pool)
@@ -538,7 +538,7 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
 
     // Fall back to case-insensitive LIKE match
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE title LIKE ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id FROM notes WHERE title LIKE ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(format!("%{}%", topic_name))
     .fetch_optional(pool)

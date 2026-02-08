@@ -104,7 +104,7 @@ pub(crate) async fn reference_save(
 
     // 5. Ingest with context enrichment
     let role = request.role.unwrap_or(SourceRole::Docs);
-    let note_type = role.to_note_type();
+    let entry_type = role.to_entry_type();
     let file_note_id = generate_note_id();
     let title = request.title.as_deref().unwrap_or_else(|| {
         file_path
@@ -119,15 +119,21 @@ pub(crate) async fn reference_save(
         &request.content,
         &file_note_id,
         title,
-        note_type,
+        entry_type,
         Some(&context_prefix),
     )
     .await?;
 
     crate::storage::upsert_note(pool, &ingested.note).await?;
-    let chunk_ids =
-        crate::storage::replace_chunks(pool, &file_note_id, title, note_type, &ingested.chunks)
-            .await?;
+    let chunk_ids = crate::storage::replace_chunks(
+        pool,
+        &file_note_id,
+        title,
+        entry_type,
+        None,
+        &ingested.chunks,
+    )
+    .await?;
     crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
     // 6. Insert into reference_files with provenance metadata
@@ -169,7 +175,7 @@ pub(crate) async fn find_existing_topic(
     name: &str,
 ) -> KnowledgeResult<Option<(String, String)>> {
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE title = ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id, title FROM notes WHERE title = ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(name)
     .fetch_optional(pool)
@@ -179,7 +185,7 @@ pub(crate) async fn find_existing_topic(
     }
 
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE LOWER(title) = LOWER(?) AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id, title FROM notes WHERE LOWER(title) = LOWER(?) AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(name)
     .fetch_optional(pool)
@@ -189,7 +195,7 @@ pub(crate) async fn find_existing_topic(
     }
 
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE title LIKE ? AND note_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id, title FROM notes WHERE title LIKE ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
     )
     .bind(format!("%{}%", name))
     .fetch_optional(pool)
@@ -248,9 +254,15 @@ async fn resolve_or_create_topic(
     crate::storage::upsert_note(pool, &ingested.note).await?;
     crate::storage::replace_tags(pool, &topic_id, &ingested.tags).await?;
     crate::storage::replace_links(pool, &topic_id, None, &ingested.links).await?;
-    let chunk_ids =
-        crate::storage::replace_chunks(pool, &topic_id, &title, "ReferenceTopic", &ingested.chunks)
-            .await?;
+    let chunk_ids = crate::storage::replace_chunks(
+        pool,
+        &topic_id,
+        &title,
+        "ReferenceTopic",
+        None,
+        &ingested.chunks,
+    )
+    .await?;
     crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
 
     Ok(TopicResolution::Created {
@@ -315,6 +327,7 @@ async fn create_collection_index(
         &coll_id,
         title,
         "ReferenceCollection",
+        None,
         &ingested.chunks,
     )
     .await?;

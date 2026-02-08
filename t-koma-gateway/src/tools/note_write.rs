@@ -8,8 +8,7 @@ struct NoteWriteInput {
     action: String,
     // create fields
     title: Option<String>,
-    #[serde(rename = "type")]
-    note_type: Option<String>,
+    archetype: Option<String>,
     scope: Option<String>,
     body: Option<String>,
     parent: Option<String>,
@@ -61,9 +60,9 @@ impl Tool for NoteWriteTool {
                     "type": "string",
                     "description": "Note title (required for create, optional for update)."
                 },
-                "type": {
+                "archetype": {
                     "type": "string",
-                    "description": "Note type, e.g. 'Concept', 'HowTo', 'Log', 'Decision' (required for create)."
+                    "description": "Note archetype, e.g. 'Concept', 'HowTo', 'Log', 'Decision' (optional for create)."
                 },
                 "scope": {
                     "type": "string",
@@ -114,12 +113,11 @@ impl Tool for NoteWriteTool {
         match input.action.as_str() {
             "create" => {
                 let title = input.title.ok_or("'title' is required for create")?;
-                let note_type = input.note_type.ok_or("'type' is required for create")?;
                 let body = input.body.ok_or("'body' is required for create")?;
 
                 let request = t_koma_knowledge::NoteCreateRequest {
                     title,
-                    note_type,
+                    archetype: input.archetype,
                     scope: Self::parse_scope(input.scope),
                     body,
                     parent: input.parent,

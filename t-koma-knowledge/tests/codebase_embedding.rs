@@ -193,7 +193,7 @@ struct SearchSnapshot {
 struct HitSnapshot {
     rank: usize,
     file: String,
-    note_type: String,
+    entry_type: String,
     snippet: String,
 }
 
@@ -209,7 +209,7 @@ fn build_snapshot(query: &str, results: &[NoteResult], n: usize) -> SearchSnapsh
             .map(|(i, r)| HitSnapshot {
                 rank: i + 1,
                 file: r.summary.title.clone(),
-                note_type: r.summary.note_type.clone(),
+                entry_type: r.summary.entry_type.clone(),
                 snippet: r.summary.snippet.chars().take(120).collect(),
             })
             .collect(),
@@ -265,7 +265,7 @@ async fn scope_isolation_ghost_vs_reference() {
             &f.ghost_name,
             NoteCreateRequest {
                 title: "Private Search Notes".to_string(),
-                note_type: "Concept".to_string(),
+                archetype: Some("concept".to_string()),
                 scope: WriteScope::GhostNote,
                 body: "BM25 search and dense embeddings pipeline notes.".to_string(),
                 parent: None,

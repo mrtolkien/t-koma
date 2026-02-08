@@ -38,7 +38,7 @@ pub(crate) async fn note_create(
     let front_matter = build_front_matter(
         &note_id,
         &request.title,
-        &request.note_type,
+        request.archetype.as_deref(),
         ghost_name,
         trust_score,
         request.parent.as_deref(),
@@ -74,7 +74,8 @@ pub(crate) async fn note_create(
         pool,
         &note_id,
         &ingested.note.title,
-        &ingested.note.note_type,
+        &ingested.note.entry_type,
+        ingested.note.archetype.as_deref(),
         &ingested.chunks,
     )
     .await?;
@@ -154,7 +155,8 @@ pub(crate) async fn note_update(
         pool,
         &request.note_id,
         &ingested.note.title,
-        &ingested.note.note_type,
+        &ingested.note.entry_type,
+        ingested.note.archetype.as_deref(),
         &ingested.chunks,
     )
     .await?;
@@ -311,7 +313,7 @@ pub(crate) fn verify_write_access(ghost_name: &str, doc: &NoteDocument) -> Knowl
 pub(crate) fn build_front_matter(
     id: &str,
     title: &str,
-    note_type: &str,
+    archetype: Option<&str>,
     ghost_name: &str,
     trust_score: i64,
     parent: Option<&str>,
@@ -322,7 +324,9 @@ pub(crate) fn build_front_matter(
     let mut lines = Vec::new();
     lines.push(format!("id = \"{}\"", id));
     lines.push(format!("title = \"{}\"", title.replace('"', "\\\"")));
-    lines.push(format!("type = \"{}\"", note_type));
+    if let Some(arch) = archetype {
+        lines.push(format!("archetype = \"{}\"", arch));
+    }
     lines.push(format!("created_at = \"{}\"", now.to_rfc3339()));
     lines.push(format!("trust_score = {}", trust_score));
     if let Some(parent_id) = parent {
@@ -348,7 +352,12 @@ pub(crate) fn rebuild_front_matter(front: &crate::parser::FrontMatter) -> String
     let mut lines = Vec::new();
     lines.push(format!("id = \"{}\"", front.id));
     lines.push(format!("title = \"{}\"", front.title.replace('"', "\\\"")));
-    lines.push(format!("type = \"{}\"", front.note_type));
+    // Write archetype if present; fall back to type for reference files
+    if let Some(archetype) = &front.archetype {
+        lines.push(format!("archetype = \"{}\"", archetype));
+    } else if let Some(note_type) = &front.note_type {
+        lines.push(format!("type = \"{}\"", note_type));
+    }
     lines.push(format!(
         "created_at = \"{}\"",
         front.created_at.to_rfc3339()

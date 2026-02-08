@@ -328,8 +328,8 @@ pub(crate) async fn hydrate_summaries_boosted(
 
     for (chunk_id, score) in ranked {
         let row = if scope.is_shared() {
-            sqlx::query_as::<_, (String, String, String, String, i64, String, String)>(
-                r#"SELECT n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, c.content
+            sqlx::query_as::<_, (String, String, String, Option<String>, String, i64, String, String)>(
+                r#"SELECT n.id, n.title, n.entry_type, n.archetype, n.path, n.trust_score, n.scope, c.content
                    FROM chunks c
                    JOIN notes n ON n.id = c.note_id
                    WHERE c.id = ? AND n.scope = ? AND n.owner_ghost IS NULL
@@ -340,8 +340,8 @@ pub(crate) async fn hydrate_summaries_boosted(
             .fetch_optional(pool)
             .await?
         } else {
-            sqlx::query_as::<_, (String, String, String, String, i64, String, String)>(
-                r#"SELECT n.id, n.title, n.note_type, n.path, n.trust_score, n.scope, c.content
+            sqlx::query_as::<_, (String, String, String, Option<String>, String, i64, String, String)>(
+                r#"SELECT n.id, n.title, n.entry_type, n.archetype, n.path, n.trust_score, n.scope, c.content
                    FROM chunks c
                    JOIN notes n ON n.id = c.note_id
                    WHERE c.id = ? AND n.scope = ? AND n.owner_ghost = ?
@@ -354,10 +354,10 @@ pub(crate) async fn hydrate_summaries_boosted(
             .await?
         };
 
-        if let Some((id, title, note_type, path, trust_score, scope, content)) = row {
+        if let Some((id, title, entry_type, archetype, path, trust_score, scope, content)) = row {
             let snippet = content.chars().take(200).collect::<String>();
             let trust_boost = 1.0 + (trust_score as f32 / 20.0);
-            let type_boost = match note_type.as_str() {
+            let type_boost = match entry_type.as_str() {
                 "ReferenceDocs" => doc_boost,
                 _ => 1.0,
             };
@@ -369,7 +369,8 @@ pub(crate) async fn hydrate_summaries_boosted(
             summaries.push(NoteSummary {
                 id,
                 title,
-                note_type,
+                entry_type,
+                archetype,
                 path: path.into(),
                 scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
                 trust_score,

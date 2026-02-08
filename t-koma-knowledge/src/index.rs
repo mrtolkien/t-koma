@@ -99,7 +99,8 @@ async fn index_reference_topics(
             store,
             &note.note.id,
             &note.note.title,
-            &note.note.note_type,
+            &note.note.entry_type,
+            note.note.archetype.as_deref(),
             &note.chunks,
         )
         .await?;
@@ -186,7 +187,8 @@ async fn index_collections(
                 store,
                 &note.id,
                 &note.title,
-                &note.note_type,
+                &note.entry_type,
+                note.archetype.as_deref(),
                 &ingested.chunks,
             )
             .await?;
@@ -273,7 +275,7 @@ async fn index_reference_files(
             .file_name()
             .and_then(|v| v.to_str())
             .unwrap_or(rel_path);
-        let note_type = role.to_note_type();
+        let entry_type = role.to_entry_type();
 
         let context_prefix = determine_context_prefix(rel_path, topic_title, collection_contexts);
 
@@ -283,7 +285,7 @@ async fn index_reference_files(
             &raw,
             &note_id,
             title,
-            note_type,
+            entry_type,
             Some(&context_prefix),
         )
         .await?;
@@ -297,7 +299,8 @@ async fn index_reference_files(
             store,
             &ingested.note.id,
             &ingested.note.title,
-            &ingested.note.note_type,
+            &ingested.note.entry_type,
+            ingested.note.archetype.as_deref(),
             &ingested.chunks,
         )
         .await?;
@@ -384,7 +387,8 @@ async fn index_diary_tree(
             store,
             &ingested.note.id,
             &ingested.note.title,
-            &ingested.note.note_type,
+            &ingested.note.entry_type,
+            ingested.note.archetype.as_deref(),
             &ingested.chunks,
         )
         .await?;
@@ -441,7 +445,8 @@ async fn index_markdown_tree(
             store,
             &ingested.note.id,
             &ingested.note.title,
-            &ingested.note.note_type,
+            &ingested.note.entry_type,
+            ingested.note.archetype.as_deref(),
             &ingested.chunks,
         )
         .await?;
