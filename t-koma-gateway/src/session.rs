@@ -154,21 +154,29 @@ async fn discover_skills_listing(
     workspace_root: &std::path::Path,
     skill_paths: &[std::path::PathBuf],
 ) -> String {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     let mut skills: HashMap<String, String> = HashMap::new();
 
-    // Scan configured paths first (lowest priority)
+    // Scan configured paths first (lowest priority) and track default skill names
+    let mut default_names: HashSet<String> = HashSet::new();
     for dir in skill_paths.iter().rev() {
         if let Ok(found) = scan_skills_dir(dir).await {
+            for (name, _) in &found {
+                default_names.insert(name.clone());
+            }
             skills.extend(found);
         }
     }
 
-    // Ghost-local skills override everything
+    // Ghost workspace skills: label only truly ghost-created ones (not synced defaults)
     let workspace_skills = workspace_root.join("skills");
     if let Ok(found) = scan_skills_dir(&workspace_skills).await {
         for (name, desc) in found {
-            skills.insert(format!("{name} (ghost-created)"), desc);
+            if default_names.contains(&name) {
+                skills.insert(name, desc);
+            } else {
+                skills.insert(format!("{name} (ghost-created)"), desc);
+            }
         }
     }
 
@@ -235,6 +243,82 @@ fn parse_skill_frontmatter(content: &str) -> Option<(String, String)> {
     }
 
     Some((name?, description.unwrap_or_default()))
+}
+
+/// Sync skills from source paths into the ghost workspace skills directory.
+///
+/// For each skill found in the source paths (user config, project defaults),
+/// copies the entire skill directory to `$WORKSPACE/skills/{name}/`.
+/// Overwrites existing files if content has changed; skips if identical.
+/// Ghost-created skills (those not present in source paths) are left untouched.
+async fn sync_default_skills(workspace_root: &std::path::Path, skill_paths: &[std::path::PathBuf]) {
+    use std::collections::HashSet;
+
+    let dest_root = workspace_root.join("skills");
+
+    // Collect all skill names from source paths (dedup: first occurrence wins)
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for source_dir in skill_paths {
+        let Ok(mut entries) = tokio::fs::read_dir(source_dir).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let src_path = entry.path();
+            if !src_path.is_dir() {
+                continue;
+            }
+            let Some(skill_name) = src_path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            // Only process each skill name once (highest priority source wins)
+            if !seen.insert(skill_name.to_string()) {
+                continue;
+            }
+            // Must have a SKILL.md to be considered a valid skill
+            if !src_path.join("SKILL.md").exists() {
+                continue;
+            }
+            let dest_skill = dest_root.join(skill_name);
+            if let Err(e) = sync_skill_dir(&src_path, &dest_skill).await {
+                tracing::warn!(skill = skill_name, error = %e, "Failed to sync skill");
+            }
+        }
+    }
+}
+
+/// Recursively sync a single skill directory from source to destination.
+///
+/// Only writes files whose content differs from the destination, keeping
+/// the operation idempotent and fast for repeated calls.
+async fn sync_skill_dir(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+    tokio::fs::create_dir_all(dest).await?;
+
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dest_path = dest.join(&file_name);
+
+        if src_path.is_dir() {
+            Box::pin(sync_skill_dir(&src_path, &dest_path)).await?;
+        } else {
+            let src_bytes = tokio::fs::read(&src_path).await?;
+            let needs_write = match tokio::fs::read(&dest_path).await {
+                Ok(dest_bytes) => dest_bytes != src_bytes,
+                Err(_) => true,
+            };
+            if needs_write {
+                tokio::fs::write(&dest_path, &src_bytes).await?;
+                tracing::debug!(
+                    file = %dest_path.display(),
+                    "Synced skill file"
+                );
+            }
+        }
+    }
+
+    Ok(())
 }
 
 impl SessionChat {
@@ -827,6 +911,9 @@ impl SessionChat {
             }
         }
         let ghost_projects = project_parts.join("\n\n");
+
+        // Sync default skills into ghost workspace so they're accessible via read_file
+        sync_default_skills(workspace_root, &self.skill_paths).await;
 
         // Available skills (ghost-local override config/project)
         let ghost_skills = discover_skills_listing(workspace_root, &self.skill_paths).await;
