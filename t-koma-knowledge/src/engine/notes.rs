@@ -420,11 +420,10 @@ pub(crate) async fn note_delete(
 
     // Delete from DB: chunks (FTS + vec), tags, links, then the note itself
     let pool = engine.pool();
-    let existing_chunk_ids: Vec<(i64,)> =
-        sqlx::query_as("SELECT id FROM chunks WHERE note_id = ?")
-            .bind(note_id)
-            .fetch_all(pool)
-            .await?;
+    let existing_chunk_ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM chunks WHERE note_id = ?")
+        .bind(note_id)
+        .fetch_all(pool)
+        .await?;
 
     sqlx::query("DELETE FROM chunks WHERE note_id = ?")
         .bind(note_id)

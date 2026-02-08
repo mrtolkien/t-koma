@@ -70,6 +70,7 @@ Make extensive use of MCPs available to you:
     - Run `cargo check --all-features --all-targets`.
     - Run `cargo clippy --all-features --all-targets`.
     - Run `cargo test` (no live-tests).
+    - Run `cargo fmt --all`
   - Once an atomic feature is added, make an atomic commit in the
     conventional-commit style (`feat:`, `fix:`, ...)
 - Create a pull request with the gh mcp
@@ -141,13 +142,13 @@ Transport layers (Discord, WebSocket) do NOT manage tools. They call
 neutral model internally.
 
 CLI admin actions that need cross-interface side effects (for example operator
-approval that must trigger a Discord follow-up prompt) must go through a
-gateway WebSocket command handled in `t-koma-gateway`, not direct CLI DB writes.
+approval that must trigger a Discord follow-up prompt) must go through a gateway
+WebSocket command handled in `t-koma-gateway`, not direct CLI DB writes.
 
 Gateway outbound responses use semantic `GatewayMessage` payloads in
-`t-koma-core::message` and are rendered per interface. Every interactive
-gateway message must include a plaintext `text_fallback` path so non-rich
-interfaces can still operate with plain replies.
+`t-koma-core::message` and are rendered per interface. Every interactive gateway
+message must include a plaintext `text_fallback` path so non-rich interfaces can
+still operate with plain replies.
 
 ## Architecture Guardrails
 
@@ -321,15 +322,14 @@ Memory write tools:
   NOT indexed. Requires `source` field for provenance tracking. Inbox items are
   processed during the reflection job.
 - `note_write`: Consolidated tool for note operations. Actions: `create`,
-  `update`, `validate`, `comment`, `delete`.
-  (skill: `note-writer`)
+  `update`, `validate`, `comment`, `delete`. (skill: `note-writer`)
 
 Reference write tools:
 
-- `reference_write`: Consolidated tool for reference operations. Actions:
-  `save` (file content or topic upsert), `update` (file status or topic
-  metadata), `delete` (file only). The `path` field determines scope: present =
-  file operation, absent = topic operation. No approval needed.
+- `reference_write`: Consolidated tool for reference operations. Actions: `save`
+  (file content or topic upsert), `update` (file status or topic metadata),
+  `delete` (file only). The `path` field determines scope: present = file
+  operation, absent = topic operation. No approval needed.
 - `reference_import`: Bulk import from git repos, web pages, and crawled doc
   sites into a reference topic. Source types: `git`, `web`, `crawl` (BFS from
   seed URL). Sources can have a `role` (docs/code) to control search boost.
@@ -385,8 +385,8 @@ References use a **Topic > Collection > File** structure:
 
 - **Topic**: Broad knowledge container (e.g., "3d-printers", "dioxus"). Stored
   in `topic.md` with `type = "ReferenceTopic"`.
-- **Collection**: Sub-grouping within a topic (e.g., `bambulab-a1/`). Stored
-  in `_index.md` with `type = "ReferenceCollection"`. Indexed for search.
+- **Collection**: Sub-grouping within a topic (e.g., `bambulab-a1/`). Stored in
+  `_index.md` with `type = "ReferenceCollection"`. Indexed for search.
 - **Reference file**: Individual content unit. Raw content, no front matter.
   Per-file metadata (source_url, fetched_at, status, role) in DB.
 
@@ -396,8 +396,8 @@ Tools that need operator confirmation use `ApprovalReason` in
 `tools/context.rs`. Current variants:
 
 - `WorkspaceEscape(path)`: Tool wants to access files outside the workspace.
-- `ReferenceImport { title, summary }`: Ghost wants to import external
-  sources into a reference topic.
+- `ReferenceImport { title, summary }`: Ghost wants to import external sources
+  into a reference topic.
 
 The two-phase pattern: Phase 1 returns `APPROVAL_REQUIRED:` error with metadata.
 On approval, Phase 2 re-executes with `has_approval()` returning true. See

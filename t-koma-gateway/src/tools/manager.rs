@@ -5,11 +5,10 @@ use serde_json::Value;
 use super::{
     Tool, ToolContext, change_directory::ChangeDirectoryTool, create_file::CreateFileTool,
     file_edit::FileEditTool, find_files::FindFilesTool, knowledge_get::KnowledgeGetTool,
-    knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool,
-    load_skill::LoadSkillTool, memory_capture::MemoryCaptureTool,
-    note_write::NoteWriteTool, read_file::ReadFileTool,
-    reference_import::ReferenceImportTool, reference_write::ReferenceWriteTool,
-    search::SearchTool, shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
+    knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool, load_skill::LoadSkillTool,
+    memory_capture::MemoryCaptureTool, note_write::NoteWriteTool, read_file::ReadFileTool,
+    reference_import::ReferenceImportTool, reference_write::ReferenceWriteTool, search::SearchTool,
+    shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
 /// Central manager for all AI tools

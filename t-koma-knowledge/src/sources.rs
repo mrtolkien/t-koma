@@ -256,7 +256,7 @@ pub async fn fetch_crawl_source(
     let config = crate::crawl::CrawlConfig {
         seed_url,
         max_depth: source.max_depth.unwrap_or(1).min(3),
-        max_pages: source.max_pages.unwrap_or(20).min(100),
+        max_pages: source.max_pages.unwrap_or(50).min(200),
     };
 
     let pages = crate::crawl::crawl_domain(&config).await?;

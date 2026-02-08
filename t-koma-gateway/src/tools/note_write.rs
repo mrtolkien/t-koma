@@ -163,9 +163,7 @@ impl Tool for NoteWriteTool {
                 serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
             }
             "validate" => {
-                let note_id = input
-                    .note_id
-                    .ok_or("'note_id' is required for validate")?;
+                let note_id = input.note_id.ok_or("'note_id' is required for validate")?;
                 let result = engine
                     .note_validate(context.ghost_name(), &note_id, input.trust_score)
                     .await
@@ -174,7 +172,9 @@ impl Tool for NoteWriteTool {
             }
             "comment" => {
                 let note_id = input.note_id.ok_or("'note_id' is required for comment")?;
-                let text = input.comment.ok_or("'comment' is required for comment action")?;
+                let text = input
+                    .comment
+                    .ok_or("'comment' is required for comment action")?;
                 let result = engine
                     .note_comment(context.ghost_name(), &note_id, &text)
                     .await

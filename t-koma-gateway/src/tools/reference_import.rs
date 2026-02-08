@@ -89,7 +89,7 @@ impl Tool for ReferenceImportTool {
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 100,
-                                "description": "Max pages to fetch for crawl sources. Default: 20, max: 100."
+                                "description": "Max pages to fetch for crawl sources. Default: 50, max: 200."
                             }
                         },
                         "required": ["type", "url"],

@@ -172,11 +172,7 @@ impl KnowledgeEngine {
     }
 
     /// Delete a note and all associated DB records (chunks, tags, links).
-    pub async fn note_delete(
-        &self,
-        ghost_name: &str,
-        note_id: &str,
-    ) -> KnowledgeResult<()> {
+    pub async fn note_delete(&self, ghost_name: &str, note_id: &str) -> KnowledgeResult<()> {
         notes::note_delete(self, ghost_name, note_id).await
     }
 

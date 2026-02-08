@@ -118,8 +118,7 @@ impl Tool for ReferenceWriteTool {
     }
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
-        let input: ReferenceWriteInput =
-            serde_json::from_value(args).map_err(|e| e.to_string())?;
+        let input: ReferenceWriteInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         let engine = context
             .knowledge_engine()
@@ -193,8 +192,7 @@ async fn execute_save(
             let request = t_koma_knowledge::ReferenceSaveRequest {
                 topic: input.topic,
                 path: "topic-readme.md".to_string(),
-                content: "Topic overview — add reference files to populate this topic."
-                    .to_string(),
+                content: "Topic overview — add reference files to populate this topic.".to_string(),
                 source_url: None,
                 role: Some(t_koma_knowledge::SourceRole::Docs),
                 title: Some("Topic Overview".to_string()),
@@ -223,9 +221,7 @@ async fn execute_update(
     if input.path.is_some() || input.note_id.is_some() {
         // File-level update — change status
         let note_id = resolve_file_id(engine, &input).await?;
-        let status_str = input
-            .status
-            .ok_or("'status' is required for file update")?;
+        let status_str = input.status.ok_or("'status' is required for file update")?;
         let status: t_koma_knowledge::ReferenceFileStatus =
             status_str.parse().map_err(|e: String| e)?;
 
@@ -234,7 +230,10 @@ async fn execute_update(
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok(format!("Reference file {} marked as {}", note_id, status_str))
+        Ok(format!(
+            "Reference file {} marked as {}",
+            note_id, status_str
+        ))
     } else {
         // Topic-level update
         let (topic_id, _title) = engine
@@ -292,7 +291,12 @@ async fn resolve_file_id(
     let doc = engine
         .reference_get(None, Some(&input.topic), Some(path), Some(100))
         .await
-        .map_err(|e| format!("No reference file at path '{}' in topic '{}': {}", path, input.topic, e))?;
+        .map_err(|e| {
+            format!(
+                "No reference file at path '{}' in topic '{}': {}",
+                path, input.topic, e
+            )
+        })?;
 
     Ok(doc.id)
 }
