@@ -20,12 +20,6 @@ const HEARTBEAT_IDLE_MINUTES: i64 = 15;
 const HEARTBEAT_CHECK_SECONDS: u64 = 60;
 const DEFAULT_HEARTBEAT_ACK_MAX_CHARS: usize = 300;
 
-const DEFAULT_HEARTBEAT_PROMPT: &str = "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. \
-Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. \
-Also review the inbox and promote items into notes.";
-
-const HEARTBEAT_TEMPLATE: &str = include_str!("../prompts/heartbeat-template.md");
-
 struct StripResult {
     should_skip: bool,
 }
@@ -121,29 +115,17 @@ fn strip_heartbeat_token(raw: &str, max_ack_chars: usize) -> StripResult {
     StripResult { should_skip: false }
 }
 
-fn strip_front_matter(raw: &str) -> &str {
-    if !raw.starts_with("---") {
-        return raw;
-    }
-    if let Some(end) = raw.find("\n---") {
-        let start = end + "\n---".len();
-        return raw[start..].trim_start();
-    }
-    raw
-}
-
 pub fn ensure_heartbeat_file(workspace_path: &Path) -> std::io::Result<()> {
     let path = workspace_path.join("HEARTBEAT.md");
     if path.exists() {
         return Ok(());
     }
-    let content = strip_front_matter(HEARTBEAT_TEMPLATE);
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)?;
     use std::io::Write;
-    file.write_all(content.as_bytes())?;
+    file.write_all(b"")?;
     Ok(())
 }
 
@@ -238,8 +220,6 @@ async fn run_heartbeat_for_session(
     session: &Session,
     heartbeat_model_alias: Option<&str>,
 ) -> Result<JobChatResult, ChatError> {
-    let prompt = DEFAULT_HEARTBEAT_PROMPT;
-
     let model = if let Some(alias) = heartbeat_model_alias {
         state
             .get_model_by_alias(alias)
@@ -249,6 +229,10 @@ async fn run_heartbeat_for_session(
     };
 
     let ghost_db = state.get_or_init_ghost_db(ghost_name).await?;
+    let heartbeat_path = ghost_db.workspace_path().join("HEARTBEAT.md");
+    let prompt = fs::read_to_string(&heartbeat_path)
+        .await
+        .unwrap_or_default();
 
     state
         .session_chat
@@ -260,7 +244,7 @@ async fn run_heartbeat_for_session(
             &model.model,
             &session.id,
             &session.operator_id,
-            prompt,
+            prompt.trim(),
             true, // load session history — ghost needs conversation context
         )
         .await
@@ -331,26 +315,58 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 override_entry,
             );
             state.set_heartbeat_due(&chat_key, next_due).await;
+            let model_alias = heartbeat_model_alias.as_deref();
 
             if let Some(entry) = override_entry
                 && now_ts < entry.next_due
             {
+                crate::reflection::maybe_run_reflection(
+                    &state,
+                    &ghost.name,
+                    &session.id,
+                    &session.operator_id,
+                    model_alias,
+                )
+                .await;
                 continue;
             }
 
             if override_entry.is_none() && session.updated_at > threshold_ts {
+                crate::reflection::maybe_run_reflection(
+                    &state,
+                    &ghost.name,
+                    &session.id,
+                    &session.operator_id,
+                    model_alias,
+                )
+                .await;
                 continue;
             }
 
             if override_entry.is_none() && had_ok_heartbeat {
+                crate::reflection::maybe_run_reflection(
+                    &state,
+                    &ghost.name,
+                    &session.id,
+                    &session.operator_id,
+                    model_alias,
+                )
+                .await;
                 continue;
             }
 
             if should_skip_empty_heartbeat_file(ghost_db.workspace_path()).await {
+                crate::reflection::maybe_run_reflection(
+                    &state,
+                    &ghost.name,
+                    &session.id,
+                    &session.operator_id,
+                    model_alias,
+                )
+                .await;
                 continue;
             }
 
-            let model_alias = heartbeat_model_alias.as_deref();
             state.set_chat_in_flight(&chat_key).await;
             let result =
                 run_heartbeat_for_session(state.as_ref(), &ghost.name, &session, model_alias).await;

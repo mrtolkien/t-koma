@@ -4,17 +4,28 @@ References are curated external knowledge (documentation, articles, code, data)
 organized into searchable topics. Save references during normal conversation
 when you encounter valuable external content.
 
-### When to Save References
+### What to Save as References
+
+Save when one of the following let you answer a user's question with information
+you wouldn't have had otherwise:
 
 - Blog posts, articles, or documentation you fetched with `web_fetch`
+- Wiki pages
 - API specs, protocol docs, or configuration references
 - Research findings about libraries or frameworks
-- Any external content worth preserving for future conversations
+- Any external content worth preserving for future conversations (products
+  pages, specs pages, forum posts, ...)
+- JSONs with valuable data. While search might be iffy, you can access private
+  references through filesystem tools and write scripts to interact with them.
 
-Do NOT save as references:
-- Conversation learnings or operator preferences (use `memory_capture`)
-- Your own analysis or opinions (use `note_write`)
-- Ephemeral or one-off answers
+Focus on PRIMARY SOURCES, and on trusted and respected websites in their
+respective field:
+
+- If you see a source for the info you searched in the page you fetched: fetch
+  that page.
+- If you have trouble with accessing a primary source, try to access it through
+  the WayBack machine's CDX API:
+  `http://archive.org/wayback/available?url=example.com`
 
 ### Topic > Collection > File Hierarchy
 
@@ -31,13 +42,14 @@ scope: present = file operation, absent = topic operation.
 
 **Actions:**
 
-| Action   | With path              | Without path                        |
-| -------- | ---------------------- | ----------------------------------- |
-| `save`   | Save file content      | Create/update topic                 |
-| `update` | Change file status     | Update topic metadata (body, tags)  |
-| `delete` | Delete reference file  | Error (topic deletion is admin-only)|
+| Action   | With path             | Without path                         |
+| -------- | --------------------- | ------------------------------------ |
+| `save`   | Save file content     | Create/update topic                  |
+| `update` | Change file status    | Update topic metadata (body, tags)   |
+| `delete` | Delete reference file | Error (topic deletion is admin-only) |
 
 **Saving files** (most common):
+
 ```
 reference_write(action="save", topic="dioxus", path="guide/state-management.md",
   content="...", source_url="https://...", role="docs",
@@ -47,9 +59,12 @@ reference_write(action="save", topic="dioxus", path="guide/state-management.md",
 **Roles**: `docs` (boosted 1.5x in search), `code`, `data`. Default: `docs`.
 
 **File status** (for managing quality):
+
 - `active`: Normal ranking (default)
-- `problematic`: Partially wrong — penalized in search (0.5x). Always provide a reason.
-- `obsolete`: Completely outdated — excluded from search. Always provide a reason.
+- `problematic`: Partially wrong — penalized in search (0.5x). Always provide a
+  reason.
+- `obsolete`: Completely outdated — excluded from search. Always provide a
+  reason.
 
 ### `reference_import` Tool
 
@@ -61,7 +76,16 @@ from seed URL, follows same-host links). Use for large-scale imports; use
 ### Always Search First
 
 Before creating a new topic, check for existing ones:
+
 ```
 knowledge_search(query="your topic", categories=["topics"])
 ```
+
 Topic names are fuzzy-matched, so "dioxus" will find an existing "Dioxus" topic.
+
+### Reference researcher skill
+
+Load the reference researcher skill when:
+
+- You want to create a new topic and document it
+- You are struggling with finding good references for a hard question

@@ -9,7 +9,7 @@ embeddings). Use it proactively.
 | ------------------------ | ---------- | -------------------------------------------------------------------------- |
 | **SharedNote**           | All ghosts | Cross-ghost knowledge, team documentation                                  |
 | **SharedReference**      | All ghosts | Ghost-curated reference corpus from external sources (git repos, web docs) |
-| **GhostNote (private)**  | You only   | Personal notes, identity files, inbox                                      |
+| **GhostNote (private)**  | You only   | Personal notes, identity files                                             |
 | **GhostNote (projects)** | You only   | Project-specific notes and research                                        |
 | **GhostDiary**           | You only   | Daily diary entries (plain markdown, YYYY-MM-DD.md)                        |
 
@@ -56,12 +56,13 @@ on quality conversation, not curation.
 - Error patterns and their solutions
 
 **Save more than you think necessary** — it's cheap to capture and expensive to
-lose information.
+lose information. You'll organize it later, during your reflection time.
 
 ### Examples
 
-**Product comparison**: After researching two libraries, capture the comparison
-with source URLs so you can reference it later without re-searching.
+**Product comparison**: After researching two products, capture the comparison
+with source URLs (saved as references) so you can reference it later without
+re-searching.
 
 **Conversation learning**: The operator corrects your understanding of their
 codebase architecture — capture the correction immediately so you don't repeat
@@ -72,25 +73,8 @@ findings with source URLs before the conversation moves on.
 
 ## Writing Notes
 
-Use the `note_write` tool to create, update, validate, comment on, or delete
-structured notes. Load the `note-writer` skill first for detailed guidance.
-
-Actions: `create`, `update`, `validate`, `comment`, `delete`.
-
-Notes are organized into tag-based subfolders derived from the first tag. Short
-notes (under ~1500 chars) are indexed as a single embedding for precise
-retrieval. Tags are included in the search index, so tag your notes well.
-
-## Wiki Links
-
-Notes can reference any shared content by title using `[[Title]]` or
-`[[Title|alias]]` syntax. Links can target:
-
-- Other notes in the same or shared scopes
-- Reference topics by their title
-
-Links are resolved at index time and stored as edges in the knowledge graph,
-enabling graph-depth traversal during search.
+You will write notes during lulls in the conversation. Only create notes during
+the conversation if absolutely necessary.
 
 ## Skills
 
