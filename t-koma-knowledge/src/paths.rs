@@ -64,11 +64,3 @@ pub fn knowledge_db_path(settings: &KnowledgeSettings) -> KnowledgeResult<PathBu
     }
     Ok(data_root(settings)?.join("shared").join("index.sqlite3"))
 }
-
-/// Types allowlist file: `$DATA/shared/notes/types.toml`
-pub fn types_allowlist_path(settings: &KnowledgeSettings) -> KnowledgeResult<PathBuf> {
-    if let Some(path) = &settings.types_allowlist_path {
-        return Ok(path.clone());
-    }
-    Ok(shared_notes_root(settings)?.join("types.toml"))
-}

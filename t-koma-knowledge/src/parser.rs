@@ -8,8 +8,11 @@ use crate::errors::{KnowledgeError, KnowledgeResult};
 pub struct FrontMatter {
     pub id: String,
     pub title: String,
+    /// Archetype field for notes (preferred). Falls back to `type` for backwards compat.
+    pub archetype: Option<String>,
+    /// Legacy `type` field — used by reference files and for backwards compat.
     #[serde(rename = "type")]
-    pub note_type: String,
+    pub note_type: Option<String>,
     pub created_at: DateTime<Utc>,
     pub created_by: CreatedBy,
     pub trust_score: i64,
@@ -20,6 +23,20 @@ pub struct FrontMatter {
     pub tags: Option<Vec<String>>,
     pub source: Option<Vec<SourceEntry>>,
     pub version: Option<i64>,
+}
+
+impl FrontMatter {
+    /// Resolve the effective archetype: `archetype` field takes precedence, falls back to `type`.
+    pub fn effective_archetype(&self) -> Option<String> {
+        self.archetype
+            .clone()
+            .or_else(|| self.note_type.clone().map(|t| t.to_lowercase()))
+    }
+
+    /// Resolve the effective type field value (for reference front matter).
+    pub fn effective_type(&self) -> Option<&str> {
+        self.note_type.as_deref()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,9 +81,6 @@ pub fn parse_note(raw: &str) -> KnowledgeResult<ParsedNote> {
     }
     if front.title.trim().is_empty() {
         return Err(KnowledgeError::MissingField("title"));
-    }
-    if front.note_type.trim().is_empty() {
-        return Err(KnowledgeError::MissingField("type"));
     }
 
     let links = extract_links(&body);
@@ -143,8 +157,38 @@ This is a body with [[Link Target]] and [[Another|Alias]].
         let parsed = parse_note(raw).expect("parse note");
         assert_eq!(parsed.front.id, "note-1");
         assert_eq!(parsed.front.title, "Test Note");
+        assert_eq!(parsed.front.note_type.as_deref(), Some("Concept"));
+        assert_eq!(
+            parsed.front.effective_archetype(),
+            Some("concept".to_string())
+        );
         assert_eq!(parsed.links.len(), 2);
         assert_eq!(parsed.links[0].target, "Link Target");
         assert_eq!(parsed.links[1].alias.as_deref(), Some("Alias"));
+    }
+
+    #[test]
+    fn parses_archetype_field() {
+        let raw = r#"+++
+id = "note-2"
+title = "Person Note"
+archetype = "person"
+created_at = "2025-01-01T00:00:00Z"
+trust_score = 5
+[created_by]
+ghost = "tester"
+model = "test-model"
++++
+
+Body here.
+"#;
+
+        let parsed = parse_note(raw).expect("parse note");
+        assert_eq!(parsed.front.archetype.as_deref(), Some("person"));
+        assert!(parsed.front.note_type.is_none());
+        assert_eq!(
+            parsed.front.effective_archetype(),
+            Some("person".to_string())
+        );
     }
 }

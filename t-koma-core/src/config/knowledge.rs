@@ -24,8 +24,6 @@ pub struct KnowledgeSettings {
     #[serde(default = "default_reconcile_seconds")]
     pub reconcile_seconds: u64,
     #[serde(default)]
-    pub types_allowlist_path: Option<PathBuf>,
-    #[serde(default)]
     pub knowledge_db_path_override: Option<PathBuf>,
     /// Override the root data directory for all knowledge paths.
     /// When set, all paths (shared notes, references, ghost dirs) derive from
@@ -44,7 +42,6 @@ impl Default for KnowledgeSettings {
             embedding_dim: None,
             embedding_batch: default_embedding_batch(),
             reconcile_seconds: default_reconcile_seconds(),
-            types_allowlist_path: None,
             knowledge_db_path_override: None,
             data_root_override: None,
             search: SearchDefaults::default(),
@@ -147,9 +144,6 @@ impl From<&KnowledgeToolsSettings> for KnowledgeSettings {
         }
         if let Some(seconds) = value.reconcile_seconds {
             settings.reconcile_seconds = seconds;
-        }
-        if let Some(path) = &value.types_allowlist_path {
-            settings.types_allowlist_path = Some(PathBuf::from(path));
         }
         if let Some(path) = &value.knowledge_db_path_override {
             settings.knowledge_db_path_override = Some(PathBuf::from(path));
