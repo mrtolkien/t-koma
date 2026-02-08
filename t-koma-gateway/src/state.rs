@@ -7,9 +7,9 @@ use chrono::Utc;
 use serde::Serialize;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
-use tracing::error;
 #[cfg(feature = "live-tests")]
 use tracing::info;
+use tracing::{error, warn};
 
 use crate::content::{self, ids};
 use crate::providers::provider::Provider;
@@ -540,7 +540,28 @@ impl AppState {
             .await;
         self.clear_chat_in_flight(&chat_key).await;
 
-        let text = response?;
+        let text = match response {
+            Ok(text) => text,
+            Err(ChatError::EmptyResponse) => {
+                let message_preview = if message.len() > 240 {
+                    format!("{}...", &message[..240])
+                } else {
+                    message.clone()
+                };
+                warn!(
+                    event_kind = "chat_io",
+                    operator_id = operator_id,
+                    ghost_name = ghost_name,
+                    session_id = session_id,
+                    provider = model.provider.as_str(),
+                    model = model.model.as_str(),
+                    message_preview = message_preview.as_str(),
+                    "empty final response from provider"
+                );
+                return Err(ChatError::EmptyResponse);
+            }
+            Err(err) => return Err(err),
+        };
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),
@@ -606,7 +627,29 @@ impl AppState {
             .await;
         self.clear_chat_in_flight(&chat_key).await;
 
-        let text = response?;
+        let text = match response {
+            Ok(text) => text,
+            Err(ChatError::EmptyResponse) => {
+                let message_preview = if message.len() > 240 {
+                    format!("{}...", &message[..240])
+                } else {
+                    message.clone()
+                };
+                warn!(
+                    event_kind = "chat_io",
+                    operator_id = operator_id,
+                    ghost_name = ghost_name,
+                    session_id = session_id,
+                    provider = model.provider.as_str(),
+                    model = model.model.as_str(),
+                    model_alias = model_alias,
+                    message_preview = message_preview.as_str(),
+                    "empty final response from provider"
+                );
+                return Err(ChatError::EmptyResponse);
+            }
+            Err(err) => return Err(err),
+        };
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),

@@ -38,6 +38,9 @@ pub enum ChatError {
 
     #[error("Tool loop limit reached")]
     ToolLoopLimitReached(PendingToolContinuation),
+
+    #[error("Provider returned an empty final response")]
+    EmptyResponse,
 }
 
 #[derive(Debug, Clone)]
@@ -647,6 +650,10 @@ impl SessionChat {
 
         // Extract final text and append to transcript
         let text = extract_all_text(&response);
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return Err(ChatError::EmptyResponse);
+        }
 
         info!(
             event_kind = "chat_io",
@@ -1175,6 +1182,10 @@ impl SessionChat {
         response: &ProviderResponse,
     ) -> Result<String, ChatError> {
         let text = extract_all_text(response);
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return Err(ChatError::EmptyResponse);
+        }
 
         info!(
             event_kind = "chat_io",
