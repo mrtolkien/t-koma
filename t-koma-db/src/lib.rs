@@ -15,6 +15,7 @@ pub mod koma_db;
 pub mod operators;
 pub mod sessions;
 mod sqlite_runtime;
+pub mod usage_log;
 
 // Re-export commonly used types
 pub use error::{DbError, DbResult};
@@ -28,6 +29,7 @@ pub use operators::{
     OperatorRepository, OperatorStatus, Platform,
 };
 pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, SessionRepository};
+pub use usage_log::{UsageLog, UsageLogRepository, UsageTotals};
 
 // Re-export test helpers when running tests or when test-helpers feature is enabled
 #[cfg(any(test, feature = "test-helpers"))]
