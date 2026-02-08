@@ -842,7 +842,7 @@ async fn handle_websocket(
                                 }
                             };
 
-                            let target_session_id = if session_id == "active" {
+                            let mut target_session_id = if session_id == "active" {
                                 match t_koma_db::SessionRepository::get_or_create_active(
                                     ghost_db.pool(),
                                     &op_id,
@@ -944,6 +944,88 @@ async fn handle_websocket(
                                     let _ = sender.send(Message::Text(response_json.into())).await;
                                     continue;
                                 }
+                            }
+
+                            let mut content_for_chat = content.clone();
+                            if content.trim().eq_ignore_ascii_case("new") {
+                                let previous_session =
+                                    match t_koma_db::SessionRepository::get_by_id(
+                                        ghost_db.pool(),
+                                        &target_session_id,
+                                    )
+                                    .await
+                                    {
+                                        Ok(Some(session)) => session,
+                                        _ => {
+                                            let error_response = WsResponse::Error {
+                                                message: render_message(ids::INVALID_SESSION, &[]),
+                                            };
+                                            let _ = sender
+                                                .send(Message::Text(
+                                                    serde_json::to_string(&error_response)
+                                                        .unwrap()
+                                                        .into(),
+                                                ))
+                                                .await;
+                                            continue;
+                                        }
+                                    };
+
+                                let new_session = match t_koma_db::SessionRepository::create(
+                                    ghost_db.pool(),
+                                    &op_id,
+                                    None,
+                                )
+                                .await
+                                {
+                                    Ok(session) => session,
+                                    Err(e) => {
+                                        error!("Failed to create session: {}", e);
+                                        let error_response = WsResponse::Error {
+                                            message: render_message(
+                                                ids::FAILED_CREATE_SESSION,
+                                                &[],
+                                            ),
+                                        };
+                                        let _ = sender
+                                            .send(Message::Text(
+                                                serde_json::to_string(&error_response)
+                                                    .unwrap()
+                                                    .into(),
+                                            ))
+                                            .await;
+                                        continue;
+                                    }
+                                };
+
+                                let created = WsResponse::SessionCreated {
+                                    session_id: new_session.id.clone(),
+                                    title: new_session.title.clone(),
+                                };
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&created).unwrap().into(),
+                                    ))
+                                    .await;
+
+                                let state_for_reflection = Arc::clone(&state);
+                                let ghost_name_for_reflection = ghost_name.clone();
+                                let operator_id_for_reflection = op_id.clone();
+                                let previous_session_id = previous_session.id.clone();
+                                let _previous_session_updated_at = previous_session.updated_at;
+                                tokio::spawn(async move {
+                                    crate::reflection::run_reflection_now(
+                                        &state_for_reflection,
+                                        &ghost_name_for_reflection,
+                                        &previous_session_id,
+                                        &operator_id_for_reflection,
+                                        None,
+                                    )
+                                    .await;
+                                });
+
+                                target_session_id = new_session.id;
+                                content_for_chat = "hello".to_string();
                             }
 
                             state
@@ -1144,7 +1226,7 @@ async fn handle_websocket(
                                     &ghost_name,
                                     &target_session_id,
                                     &op_id,
-                                    &content,
+                                    &content_for_chat,
                                 )
                                 .await
                             {

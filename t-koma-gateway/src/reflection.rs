@@ -16,27 +16,84 @@ use crate::state::{AppState, LogEntry};
 use t_koma_db::{JobKind as DbJobKind, JobLog, JobLogRepository};
 
 const REFLECTION_COOLDOWN_SECS: i64 = 30 * 60; // 30 minutes
+const REFLECTION_IDLE_ACTIVITY_SECS: i64 = 30 * 60; // 30 minutes since last session activity
 
 /// Check whether reflection should run for a ghost and, if so, execute it.
 ///
 /// Called from the heartbeat loop after a heartbeat tick completes for a session.
 /// Conditions:
 /// 1. Ghost inbox has files
-/// 2. Last reflection was > 30 minutes ago (tracked via scheduler)
+/// 2. Session has been idle for at least 30 minutes
+/// 3. Last reflection was > 30 minutes ago (tracked via scheduler)
 pub async fn maybe_run_reflection(
+    state: &Arc<AppState>,
+    ghost_name: &str,
+    session_id: &str,
+    session_updated_at: i64,
+    operator_id: &str,
+    heartbeat_model_alias: Option<&str>,
+) {
+    run_reflection(
+        state,
+        ghost_name,
+        session_id,
+        session_updated_at,
+        operator_id,
+        heartbeat_model_alias,
+        true,
+        true,
+    )
+    .await;
+}
+
+/// Run reflection immediately for a specific session.
+///
+/// Used by explicit operator actions (for example creating a new session), where
+/// reflection should start right away for the previous session.
+pub async fn run_reflection_now(
     state: &Arc<AppState>,
     ghost_name: &str,
     session_id: &str,
     operator_id: &str,
     heartbeat_model_alias: Option<&str>,
 ) {
+    run_reflection(
+        state,
+        ghost_name,
+        session_id,
+        Utc::now().timestamp(),
+        operator_id,
+        heartbeat_model_alias,
+        false,
+        false,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_reflection(
+    state: &Arc<AppState>,
+    ghost_name: &str,
+    session_id: &str,
+    session_updated_at: i64,
+    operator_id: &str,
+    heartbeat_model_alias: Option<&str>,
+    enforce_idle_gate: bool,
+    enforce_cooldown_gate: bool,
+) {
     let scheduler_key = format!("reflection:{ghost_name}");
     let now_ts = Utc::now().timestamp();
 
+    // Avoid reflection right after active chat messages.
+    if enforce_idle_gate && now_ts - session_updated_at < REFLECTION_IDLE_ACTIVITY_SECS {
+        return;
+    }
+
     // Check cooldown
-    if let Some(next_due) = state
-        .scheduler_get(JobKind::Reflection, &scheduler_key)
-        .await
+    if enforce_cooldown_gate
+        && let Some(next_due) = state
+            .scheduler_get(JobKind::Reflection, &scheduler_key)
+            .await
         && now_ts < next_due
     {
         return;
