@@ -127,6 +127,7 @@ async fn search_reference_files(
         Some(&note_ids),
         KnowledgeScope::SharedReference,
         "",
+        None,
     )
     .await?;
     let fused = rrf_fuse(settings.search.rrf_k, &bm25_hits, &dense_hits);
@@ -216,6 +217,7 @@ async fn search_reference_topics(
         Some(&topic_ids),
         KnowledgeScope::SharedReference,
         "",
+        None,
     )
     .await?;
     let fused = rrf_fuse(settings.search.rrf_k, &bm25_hits, &dense_hits);
@@ -320,6 +322,7 @@ pub(crate) async fn search_all_reference_files(
         Some(&note_ids),
         KnowledgeScope::SharedReference,
         "",
+        None,
     )
     .await?;
 

@@ -76,6 +76,7 @@ impl KnowledgeEngine {
                 &query,
                 scope,
                 ghost_name,
+                None,
             )
             .await?;
             results.extend(partial);
@@ -323,6 +324,7 @@ impl KnowledgeEngine {
                     &note_query,
                     scope,
                     ghost_name,
+                    query.archetype.as_deref(),
                 )
                 .await?;
                 notes.extend(partial);
