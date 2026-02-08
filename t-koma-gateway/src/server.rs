@@ -1245,19 +1245,22 @@ async fn handle_websocket(
                                         {
                                             Some(ts) => Utc.timestamp_opt(ts, 0).single(),
                                             None => {
-                                                let last_message =
-                                                    t_koma_db::SessionRepository::get_last_message(
+                                                let had_ok_heartbeat =
+                                                    t_koma_db::JobLogRepository::latest_ok_since(
                                                         ghost_db.pool(),
                                                         &s.id,
+                                                        t_koma_db::JobKind::Heartbeat,
+                                                        s.updated_at,
                                                     )
                                                     .await
                                                     .ok()
-                                                    .flatten();
+                                                    .flatten()
+                                                    .is_some();
                                                 let override_entry =
                                                     state.get_heartbeat_override(&chat_key).await;
                                                 crate::heartbeat::next_heartbeat_due_for_session(
                                                     s.updated_at,
-                                                    last_message.as_ref(),
+                                                    had_ok_heartbeat,
                                                     override_entry,
                                                 )
                                                 .and_then(|ts| Utc.timestamp_opt(ts, 0).single())

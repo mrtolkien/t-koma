@@ -7,9 +7,12 @@ use tokio::fs;
 use tokio::time::{Instant, interval_at};
 use tracing::{info, warn};
 
-use crate::session::ChatError;
+use crate::session::{ChatError, JobChatResult};
 use crate::state::{AppState, HeartbeatOverride, LogEntry};
-use t_koma_db::{ContentBlock, GhostRepository, Message, Session, SessionRepository};
+use t_koma_db::{
+    ContentBlock, GhostRepository, JobKind as DbJobKind, JobLog, JobLogRepository, MessageRole,
+    Session, SessionRepository,
+};
 
 const HEARTBEAT_TOKEN: &str = "HEARTBEAT_OK";
 const HEARTBEAT_CONTINUE_TOKEN: &str = "HEARTBEAT_CONTINUE";
@@ -176,38 +179,23 @@ fn is_heartbeat_continue(text: &str) -> bool {
     normalized == HEARTBEAT_CONTINUE_TOKEN
 }
 
-fn extract_message_text(message: &Message) -> String {
-    let mut parts = Vec::new();
-    for block in &message.content {
-        if let ContentBlock::Text { text } = block
-            && !text.trim().is_empty()
-        {
-            parts.push(text.trim());
-        }
-    }
-    parts.join("\n")
-}
-
-fn last_message_is_heartbeat_ok(message: &Message) -> bool {
-    let text = extract_message_text(message);
+fn is_response_heartbeat_ok(text: &str) -> bool {
     if text.trim().is_empty() {
         return false;
     }
-    let stripped = strip_heartbeat_token(&text, DEFAULT_HEARTBEAT_ACK_MAX_CHARS);
+    let stripped = strip_heartbeat_token(text, DEFAULT_HEARTBEAT_ACK_MAX_CHARS);
     stripped.should_skip
 }
 
 pub fn next_heartbeat_due_for_session(
     session_updated_at: i64,
-    last_message: Option<&Message>,
+    had_ok_heartbeat: bool,
     override_entry: Option<HeartbeatOverride>,
 ) -> Option<i64> {
     if let Some(override_entry) = override_entry {
         return Some(override_entry.next_due);
     }
-    if let Some(message) = last_message
-        && last_message_is_heartbeat_ok(message)
-    {
+    if had_ok_heartbeat {
         return None;
     }
     Some(session_updated_at + HEARTBEAT_IDLE_MINUTES * 60)
@@ -249,7 +237,7 @@ async fn run_heartbeat_for_session(
     ghost_name: &str,
     session: &Session,
     heartbeat_model_alias: Option<&str>,
-) -> Result<String, ChatError> {
+) -> Result<JobChatResult, ChatError> {
     let prompt = DEFAULT_HEARTBEAT_PROMPT;
 
     let model = if let Some(alias) = heartbeat_model_alias {
@@ -262,9 +250,9 @@ async fn run_heartbeat_for_session(
 
     let ghost_db = state.get_or_init_ghost_db(ghost_name).await?;
 
-    let response = state
+    state
         .session_chat
-        .chat(
+        .chat_job(
             &ghost_db,
             &state.koma_db,
             model.client.as_ref(),
@@ -273,10 +261,9 @@ async fn run_heartbeat_for_session(
             &session.id,
             &session.operator_id,
             prompt,
+            true, // load session history — ghost needs conversation context
         )
-        .await?;
-
-    Ok(response)
+        .await
 }
 
 pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Option<String>) {
@@ -326,21 +313,21 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 override_entry = None;
             }
 
-            let last_message =
-                match SessionRepository::get_last_message(ghost_db.pool(), &session.id).await {
-                    Ok(msg) => msg,
-                    Err(err) => {
-                        warn!(
-                            "heartbeat: failed to load last message for {}:{}: {err}",
-                            ghost.name, session.id
-                        );
-                        continue;
-                    }
-                };
+            // Check if a successful heartbeat already ran since last session activity
+            let had_ok_heartbeat = JobLogRepository::latest_ok_since(
+                ghost_db.pool(),
+                &session.id,
+                DbJobKind::Heartbeat,
+                session.updated_at,
+            )
+            .await
+            .ok()
+            .flatten()
+            .is_some();
 
             let next_due = next_heartbeat_due_for_session(
                 session.updated_at,
-                last_message.as_ref(),
+                had_ok_heartbeat,
                 override_entry,
             );
             state.set_heartbeat_due(&chat_key, next_due).await;
@@ -355,10 +342,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 continue;
             }
 
-            if override_entry.is_none()
-                && let Some(message) = &last_message
-                && last_message_is_heartbeat_ok(message)
-            {
+            if override_entry.is_none() && had_ok_heartbeat {
                 continue;
             }
 
@@ -373,25 +357,35 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
             state.clear_chat_in_flight(&chat_key).await;
 
             match result {
-                Ok(text) => {
-                    if is_heartbeat_continue(&text) {
+                Ok(job_result) => {
+                    let text = &job_result.response_text;
+
+                    // Determine status and write job log
+                    let status = if is_response_heartbeat_ok(text) {
+                        "ok"
+                    } else if is_heartbeat_continue(text) {
+                        "continue"
+                    } else {
+                        "ran"
+                    };
+
+                    let mut job_log = JobLog::start(DbJobKind::Heartbeat, &session.id);
+                    job_log.transcript = job_result.transcript;
+                    job_log.finish(status);
+
+                    if let Err(err) = JobLogRepository::insert(ghost_db.pool(), &job_log).await {
+                        warn!(
+                            "heartbeat: failed to write job log for {}:{}: {err}",
+                            ghost.name, session.id
+                        );
+                    }
+
+                    if status == "continue" {
                         let last_seen_updated_at = Utc::now().timestamp();
                         let next_due = last_seen_updated_at + 30 * 60;
                         state
                             .set_heartbeat_override(&chat_key, next_due, last_seen_updated_at)
                             .await;
-
-                        if let Ok(Some(last)) =
-                            SessionRepository::get_last_message(ghost_db.pool(), &session.id).await
-                            && matches!(last.role, t_koma_db::MessageRole::Ghost)
-                        {
-                            let last_text = extract_message_text(&last);
-                            if is_heartbeat_continue(&last_text) {
-                                let _ =
-                                    SessionRepository::delete_message(ghost_db.pool(), &last.id)
-                                        .await;
-                            }
-                        }
 
                         state
                             .log(LogEntry::Heartbeat {
@@ -400,7 +394,23 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                                 status: "continue".to_string(),
                             })
                             .await;
-                    } else {
+                    } else if status == "ran" {
+                        // Post the final response to the session as a single ghost message
+                        if let Err(err) = SessionRepository::add_message(
+                            ghost_db.pool(),
+                            &session.id,
+                            MessageRole::Ghost,
+                            vec![ContentBlock::Text { text: text.clone() }],
+                            None,
+                        )
+                        .await
+                        {
+                            warn!(
+                                "heartbeat: failed to post summary to session {}:{}: {err}",
+                                ghost.name, session.id
+                            );
+                        }
+
                         state
                             .log(LogEntry::Heartbeat {
                                 ghost_name: ghost.name.clone(),
@@ -409,6 +419,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                             })
                             .await;
                     }
+                    // status == "ok" → silent, nothing to post
 
                     // After heartbeat completes, check if reflection should run
                     crate::reflection::maybe_run_reflection(
@@ -421,6 +432,11 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     .await;
                 }
                 Err(err) => {
+                    // Write error job log
+                    let mut job_log = JobLog::start(DbJobKind::Heartbeat, &session.id);
+                    job_log.finish(&format!("error: {err}"));
+                    let _ = JobLogRepository::insert(ghost_db.pool(), &job_log).await;
+
                     state
                         .log(LogEntry::Heartbeat {
                             ghost_name: ghost.name.clone(),
@@ -490,5 +506,35 @@ mod tests {
         assert!(is_heartbeat_continue("HEARTBEAT_CONTINUE"));
         assert!(is_heartbeat_continue("**HEARTBEAT_CONTINUE**"));
         assert!(!is_heartbeat_continue("HEARTBEAT_CONTINUE later"));
+    }
+
+    #[test]
+    fn next_due_no_override_no_previous_heartbeat() {
+        let updated_at = 1000;
+        let due = next_heartbeat_due_for_session(updated_at, false, None);
+        assert_eq!(due, Some(updated_at + HEARTBEAT_IDLE_MINUTES * 60));
+    }
+
+    #[test]
+    fn next_due_had_ok_heartbeat() {
+        let due = next_heartbeat_due_for_session(1000, true, None);
+        assert_eq!(due, None);
+    }
+
+    #[test]
+    fn next_due_override_takes_priority() {
+        let entry = HeartbeatOverride {
+            next_due: 9999,
+            last_seen_updated_at: 500,
+        };
+        let due = next_heartbeat_due_for_session(1000, false, Some(entry));
+        assert_eq!(due, Some(9999));
+    }
+
+    #[test]
+    fn response_heartbeat_ok_detection() {
+        assert!(is_response_heartbeat_ok("HEARTBEAT_OK"));
+        assert!(is_response_heartbeat_ok("**HEARTBEAT_OK**"));
+        assert!(!is_response_heartbeat_ok("Something else"));
     }
 }
