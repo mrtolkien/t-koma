@@ -82,6 +82,7 @@ pub async fn maybe_run_reflection(
             model.client.as_ref(),
             &model.provider,
             &model.model,
+            model.context_window,
             session_id,
             operator_id,
             &prompt,

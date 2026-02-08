@@ -242,6 +242,7 @@ async fn run_heartbeat_for_session(
             model.client.as_ref(),
             &model.provider,
             &model.model,
+            model.context_window,
             &session.id,
             &session.operator_id,
             prompt.trim(),

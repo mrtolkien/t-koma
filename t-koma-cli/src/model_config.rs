@@ -58,6 +58,7 @@ pub fn apply_gateway_selection(
     let entry = ModelConfig {
         provider,
         model: model_id,
+        context_window: None,
     };
 
     settings.models.insert(alias.clone(), entry);
@@ -148,6 +149,7 @@ fn add_or_update_model(
         ModelConfig {
             provider,
             model,
+            context_window: None,
         },
     );
 

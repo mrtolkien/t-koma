@@ -11,6 +11,7 @@ use tracing::error;
 #[cfg(feature = "live-tests")]
 use tracing::info;
 
+use crate::chat::compaction::CompactionConfig;
 use crate::content::{self, ids};
 use crate::providers::provider::Provider;
 #[cfg(feature = "live-tests")]
@@ -287,6 +288,8 @@ pub struct ModelEntry {
     pub provider: String,
     pub model: String,
     pub client: Arc<dyn Provider>,
+    /// Optional override for context window size (from config).
+    pub context_window: Option<u32>,
 }
 
 impl AppState {
@@ -297,10 +300,15 @@ impl AppState {
         koma_db: t_koma_db::KomaDbPool,
         knowledge_engine: Arc<t_koma_knowledge::KnowledgeEngine>,
         skill_paths: Vec<std::path::PathBuf>,
+        compaction_config: CompactionConfig,
     ) -> Self {
         let (log_tx, _) = broadcast::channel(100);
         let _ = GLOBAL_LOG_TX.set(log_tx.clone());
-        let session_chat = SessionChat::new(Some(Arc::clone(&knowledge_engine)), skill_paths);
+        let session_chat = SessionChat::new(
+            Some(Arc::clone(&knowledge_engine)),
+            skill_paths,
+            compaction_config,
+        );
 
         Self {
             default_model_alias,
@@ -533,6 +541,7 @@ impl AppState {
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
+                model.context_window,
                 session_id,
                 operator_id,
                 &message,
@@ -599,6 +608,7 @@ impl AppState {
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
+                model.context_window,
                 session_id,
                 operator_id,
                 &message,
@@ -968,6 +978,7 @@ impl AppState {
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
+                model.context_window,
                 session_id,
                 operator_id,
                 pending,
@@ -1007,6 +1018,7 @@ impl AppState {
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
+                model.context_window,
                 session_id,
                 operator_id,
                 pending,
@@ -1102,7 +1114,7 @@ impl AppState {
 
             // Build new API messages including the tool results
             let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
-            let new_api_messages = build_history_messages(&history, Some(50));
+            let new_api_messages = build_history_messages(&history, None);
 
             // Send tool results back to AI
             response = provider

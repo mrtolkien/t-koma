@@ -501,6 +501,7 @@ impl TuiApp {
             ModelConfig {
                 provider,
                 model: parts[2].to_string(),
+                context_window: None,
             },
         );
         self.settings_dirty = true;
