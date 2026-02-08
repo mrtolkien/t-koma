@@ -59,11 +59,32 @@ pub trait Provider: Send + Sync {
 
 ### OpenRouter Client
 
-Located in `t-koma-gateway/src/models/openrouter/client.rs`:
+Located in `t-koma-gateway/src/providers/openrouter/client.rs`:
 
 - Converts internal message format to OpenAI-compatible format
 - Handles tool calling via OpenAI's function calling format
 - Fetches available models from `/api/v1/models`
+
+### Per-model provider routing
+
+OpenRouter "provider" routing is configured in OpenRouter settings, keyed by
+model alias:
+
+```toml
+[models.kimi25]
+provider = "openrouter"
+model = "moonshotai/kimi-k2.5"
+
+[openrouter.model_provider.kimi25]
+order = ["anthropic"]
+allow_fallbacks = false # optional
+```
+
+Notes:
+- Each key in `openrouter.model_provider` must match a configured model alias.
+- The alias target must be an OpenRouter model (`provider = "openrouter"`).
+- `order` must include at least one non-empty provider slug.
+- If `allow_fallbacks` is omitted, OpenRouter default behavior is used.
 
 ### Message Format Conversion
 
@@ -121,6 +142,10 @@ When starting the CLI chat mode, users are presented with:
 ```json
 {
   "model": "anthropic/claude-3.5-sonnet",
+  "provider": {
+    "order": ["anthropic"],
+    "allow_fallbacks": false
+  },
   "messages": [
     {"role": "system", "content": "You are a helpful assistant."},
     {"role": "user", "content": "Hello!"}
@@ -146,10 +171,23 @@ When starting the CLI chat mode, users are presented with:
   "usage": {
     "prompt_tokens": 10,
     "completion_tokens": 20,
-    "total_tokens": 30
+    "total_tokens": 30,
+    "prompt_tokens_details": {
+      "cached_tokens": 5
+    }
   }
 }
 ```
+
+### Cache observability
+
+The OpenRouter client parses cache usage details when OpenRouter includes them
+in the `usage` payload, and maps them into `ProviderUsage`:
+
+- `cache_read_tokens`
+- `cache_creation_tokens`
+
+If OpenRouter does not return cache detail fields, both remain `None`.
 
 ## WebSocket Messages
 

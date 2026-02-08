@@ -3,6 +3,7 @@
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use t_koma_core::OpenRouterProviderRoutingSettings;
 
 use crate::chat::history::{ChatContentBlock, ChatMessage, ChatRole};
 use crate::prompt::render::SystemBlock;
@@ -20,6 +21,7 @@ pub struct OpenRouterClient {
     base_url: String,
     http_referer: Option<String>,
     app_name: Option<String>,
+    provider_routing: Option<OpenRouterProviderRoutingSettings>,
     dump_queries: bool,
 }
 
@@ -32,7 +34,16 @@ struct ChatCompletionsRequest {
     tools: Option<Vec<OpenAiToolDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<OpenRouterProviderRoutingRequest>,
     max_tokens: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenRouterProviderRoutingRequest {
+    order: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    allow_fallbacks: Option<bool>,
 }
 
 /// OpenAI-compatible message format
@@ -99,8 +110,32 @@ struct Choice {
 struct Usage {
     prompt_tokens: u32,
     completion_tokens: u32,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u32>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u32>,
+    #[serde(default)]
+    cached_tokens: Option<u32>,
+    #[serde(default)]
+    prompt_tokens_details: Option<TokenDetails>,
+    #[serde(default)]
+    input_tokens_details: Option<TokenDetails>,
     #[allow(dead_code)]
     total_tokens: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct TokenDetails {
+    #[serde(default)]
+    cached_tokens: Option<u32>,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u32>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u32>,
+    #[serde(default)]
+    cache_read: Option<u32>,
+    #[serde(default)]
+    cache_creation: Option<u32>,
 }
 
 /// OpenRouter API error response
@@ -141,6 +176,7 @@ impl OpenRouterClient {
         model: impl Into<String>,
         http_referer: Option<String>,
         app_name: Option<String>,
+        provider_routing: Option<OpenRouterProviderRoutingSettings>,
     ) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -158,6 +194,7 @@ impl OpenRouterClient {
             base_url: "https://openrouter.ai/api/v1".to_string(),
             http_referer,
             app_name,
+            provider_routing,
             dump_queries: false,
         }
     }
@@ -377,11 +414,29 @@ impl OpenRouterClient {
             usage: response.usage.map(|u| ProviderUsage {
                 input_tokens: u.prompt_tokens,
                 output_tokens: u.completion_tokens,
-                cache_read_tokens: None,
-                cache_creation_tokens: None,
+                cache_read_tokens: u.cache_read_tokens(),
+                cache_creation_tokens: u.cache_creation_tokens(),
             }),
             stop_reason,
         }
+    }
+
+    fn provider_routing_request(&self) -> Option<OpenRouterProviderRoutingRequest> {
+        let routing = self.provider_routing.as_ref()?;
+        let order: Vec<String> = routing
+            .order
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect();
+        if order.is_empty() {
+            return None;
+        }
+        Some(OpenRouterProviderRoutingRequest {
+            order,
+            allow_fallbacks: routing.allow_fallbacks,
+        })
     }
 
     /// Fetch available models from OpenRouter
@@ -458,6 +513,7 @@ impl Provider for OpenRouterClient {
             messages,
             tools: tool_definitions,
             tool_choice,
+            provider: self.provider_routing_request(),
             max_tokens: 4096,
         };
 
@@ -503,13 +559,40 @@ impl Provider for OpenRouterClient {
     }
 }
 
+impl Usage {
+    fn cache_read_tokens(&self) -> Option<u32> {
+        self.cache_read_input_tokens
+            .or(self.cached_tokens)
+            .or_else(|| self.prompt_tokens_details.as_ref()?.cache_read_value())
+            .or_else(|| self.input_tokens_details.as_ref()?.cache_read_value())
+    }
+
+    fn cache_creation_tokens(&self) -> Option<u32> {
+        self.cache_creation_input_tokens
+            .or_else(|| self.prompt_tokens_details.as_ref()?.cache_creation_value())
+            .or_else(|| self.input_tokens_details.as_ref()?.cache_creation_value())
+    }
+}
+
+impl TokenDetails {
+    fn cache_read_value(&self) -> Option<u32> {
+        self.cache_read_input_tokens
+            .or(self.cached_tokens)
+            .or(self.cache_read)
+    }
+
+    fn cache_creation_value(&self) -> Option<u32> {
+        self.cache_creation_input_tokens.or(self.cache_creation)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_openrouter_client_creation() {
-        let client = OpenRouterClient::new("test-key", "openrouter/model-a", None, None);
+        let client = OpenRouterClient::new("test-key", "openrouter/model-a", None, None, None);
         assert_eq!(client.model(), "openrouter/model-a");
     }
 
@@ -543,12 +626,103 @@ mod tests {
             }
         }
 
-        let client = OpenRouterClient::new("test-key", "test-model", None, None);
+        let client = OpenRouterClient::new("test-key", "test-model", None, None, None);
         let tools: Vec<&dyn Tool> = vec![&TestTool];
         let openai_tools = client.convert_tools(&tools);
 
         assert_eq!(openai_tools.len(), 1);
         assert_eq!(openai_tools[0].r#type, "function");
         assert_eq!(openai_tools[0].function.name, "test_tool");
+    }
+
+    #[test]
+    fn test_provider_routing_request_trims_and_serializes() {
+        let client = OpenRouterClient::new(
+            "test-key",
+            "test-model",
+            None,
+            None,
+            Some(OpenRouterProviderRoutingSettings {
+                order: vec![" anthropic ".to_string(), "".to_string()],
+                allow_fallbacks: Some(false),
+            }),
+        );
+
+        let request = client.provider_routing_request().expect("routing present");
+        assert_eq!(request.order, vec!["anthropic".to_string()]);
+        assert_eq!(request.allow_fallbacks, Some(false));
+    }
+
+    #[test]
+    fn test_chat_request_includes_provider_when_configured() {
+        let client = OpenRouterClient::new(
+            "test-key",
+            "test-model",
+            None,
+            None,
+            Some(OpenRouterProviderRoutingSettings {
+                order: vec!["anthropic".to_string()],
+                allow_fallbacks: Some(false),
+            }),
+        );
+
+        let body = ChatCompletionsRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            provider: client.provider_routing_request(),
+            max_tokens: 10,
+        };
+        let json = serde_json::to_value(body).unwrap();
+        assert_eq!(json["provider"]["order"], serde_json::json!(["anthropic"]));
+        assert_eq!(
+            json["provider"]["allow_fallbacks"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn test_chat_request_omits_provider_when_not_configured() {
+        let body = ChatCompletionsRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            provider: None,
+            max_tokens: 10,
+        };
+        let json = serde_json::to_value(body).unwrap();
+        assert!(json.get("provider").is_none());
+    }
+
+    #[test]
+    fn test_cache_usage_parsing() {
+        let usage: Usage = serde_json::from_value(serde_json::json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+            "prompt_tokens_details": {
+                "cached_tokens": 60,
+                "cache_creation_input_tokens": 15
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(usage.cache_read_tokens(), Some(60));
+        assert_eq!(usage.cache_creation_tokens(), Some(15));
+    }
+
+    #[test]
+    fn test_cache_usage_absent() {
+        let usage: Usage = serde_json::from_value(serde_json::json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120
+        }))
+        .unwrap();
+
+        assert_eq!(usage.cache_read_tokens(), None);
+        assert_eq!(usage.cache_creation_tokens(), None);
     }
 }
