@@ -11,14 +11,22 @@ it in the same turn as your response — don't plan to "save it later".
 ### Quick save (minimum viable reference)
 
 ```
-reference_write(action="save", topic="rust-async",
-  path="tokio-select-guide.md",
-  content="<the fetched content>",
-  source_url="https://tokio.rs/tokio/tutorial/select")
+reference_write(topic="rust-async", filename="tokio-select-guide.md",
+  content_ref=1, source_url="https://tokio.rs/tokio/tutorial/select")
 ```
 
-That's it. Four fields: `topic`, `path`, `content`, `source_url`. The topic and
-collection are auto-created if they don't exist.
+That's it. Fields: `topic`, `filename`, `content_ref` (or `content`),
+`source_url`. The topic and collection are auto-created if they don't exist.
+
+### Using `content_ref`
+
+Web tool results (`web_fetch`, `web_search`) are automatically cached with a
+result ID shown as `[Result #N]` in the output. Instead of copying large content
+into the `content` field, use `content_ref=N` to reference the cached result.
+This avoids duplicating content and reduces token usage.
+
+If you need to save content that didn't come from a web tool, use the `content`
+field directly. Exactly one of `content` or `content_ref` must be provided.
 
 ### What to Save
 
@@ -38,27 +46,27 @@ a primary source is inaccessible, try the WayBack machine:
 
 - **Topic**: Broad container (e.g., "dioxus", "3d-printers"). Auto-created on
   first save.
-- **Collection**: Optional sub-grouping. Created when your path has a directory
-  (e.g., `guide/state-management.md` creates a "guide" collection).
+- **Collection**: Optional sub-grouping via the `collection` field (e.g.,
+  `collection="guide"` with `filename="state-management.md"` creates
+  `guide/state-management.md`).
 - **File**: Individual content unit.
 
 Before creating a new topic, search first:
 `knowledge_search(query="topic name", categories=["topics"])`
 
-### `reference_write` — Full Reference
+### `reference_write` — Save Only
 
-| Action   | With `path`           | Without `path`                       |
-| -------- | --------------------- | ------------------------------------ |
-| `save`   | Save file content     | Create/update topic                  |
-| `update` | Change file status    | Update topic metadata (body, tags)   |
-| `delete` | Delete reference file | Error (topic deletion is admin-only) |
+| Field         | Required | Description                                  |
+| ------------- | -------- | -------------------------------------------- |
+| `topic`       | yes      | Topic slug (e.g., "rust-async")              |
+| `filename`    | yes      | Filename (e.g., "guide.md")                  |
+| `content`     | one of   | Raw content to save                          |
+| `content_ref` | one of   | ID of cached web tool result                 |
+| `collection`  | no       | Sub-grouping within topic                    |
+| `source_url`  | no       | Original URL source                          |
 
-Optional fields for richer saves: `role` (`docs`/`code`/`data`, default `docs`),
-`title`, `collection_title`, `collection_description`, `tags`.
-
-**File status** (for managing quality): `active` (default), `problematic` (0.5x
-search penalty, provide reason), `obsolete` (excluded from search, provide
-reason).
+Reference curation (status changes, topic metadata updates, deletion) is handled
+automatically during reflection.
 
 ### `reference_import` Tool
 
