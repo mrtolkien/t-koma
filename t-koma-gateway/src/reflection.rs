@@ -2,13 +2,13 @@
 //!
 //! After heartbeat completes for a session, the reflection runner checks if
 //! there are new messages since the last reflection. If so, it builds a prompt
-//! with the recent conversation and recently saved references, then sends it
-//! through `chat_job()` so the ghost can create/update notes, curate references,
-//! and update identity files without polluting the session history.
+//! with the full conversation transcript and sends it through `chat_job()` so
+//! the ghost can create/update notes, curate references, and update identity
+//! files without polluting the session history.
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use tracing::{info, warn};
 
 use crate::scheduler::JobKind;
@@ -124,19 +124,8 @@ async fn run_reflection(
         ghost_name
     );
 
-    // Build recent references list
-    let since_rfc3339 = DateTime::from_timestamp(last_reflection_ts, 0)
-        .unwrap_or(DateTime::<Utc>::MIN_UTC)
-        .to_rfc3339();
-
-    let recent_refs = state
-        .knowledge_engine()
-        .recent_reference_files(&since_rfc3339)
-        .await
-        .unwrap_or_default();
-
     // Build and run the reflection prompt
-    let prompt = build_reflection_prompt(&recent_messages, &recent_refs);
+    let prompt = build_reflection_prompt(&recent_messages);
 
     let model = if let Some(alias) = heartbeat_model_alias {
         state
@@ -175,11 +164,7 @@ async fn run_reflection(
 
     match result {
         Ok(job_result) => {
-            let status = format!(
-                "processed {} messages, {} references",
-                recent_messages.len(),
-                recent_refs.len()
-            );
+            let status = format!("processed {} messages", recent_messages.len());
             let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
             job_log.transcript = job_result.transcript;
             job_log.finish(&status);
@@ -214,7 +199,10 @@ async fn run_reflection(
     }
 }
 
-/// Format recent messages as a conversation excerpt for the reflection prompt.
+/// Format recent messages as a full conversation transcript for reflection.
+///
+/// Includes complete tool use inputs and untruncated tool results so that
+/// reflection has the same information the ghost had during the conversation.
 fn format_messages(messages: &[t_koma_db::Message]) -> String {
     let mut out = String::new();
     for msg in messages {
@@ -227,8 +215,11 @@ fn format_messages(messages: &[t_koma_db::Message]) -> String {
                 ContentBlock::Text { text } => {
                     out.push_str(&format!("**{}**: {}\n\n", role, text));
                 }
-                ContentBlock::ToolUse { name, .. } => {
-                    out.push_str(&format!("**{}** [tool_use: {}]\n\n", role, name));
+                ContentBlock::ToolUse { name, input, .. } => {
+                    out.push_str(&format!(
+                        "**{}** [tool_use: {} — {}]\n\n",
+                        role, name, input
+                    ));
                 }
                 ContentBlock::ToolResult {
                     content, is_error, ..
@@ -238,16 +229,7 @@ fn format_messages(messages: &[t_koma_db::Message]) -> String {
                     } else {
                         "tool_result"
                     };
-                    // Truncate long tool results
-                    let preview = if content.len() > 500 {
-                        format!(
-                            "{}... (truncated)",
-                            &content[..content.floor_char_boundary(500)]
-                        )
-                    } else {
-                        content.clone()
-                    };
-                    out.push_str(&format!("[{}: {}]\n\n", label, preview));
+                    out.push_str(&format!("[{}: {}]\n\n", label, content));
                 }
             }
         }
@@ -255,43 +237,19 @@ fn format_messages(messages: &[t_koma_db::Message]) -> String {
     out
 }
 
-/// Format recent reference saves as a list.
-fn format_references(refs: &[t_koma_knowledge::RecentRefSummary]) -> String {
-    if refs.is_empty() {
-        return "No references saved since last reflection.".to_string();
-    }
-    let mut out = String::new();
-    for r in refs {
-        out.push_str(&format!("- **{}** / `{}`", r.topic_title, r.path));
-        if let Some(url) = &r.source_url {
-            out.push_str(&format!(" — source: {}", url));
-        }
-        out.push('\n');
-    }
-    out
-}
-
-fn build_reflection_prompt(
-    messages: &[t_koma_db::Message],
-    refs: &[t_koma_knowledge::RecentRefSummary],
-) -> String {
+fn build_reflection_prompt(messages: &[t_koma_db::Message]) -> String {
     let recent_messages = format_messages(messages);
-    let recent_references = format_references(refs);
 
     crate::content::prompt_text(
         crate::content::ids::PROMPT_REFLECTION,
         None,
-        &[
-            ("recent_messages", &recent_messages),
-            ("recent_references", &recent_references),
-        ],
+        &[("recent_messages", &recent_messages)],
     )
     .unwrap_or_else(|e| {
         tracing::warn!("Failed to render reflection prompt: {e}, using fallback");
         format!(
             "You are in reflection mode. Process the following conversation into \
-             structured knowledge.\n\n## Recent Conversation\n\n{recent_messages}\n\n\
-             ## Recent References\n\n{recent_references}"
+             structured knowledge.\n\n## Recent Conversation\n\n{recent_messages}"
         )
     })
 }
