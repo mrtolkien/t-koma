@@ -419,8 +419,17 @@ impl Provider for OpenAiCompatibleClient {
             dump.response(&val).await;
         }
 
-        let completions_response: ChatCompletionsResponse =
-            serde_json::from_str(&response_text).map_err(ProviderError::Serialization)?;
+        let completions_response: ChatCompletionsResponse = serde_json::from_str(&response_text)
+            .map_err(|e| {
+                let preview = if response_text.len() > 500 {
+                    &response_text[..500]
+                } else {
+                    &response_text
+                };
+                ProviderError::InvalidFormat(format!(
+                    "Failed to parse OpenAI-compatible response: {e}\nBody preview: {preview}"
+                ))
+            })?;
         Ok(self.convert_response(completions_response))
     }
 
