@@ -18,3 +18,5 @@ Thumbs.db
 # Other
 .bacon-locations
 /vibe/ongoing
+/logs
+/feat
