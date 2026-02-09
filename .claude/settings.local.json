@@ -30,7 +30,8 @@
       "WebFetch(domain:mem0.ai)",
       "WebFetch(domain:stevekinney.com)",
       "WebFetch(domain:docs.rs)",
-      "WebFetch(domain:crates.io)"
+      "WebFetch(domain:crates.io)",
+      "mcp__github__get_file_contents"
     ]
   },
   "enableAllProjectMcpServers": true,

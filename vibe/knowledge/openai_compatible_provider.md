@@ -2,8 +2,8 @@
 
 ## Summary
 
-T-KOMA now supports a generic `openai_compatible` provider at model level.
-This replaces the previous global llama.cpp base URL layout.
+T-KOMA now supports a generic `openai_compatible` provider at model level. This
+replaces the previous global llama.cpp base URL layout.
 
 ## Model-level fields
 
