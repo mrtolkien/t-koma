@@ -5,13 +5,14 @@ use t_koma_core::{GatewayMessage, GatewayMessageKind};
 use crate::content::ids;
 use crate::gateway_message;
 use crate::session::{ChatError, ToolApprovalDecision};
-use crate::state::AppState;
+use crate::state::{AppState, ToolCallSummary};
 use crate::tools::context::ApprovalReason;
 
 #[derive(Debug, Clone)]
 pub enum OutboundMessage {
     AssistantText(String),
     Gateway(Box<GatewayMessage>),
+    ToolCalls(Vec<ToolCallSummary>),
 }
 
 impl OutboundMessage {
@@ -106,6 +107,9 @@ pub async fn run_chat_with_pending(
                     ids::COMPACTION_HAPPENED,
                     interface,
                 )));
+            }
+            if !result.tool_calls.is_empty() && state.is_verbose(operator_id).await {
+                out.push(OutboundMessage::ToolCalls(result.tool_calls));
             }
             out.push(OutboundMessage::assistant(result.text));
             Ok(out)
