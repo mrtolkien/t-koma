@@ -3,9 +3,7 @@ body = '''
 ### T-KOMA // ゴースト・ブート
 ┄┄┄┄┄┄┄┄┄┄┄┄
 
-Enter a `GHOST NAME`:
-- allowed: letters, numbers, spaces, `-`, `_`, kanji, katakana
-- example: `ALPHA`
+Press the button to `NAME YOUR GHOST`.
 '''
 
 [ghost-created-header]

@@ -64,23 +64,45 @@ impl Bot {
                     return;
                 }
 
-                if pending.intent == "tool_loop.set_steps" {
+                if pending.intent == "tool_loop.set_steps" || pending.intent == "ghost.name_prompt"
+                {
+                    let (submit_intent, title, label, custom_id, style, placeholder) =
+                        if pending.intent == "ghost.name_prompt" {
+                            (
+                                "ghost.name_submit",
+                                "T-KOMA // ゴースト・ブート",
+                                "Ghost Name",
+                                "ghost_name",
+                                InputTextStyle::Short,
+                                Some("ALPHA"),
+                            )
+                        } else {
+                            (
+                                "tool_loop.submit_steps",
+                                "Set Max Steps",
+                                "Max Steps",
+                                "steps",
+                                InputTextStyle::Short,
+                                None,
+                            )
+                        };
+
                     let modal_token = uuid::Uuid::new_v4().to_string();
                     self.state
                         .set_pending_gateway_action(
                             &modal_token,
                             PendingGatewayAction {
-                                intent: "tool_loop.submit_steps".to_string(),
+                                intent: submit_intent.to_string(),
                                 ..pending
                             },
                         )
                         .await;
-                    let modal = CreateModal::new(format!("tk:m:{}", modal_token), "Set Max Steps")
-                        .components(vec![CreateActionRow::InputText(CreateInputText::new(
-                            InputTextStyle::Short,
-                            "Max Steps",
-                            "steps",
-                        ))]);
+                    let mut input = CreateInputText::new(style, label, custom_id);
+                    if let Some(ph) = placeholder {
+                        input = input.placeholder(ph);
+                    }
+                    let modal = CreateModal::new(format!("tk:m:{}", modal_token), title)
+                        .components(vec![CreateActionRow::InputText(input)]);
                     let _ = component
                         .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
                         .await;
@@ -164,15 +186,29 @@ impl Bot {
                 return;
             }
 
-            let mut submitted_steps: Option<String> = None;
+            let mut submitted_value: Option<String> = None;
             for row in &modal.data.components {
                 for component in &row.components {
                     if let serenity::model::application::ActionRowComponent::InputText(input) =
                         component
                     {
-                        submitted_steps = input.value.clone();
+                        submitted_value = input.value.clone();
                     }
                 }
+            }
+
+            if pending.intent == "ghost.name_submit" {
+                let Some(ghost_name) = submitted_value.filter(|v| !v.trim().is_empty()) else {
+                    return;
+                };
+                self.boot_new_ghost(
+                    &ctx,
+                    modal.channel_id,
+                    &pending.operator_id,
+                    ghost_name.trim(),
+                )
+                .await;
+                return;
             }
 
             run_action_intent(
@@ -181,7 +217,7 @@ impl Bot {
                 modal.channel_id,
                 pending.clone(),
                 &pending.intent,
-                submitted_steps,
+                submitted_value,
             )
             .await;
         }
