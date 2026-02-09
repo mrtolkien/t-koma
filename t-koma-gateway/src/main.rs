@@ -221,7 +221,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(str::trim)
         .filter(|alias| !alias.is_empty())
         .map(|alias| alias.to_string());
-    state.start_heartbeat_runner(heartbeat_model_alias).await;
+    state
+        .start_heartbeat_runner(
+            heartbeat_model_alias,
+            config.settings.heartbeat_timing.clone(),
+        )
+        .await;
 
     // Start Discord bot if enabled and token is present
     let discord_client = if config.discord_enabled() {

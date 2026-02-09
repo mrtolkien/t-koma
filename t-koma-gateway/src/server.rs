@@ -1143,6 +1143,7 @@ async fn handle_websocket(
                                                     s.updated_at,
                                                     had_ok_heartbeat,
                                                     override_entry,
+                                                    4, // default idle minutes for display
                                                 )
                                                 .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
                                             }
