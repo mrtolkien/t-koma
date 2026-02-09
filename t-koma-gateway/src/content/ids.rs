@@ -52,11 +52,17 @@ pub const CHAT_BUSY: &str = "chat-busy";
 /// content: messages/en/generic.toml#chat-continue-missing
 pub const CHAT_CONTINUE_MISSING: &str = "chat-continue-missing";
 
+/// content: messages/en/generic.toml#compaction-happened
+pub const COMPACTION_HAPPENED: &str = "compaction-happened";
+
 /// content: messages/en/generic.toml#error-generic
 pub const ERROR_GENERIC: &str = "error-generic";
 
 /// content: messages/en/generic.toml#error-processing-request
 pub const ERROR_PROCESSING_REQUEST: &str = "error-processing-request";
+
+/// content: messages/en/generic.toml#session-started
+pub const SESSION_STARTED: &str = "session-started";
 
 /// content: messages/en/ghosts.toml#active-ghost-set
 pub const ACTIVE_GHOST_SET: &str = "active-ghost-set";

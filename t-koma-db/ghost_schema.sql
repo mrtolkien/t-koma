@@ -4,7 +4,6 @@
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     operator_id TEXT NOT NULL,
-    title TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     is_active INTEGER DEFAULT 1 CHECK (is_active IN (0, 1)),

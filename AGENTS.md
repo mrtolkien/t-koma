@@ -89,7 +89,7 @@ Make extensive use of MCPs available to you:
     - Run `cargo fmt --all`
   - Once an atomic feature is added, make an atomic commit in the
     conventional-commit style (`feat:`, `fix:`, ...)
-- Create a pull request with the gh mcp
+- Offer the user to create a pull request with the gh mcp
 
 ### Config Organization
 
@@ -142,6 +142,8 @@ Ghost DB tables (beyond messages/sessions):
 - `usage_log`: per-request token usage (input, output, cache_read,
   cache_creation). Linked to session_id.
 - `prompt_cache`: cached system prompt blocks per session (survives restarts).
+- `sessions`: session identity is `id` + timestamps; there is no session title
+  field.
 - `sessions.compaction_summary` / `sessions.compaction_cursor_id`: persisted
   compaction state. Original messages are never deleted.
 
@@ -155,8 +157,8 @@ as a single row in the `job_logs` table (ghost DB) with the transcript as JSON.
 - `JobLog::start(kind, session_id)` creates an in-progress log.
 - `JobLog::finish(status)` sets `finished_at` and status.
 - `JobLogRepository::insert()` persists the completed log.
-- `JobLogRepository::latest_ok_since()` checks for recent successful runs
-  (used by heartbeat skip logic).
+- `JobLogRepository::latest_ok_since()` checks for recent successful runs (used
+  by heartbeat skip logic).
 
 Path override knobs for testing:
 
@@ -207,6 +209,9 @@ scheduler state owned by `AppState`.
 
 - `t-koma-gateway/src/chat/`: conversation domain only (history, orchestration,
   token budget, prompt caching, compaction).
+- `t-koma-gateway/src/operator_flow.rs`: transport-agnostic operator command
+  orchestration (chat dispatch, approval/continuation flow, session lifecycle
+  side effects).
 - `t-koma-gateway/src/providers/`: provider adapters only (Anthropic,
   OpenRouter). No transport logic here.
 - `t-koma-gateway/src/prompt/`: prompt composition/rendering only.
@@ -346,13 +351,15 @@ Cross-scope rule: ghost notes can link to shared notes and reference topics via
 
 Notes have two classification axes:
 
-- **`entry_type`** (structural): `Note`, `ReferenceTopic`, `ReferenceCollection`,
-  `ReferenceDocs`, `ReferenceCode`, `Diary`. Used in WHERE clauses for scope
-  discrimination. Set automatically by the ingest pipeline.
-- **`archetype`** (semantic, optional): `person`, `concept`, `decision`, `event`,
-  `place`, `project`, `organization`, `procedure`, `media`, `quote`. Optional
-  classification for notes — omit when no archetype fits. Filterable via
-  `knowledge_search`. Templates in `default-prompts/skills/note-writer/archetypes/`.
+- **`entry_type`** (structural): `Note`, `ReferenceTopic`,
+  `ReferenceCollection`, `ReferenceDocs`, `ReferenceCode`, `Diary`. Used in
+  WHERE clauses for scope discrimination. Set automatically by the ingest
+  pipeline.
+- **`archetype`** (semantic, optional): `person`, `concept`, `decision`,
+  `event`, `place`, `project`, `organization`, `procedure`, `media`, `quote`.
+  Optional classification for notes — omit when no archetype fits. Filterable
+  via `knowledge_search`. Templates in
+  `default-prompts/skills/note-writer/archetypes/`.
 
 ### Tools
 
@@ -403,10 +410,11 @@ deletion is available via `note_write` action `delete`.
 After each heartbeat tick completes, the reflection runner
 (`t-koma-gateway/src/reflection.rs`) checks whether the ghost has unprocessed
 inbox files. If so, and the session has been idle for at least 30 minutes, and
-the last reflection was > 30 minutes ago, it renders `prompts/reflection-prompt.md`
-(which includes `note-guidelines.md` via `{{ include }}`) with the inbox items,
-then sends it through the normal chat pipeline. The ghost curates inbox captures
-into structured notes, diary entries, or identity file updates.
+the last reflection was > 30 minutes ago, it renders
+`prompts/reflection-prompt.md` (which includes `note-guidelines.md` via
+`{{ include }}`) with the inbox items, then sends it through the normal chat
+pipeline. The ghost curates inbox captures into structured notes, diary entries,
+or identity file updates.
 
 Reflection uses `JobKind::Reflection` in the scheduler with a 30-minute
 cooldown.
@@ -503,8 +511,8 @@ Pure functions for estimating token usage without a tokenizer. Uses a
   `estimate_tool_tokens(tools)`: component estimates
 - `context_window_for_model(model) -> u32`: lookup table for known models
   (Claude 200K, Gemini 1M, GPT-4 128K, etc.), fallback 200K
-- `compute_budget(model, override, system, tools, history, threshold) ->
-  TokenBudget`: computes total usage and `needs_compaction` flag
+- `compute_budget(model, override, system, tools, history, threshold) -> TokenBudget`:
+  computes total usage and `needs_compaction` flag
 
 ### Prompt Cache (`prompt_cache.rs`)
 
@@ -529,8 +537,9 @@ action/reasoning skeleton while removing verbose output.
 
 **Phase 2 — LLM summarization** (one LLM call): When masking alone is
 insufficient, summarizes the oldest messages into a single summary block. The
-summary is persisted to the session (`compaction_summary`, `compaction_cursor_id`
-columns) so subsequent requests start from a smaller history.
+summary is persisted to the session (`compaction_summary`,
+`compaction_cursor_id` columns) so subsequent requests start from a smaller
+history.
 
 Key functions:
 
@@ -542,7 +551,8 @@ Wiring in `session.rs`:
 
 - `load_compacted_history()`: compaction-aware history loading. If the session
   has a previous summary, loads only messages after the cursor and prepends the
-  summary. Then runs `compact_if_needed()` and persists new state if Phase 2 ran.
+  summary. Then runs `compact_if_needed()` and persists new state if Phase 2
+  ran.
 - `apply_masking_if_needed()`: lightweight Phase 1 only, used mid-tool-loop
 - Original `Some(50)` message limit is removed — context budget is token-based
 
@@ -551,8 +561,8 @@ Prompt: `prompts/compaction-prompt.md` (summarization instructions for Phase 2).
 ### Usage Logging
 
 API token usage (input, output, cache_read, cache_creation) is logged to the
-ghost DB `usage_log` table after every `send_conversation()` call. Fire-and-forget
-pattern — failures are warned but never fail the chat request.
+ghost DB `usage_log` table after every `send_conversation()` call.
+Fire-and-forget pattern — failures are warned but never fail the chat request.
 
 - `UsageLog::new(session_id, message_id, model, ...)`: creates a log entry
 - `UsageLogRepository::insert()`: persists to DB

@@ -38,10 +38,9 @@ async fn test_file_create_edit_delete_workflow() {
     let ghost = env.ghost;
 
     // Create a session
-    let session =
-        SessionRepository::create(ghost_db.pool(), &operator.id, Some("File Operations Test"))
-            .await
-            .expect("Failed to create session");
+    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+        .await
+        .expect("Failed to create session");
 
     println!("Created session: {}", session.id);
 
@@ -246,13 +245,9 @@ async fn test_replace_tool_exact_match_requirement() {
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(
-        ghost_db.pool(),
-        &operator.id,
-        Some("File Edit Exact Match Test"),
-    )
-    .await
-    .expect("Failed to create session");
+    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+        .await
+        .expect("Failed to create session");
 
     // Create temp file with multiline content
     let temp_file = format!("/tmp/t_koma_test_exact_{}.txt", uuid::Uuid::new_v4());

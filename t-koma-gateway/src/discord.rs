@@ -14,7 +14,7 @@ use serenity::prelude::*;
 use tracing::{error, info};
 
 use crate::content::{self, ids};
-use crate::session::{ChatError, ToolApprovalDecision};
+use crate::operator_flow::{self, OutboundMessage};
 use crate::state::{AppState, PendingGatewayAction, RateLimitDecision};
 
 /// Discord bot handler
@@ -42,44 +42,7 @@ fn parse_ghost_selection(content: &str) -> Option<String> {
 }
 
 fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
-    match content::message_text(id, Some("discord"), vars) {
-        Ok(text) => text,
-        Err(err) => {
-            error!("Message render failed for {}: {}", id, err);
-            format!("[missing message: {}]", id)
-        }
-    }
-}
-
-fn approval_required_gateway_message(
-    reason: &crate::tools::context::ApprovalReason,
-) -> t_koma_core::GatewayMessage {
-    use crate::tools::context::ApprovalReason;
-    match reason {
-        ApprovalReason::WorkspaceEscape(path) => crate::gateway_message::from_content(
-            ids::APPROVAL_REQUIRED_WITH_PATH,
-            Some("discord"),
-            &[("path", path)],
-        ),
-        ApprovalReason::ReferenceImport { title, summary } => crate::gateway_message::from_content(
-            ids::APPROVAL_REFERENCE_IMPORT,
-            Some("discord"),
-            &[("title", title), ("summary", summary)],
-        ),
-    }
-}
-
-fn tool_loop_limit_reached_gateway_message(
-    limit: usize,
-    extra: usize,
-) -> t_koma_core::GatewayMessage {
-    let limit = limit.to_string();
-    let extra = extra.to_string();
-    crate::gateway_message::from_content(
-        ids::TOOL_LOOP_LIMIT_REACHED,
-        Some("discord"),
-        &[("limit", limit.as_str()), ("extra", extra.as_str())],
-    )
+    crate::gateway_message::from_content(id, Some("discord"), vars).text_fallback
 }
 
 fn format_ghost_list_lines(ghosts: &[t_koma_db::Ghost]) -> String {
@@ -88,18 +51,6 @@ fn format_ghost_list_lines(ghosts: &[t_koma_db::Ghost]) -> String {
         lines.push(format!("- {}", ghost.name));
     }
     lines.join("\n")
-}
-
-fn parse_step_limit(content: &str) -> Option<usize> {
-    let trimmed = content.trim();
-    let lower = trimmed.to_lowercase();
-    let candidates = ["steps ", "step ", "max ", "limit "];
-    for prefix in candidates {
-        if let Some(rest) = lower.strip_prefix(prefix) {
-            return rest.trim().parse::<usize>().ok().filter(|value| *value > 0);
-        }
-    }
-    None
 }
 
 const DISCORD_MESSAGE_LIMIT: usize = 2000;
@@ -414,6 +365,39 @@ async fn send_discord_gateway_message(
     send_gateway_embed_colored(ctx, channel_id, &message.text_fallback, components, color).await
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn send_outbound_messages(
+    state: &AppState,
+    ctx: &Context,
+    channel_id: ChannelId,
+    external_id: &str,
+    operator_id: &str,
+    ghost_name: &str,
+    session_id: &str,
+    messages: Vec<OutboundMessage>,
+) {
+    for message in messages {
+        match message {
+            OutboundMessage::AssistantText(text) => {
+                let _ = send_discord_message(ctx, channel_id, &text).await;
+            }
+            OutboundMessage::Gateway(msg) => {
+                let _ = send_discord_gateway_message(
+                    state,
+                    ctx,
+                    channel_id,
+                    external_id,
+                    operator_id,
+                    ghost_name,
+                    session_id,
+                    *msg,
+                )
+                .await;
+            }
+        }
+    }
+}
+
 async fn send_interface_prompt(ctx: &Context, channel_id: ChannelId) {
     let text = render_message(ids::DISCORD_INTERFACE_PROMPT, &[]);
     let buttons = vec![
@@ -524,72 +508,18 @@ async fn run_action_intent(
     intent: &str,
     payload: Option<String>,
 ) {
-    let response = match intent {
-        "approval.approve" => {
-            bot.state
-                .handle_tool_approval(
-                    &pending.ghost_name,
-                    &pending.session_id,
-                    &pending.operator_id,
-                    ToolApprovalDecision::Approve,
-                    None,
-                )
-                .await
-        }
-        "approval.deny" => {
-            bot.state
-                .handle_tool_approval(
-                    &pending.ghost_name,
-                    &pending.session_id,
-                    &pending.operator_id,
-                    ToolApprovalDecision::Deny,
-                    None,
-                )
-                .await
-        }
-        "tool_loop.continue_default" => {
-            bot.state
-                .handle_tool_loop_continue(
-                    &pending.ghost_name,
-                    &pending.session_id,
-                    &pending.operator_id,
-                    None,
-                    None,
-                )
-                .await
-        }
-        "tool_loop.deny" => {
-            if bot
-                .state
-                .clear_pending_tool_loop(
-                    &pending.operator_id,
-                    &pending.ghost_name,
-                    &pending.session_id,
-                )
-                .await
-            {
-                let text = render_message(ids::TOOL_LOOP_DENIED, &[]);
-                let _ = send_gateway_embed(ctx, channel_id, &text, None).await;
-                return;
-            }
-            let text = render_message(ids::NO_PENDING_TOOL_LOOP, &[]);
-            let _ = send_gateway_embed(ctx, channel_id, &text, None).await;
-            return;
-        }
+    let control_text = match intent {
+        "approval.approve" => "approve".to_string(),
+        "approval.deny" => "deny".to_string(),
+        "tool_loop.continue_default" => "steps 1".to_string(),
+        "tool_loop.deny" => "deny".to_string(),
         "tool_loop.submit_steps" => {
             let steps = payload
                 .as_deref()
                 .and_then(|v| v.trim().parse::<usize>().ok())
-                .filter(|v| *v > 0);
-            bot.state
-                .handle_tool_loop_continue(
-                    &pending.ghost_name,
-                    &pending.session_id,
-                    &pending.operator_id,
-                    steps,
-                    None,
-                )
-                .await
+                .filter(|v| *v > 0)
+                .unwrap_or(crate::session::DEFAULT_TOOL_LOOP_EXTRA);
+            format!("steps {}", steps)
         }
         "ghost.select" => {
             if let Some(ghost_name) = payload {
@@ -602,28 +532,22 @@ async fn run_action_intent(
             }
             return;
         }
-        _ => Ok(None),
+        _ => return,
     };
 
-    match response {
-        Ok(Some(text)) => {
-            let _ = send_discord_message(ctx, channel_id, &text).await;
-        }
-        Ok(None) => {
-            let text = render_message(ids::NO_PENDING_APPROVAL, &[]);
-            let _ = send_gateway_embed(ctx, channel_id, &text, None).await;
-        }
-        Err(ChatError::ToolApprovalRequired(next)) => {
-            bot.state
-                .set_pending_tool_approval(
-                    &pending.operator_id,
-                    &pending.ghost_name,
-                    &pending.session_id,
-                    next.clone(),
-                )
-                .await;
-            let message = approval_required_gateway_message(&next.reason);
-            let _ = send_discord_gateway_message(
+    match operator_flow::run_tool_control_command(
+        bot.state.as_ref(),
+        Some("discord"),
+        None,
+        &pending.ghost_name,
+        &pending.session_id,
+        &pending.operator_id,
+        &control_text,
+    )
+    .await
+    {
+        Ok(Some(messages)) => {
+            send_outbound_messages(
                 bot.state.as_ref(),
                 ctx,
                 channel_id,
@@ -631,35 +555,11 @@ async fn run_action_intent(
                 pending.operator_id.as_str(),
                 pending.ghost_name.as_str(),
                 pending.session_id.as_str(),
-                message,
+                messages,
             )
             .await;
         }
-        Err(ChatError::ToolLoopLimitReached(next)) => {
-            bot.state
-                .set_pending_tool_loop(
-                    &pending.operator_id,
-                    &pending.ghost_name,
-                    &pending.session_id,
-                    next,
-                )
-                .await;
-            let message = tool_loop_limit_reached_gateway_message(
-                crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-            );
-            let _ = send_discord_gateway_message(
-                bot.state.as_ref(),
-                ctx,
-                channel_id,
-                pending.external_id.as_str(),
-                pending.operator_id.as_str(),
-                pending.ghost_name.as_str(),
-                pending.session_id.as_str(),
-                message,
-            )
-            .await;
-        }
+        Ok(None) => {}
         Err(err) => {
             error!("Discord action error: {}", err);
             let _ = send_gateway_embed(
@@ -901,26 +801,21 @@ impl EventHandler for Bot {
 
             persist_ghost_name_to_soul(ghost_db.workspace_path(), &ghost.name).await;
 
-            let session = match t_koma_db::SessionRepository::create(
-                ghost_db.pool(),
-                &operator_id,
-                Some("Bootstrap Session"),
-            )
-            .await
-            {
-                Ok(session) => session,
-                Err(e) => {
-                    error!("Failed to create session: {}", e);
-                    let _ = send_gateway_embed(
-                        &ctx,
-                        msg.channel_id,
-                        &render_message("error-failed-create-session-discord", &[]),
-                        None,
-                    )
-                    .await;
-                    return;
-                }
-            };
+            let session =
+                match t_koma_db::SessionRepository::create(ghost_db.pool(), &operator_id).await {
+                    Ok(session) => session,
+                    Err(e) => {
+                        error!("Failed to create session: {}", e);
+                        let _ = send_gateway_embed(
+                            &ctx,
+                            msg.channel_id,
+                            &render_message("error-failed-create-session-discord", &[]),
+                            None,
+                        )
+                        .await;
+                        return;
+                    }
+                };
 
             let bootstrap = match content::prompt_text(ids::PROMPT_BOOTSTRAP, None, &[]) {
                 Ok(contents) => contents,
@@ -1140,9 +1035,7 @@ impl EventHandler for Bot {
         if clean_content.eq_ignore_ascii_case("new") {
             let previous_session_id = session.id.clone();
             let new_session =
-                match t_koma_db::SessionRepository::create(ghost_db.pool(), &operator_id, None)
-                    .await
-                {
+                match t_koma_db::SessionRepository::create(ghost_db.pool(), &operator_id).await {
                     Ok(s) => s,
                     Err(e) => {
                         error!(
@@ -1159,39 +1052,27 @@ impl EventHandler for Bot {
                         return;
                     }
                 };
-
-            let state_for_reflection = Arc::clone(&self.state);
-            let ghost_name_for_reflection = ghost_name.clone();
-            let operator_id_for_reflection = operator_id.clone();
-            tokio::spawn(async move {
-                crate::reflection::run_reflection_now(
-                    &state_for_reflection,
-                    &ghost_name_for_reflection,
-                    &previous_session_id,
-                    &operator_id_for_reflection,
-                    None,
-                )
-                .await;
-            });
+            operator_flow::spawn_reflection_for_previous_session(
+                &self.state,
+                &ghost_name,
+                &operator_id,
+                &previous_session_id,
+            );
 
             let typing = msg.channel_id.start_typing(&ctx.http);
-            let final_text = match self
-                .state
-                .chat(&ghost_name, &new_session.id, &operator_id, "hello")
-                .await
+            match operator_flow::run_chat_with_pending(
+                self.state.as_ref(),
+                Some("discord"),
+                None,
+                &ghost_name,
+                &new_session.id,
+                &operator_id,
+                "hello",
+            )
+            .await
             {
-                Ok(text) => text,
-                Err(ChatError::ToolApprovalRequired(pending)) => {
-                    self.state
-                        .set_pending_tool_approval(
-                            &operator_id,
-                            &ghost_name,
-                            &new_session.id,
-                            pending.clone(),
-                        )
-                        .await;
-                    let message = approval_required_gateway_message(&pending.reason);
-                    let _ = send_discord_gateway_message(
+                Ok(messages) => {
+                    send_outbound_messages(
                         self.state.as_ref(),
                         &ctx,
                         msg.channel_id,
@@ -1199,33 +1080,9 @@ impl EventHandler for Bot {
                         &operator_id,
                         &ghost_name,
                         &new_session.id,
-                        message,
+                        messages,
                     )
                     .await;
-                    drop(typing);
-                    return;
-                }
-                Err(ChatError::ToolLoopLimitReached(pending)) => {
-                    self.state
-                        .set_pending_tool_loop(&operator_id, &ghost_name, &new_session.id, pending)
-                        .await;
-                    let message = tool_loop_limit_reached_gateway_message(
-                        crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                        crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                    );
-                    let _ = send_discord_gateway_message(
-                        self.state.as_ref(),
-                        &ctx,
-                        msg.channel_id,
-                        &operator_external_id,
-                        &operator_id,
-                        &ghost_name,
-                        &new_session.id,
-                        message,
-                    )
-                    .await;
-                    drop(typing);
-                    return;
                 }
                 Err(e) => {
                     error!("[session:{}] Chat error: {}", new_session.id, e);
@@ -1236,16 +1093,7 @@ impl EventHandler for Bot {
                         None,
                     )
                     .await;
-                    drop(typing);
-                    return;
                 }
-            };
-
-            if let Err(e) = send_discord_message(&ctx, msg.channel_id, &final_text).await {
-                error!(
-                    "[session:{}] Failed to send Discord message: {}",
-                    new_session.id, e
-                );
             }
             drop(typing);
             return;
@@ -1262,135 +1110,22 @@ impl EventHandler for Bot {
 
         if clean_content.eq_ignore_ascii_case("approve")
             || clean_content.eq_ignore_ascii_case("deny")
-            || parse_step_limit(clean_content).is_some()
+            || operator_flow::parse_step_limit(clean_content).is_some()
         {
-            let step_limit = parse_step_limit(clean_content);
-            if step_limit.is_none() {
-                let decision = if clean_content.eq_ignore_ascii_case("approve") {
-                    ToolApprovalDecision::Approve
-                } else {
-                    ToolApprovalDecision::Deny
-                };
-
-                let typing = msg.channel_id.start_typing(&ctx.http);
-                match self
-                    .state
-                    .handle_tool_approval(&ghost_name, &session.id, &operator_id, decision, None)
-                    .await
-                {
-                    Ok(Some(text)) => {
-                        let _ = send_discord_message(&ctx, msg.channel_id, &text).await;
-                        drop(typing);
-                        return;
-                    }
-                    Ok(None) => {}
-                    Err(ChatError::ToolApprovalRequired(pending)) => {
-                        self.state
-                            .set_pending_tool_approval(
-                                &operator_id,
-                                &ghost_name,
-                                &session.id,
-                                pending.clone(),
-                            )
-                            .await;
-                        let message = approval_required_gateway_message(&pending.reason);
-                        let _ = send_discord_gateway_message(
-                            self.state.as_ref(),
-                            &ctx,
-                            msg.channel_id,
-                            &operator_external_id,
-                            &operator_id,
-                            &ghost_name,
-                            &session.id,
-                            message,
-                        )
-                        .await;
-                        return;
-                    }
-                    Err(ChatError::ToolLoopLimitReached(pending)) => {
-                        self.state
-                            .set_pending_tool_loop(&operator_id, &ghost_name, &session.id, pending)
-                            .await;
-                        let message = tool_loop_limit_reached_gateway_message(
-                            crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                            crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                        );
-                        let _ = send_discord_gateway_message(
-                            self.state.as_ref(),
-                            &ctx,
-                            msg.channel_id,
-                            &operator_external_id,
-                            &operator_id,
-                            &ghost_name,
-                            &session.id,
-                            message,
-                        )
-                        .await;
-                        drop(typing);
-                        return;
-                    }
-                    Err(e) => {
-                        error!("[session:{}] Chat error: {}", session.id, e);
-                        let _ = send_gateway_embed(
-                            &ctx,
-                            msg.channel_id,
-                            &render_message("error-processing-request", &[]),
-                            None,
-                        )
-                        .await;
-                        drop(typing);
-                        return;
-                    }
-                }
-                drop(typing);
-            }
-
-            if clean_content.eq_ignore_ascii_case("deny")
-                && self
-                    .state
-                    .clear_pending_tool_loop(&operator_id, &ghost_name, &session.id)
-                    .await
-            {
-                let _ = send_gateway_embed(
-                    &ctx,
-                    msg.channel_id,
-                    &render_message(ids::TOOL_LOOP_DENIED, &[]),
-                    None,
-                )
-                .await;
-                return;
-            }
-
             let typing = msg.channel_id.start_typing(&ctx.http);
-            match self
-                .state
-                .handle_tool_loop_continue(&ghost_name, &session.id, &operator_id, step_limit, None)
-                .await
+            match operator_flow::run_tool_control_command(
+                self.state.as_ref(),
+                Some("discord"),
+                None,
+                &ghost_name,
+                &session.id,
+                &operator_id,
+                clean_content,
+            )
+            .await
             {
-                Ok(Some(text)) => {
-                    let _ = send_discord_message(&ctx, msg.channel_id, &text).await;
-                    drop(typing);
-                }
-                Ok(None) => {
-                    let message = if step_limit.is_some() {
-                        render_message(ids::NO_PENDING_TOOL_LOOP, &[])
-                    } else {
-                        render_message(ids::NO_PENDING_APPROVAL, &[])
-                    };
-                    let _ = send_gateway_embed(&ctx, msg.channel_id, &message, None).await;
-                    drop(typing);
-                }
-                Err(ChatError::ToolApprovalRequired(pending)) => {
-                    self.state
-                        .set_pending_tool_approval(
-                            &operator_id,
-                            &ghost_name,
-                            &session.id,
-                            pending.clone(),
-                        )
-                        .await;
-                    let message = approval_required_gateway_message(&pending.reason);
-                    let _ = send_discord_gateway_message(
+                Ok(Some(messages)) => {
+                    send_outbound_messages(
                         self.state.as_ref(),
                         &ctx,
                         msg.channel_id,
@@ -1398,32 +1133,11 @@ impl EventHandler for Bot {
                         &operator_id,
                         &ghost_name,
                         &session.id,
-                        message,
+                        messages,
                     )
                     .await;
-                    drop(typing);
                 }
-                Err(ChatError::ToolLoopLimitReached(pending)) => {
-                    self.state
-                        .set_pending_tool_loop(&operator_id, &ghost_name, &session.id, pending)
-                        .await;
-                    let message = tool_loop_limit_reached_gateway_message(
-                        crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                        crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                    );
-                    let _ = send_discord_gateway_message(
-                        self.state.as_ref(),
-                        &ctx,
-                        msg.channel_id,
-                        &operator_external_id,
-                        &operator_id,
-                        &ghost_name,
-                        &session.id,
-                        message,
-                    )
-                    .await;
-                    drop(typing);
-                }
+                Ok(None) => {}
                 Err(e) => {
                     error!("[session:{}] Chat error: {}", session.id, e);
                     let _ = send_gateway_embed(
@@ -1433,32 +1147,26 @@ impl EventHandler for Bot {
                         None,
                     )
                     .await;
-                    drop(typing);
                 }
             }
-
+            drop(typing);
             return;
         }
 
-        // Send the message to the AI through the centralized chat interface
         let typing = msg.channel_id.start_typing(&ctx.http);
-        let final_text = match self
-            .state
-            .chat(&ghost_name, &session.id, &operator_id, clean_content)
-            .await
+        match operator_flow::run_chat_with_pending(
+            self.state.as_ref(),
+            Some("discord"),
+            None,
+            &ghost_name,
+            &session.id,
+            &operator_id,
+            clean_content,
+        )
+        .await
         {
-            Ok(text) => text,
-            Err(ChatError::ToolApprovalRequired(pending)) => {
-                self.state
-                    .set_pending_tool_approval(
-                        &operator_id,
-                        &ghost_name,
-                        &session.id,
-                        pending.clone(),
-                    )
-                    .await;
-                let message = approval_required_gateway_message(&pending.reason);
-                let _ = send_discord_gateway_message(
+            Ok(messages) => {
+                send_outbound_messages(
                     self.state.as_ref(),
                     &ctx,
                     msg.channel_id,
@@ -1466,33 +1174,9 @@ impl EventHandler for Bot {
                     &operator_id,
                     &ghost_name,
                     &session.id,
-                    message,
+                    messages,
                 )
                 .await;
-                drop(typing);
-                return;
-            }
-            Err(ChatError::ToolLoopLimitReached(pending)) => {
-                self.state
-                    .set_pending_tool_loop(&operator_id, &ghost_name, &session.id, pending)
-                    .await;
-                let message = tool_loop_limit_reached_gateway_message(
-                    crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                    crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                );
-                let _ = send_discord_gateway_message(
-                    self.state.as_ref(),
-                    &ctx,
-                    msg.channel_id,
-                    &operator_external_id,
-                    &operator_id,
-                    &ghost_name,
-                    &session.id,
-                    message,
-                )
-                .await;
-                drop(typing);
-                return;
             }
             Err(e) => {
                 error!("[session:{}] Chat error: {}", session.id, e);
@@ -1503,17 +1187,7 @@ impl EventHandler for Bot {
                     None,
                 )
                 .await;
-                drop(typing);
-                return;
             }
-        };
-
-        // Send response back to Discord
-        if let Err(e) = send_discord_message(&ctx, msg.channel_id, &final_text).await {
-            error!(
-                "[session:{}] Failed to send Discord message: {}",
-                session.id, e
-            );
         }
         drop(typing);
     }

@@ -179,9 +179,7 @@ mod tests {
         let db = create_test_ghost_pool("JobLogGhost").await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1", Some("Test"))
-            .await
-            .unwrap();
+        let session = SessionRepository::create(pool, "op1").await.unwrap();
 
         let mut log = JobLog::start(JobKind::Heartbeat, &session.id);
         log.transcript.push(TranscriptEntry {
@@ -223,7 +221,7 @@ mod tests {
         let db = create_test_ghost_pool("JobLogGhost2").await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1", None).await.unwrap();
+        let session = SessionRepository::create(pool, "op1").await.unwrap();
 
         let mut log = JobLog::start(JobKind::Heartbeat, &session.id);
         log.finish("error: something went wrong");

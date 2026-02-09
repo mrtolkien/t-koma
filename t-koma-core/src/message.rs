@@ -225,7 +225,6 @@ impl GatewayMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
     pub id: String,
-    pub title: String,
     #[serde(with = "chrono::serde::ts_milliseconds")]
     pub created_at: DateTime<Utc>,
     #[serde(with = "chrono::serde::ts_milliseconds")]
@@ -258,10 +257,7 @@ pub enum WsMessage {
     /// List all sessions for the operator and ghost
     ListSessions { ghost_name: String },
     /// Create a new session for a ghost
-    CreateSession {
-        ghost_name: String,
-        title: Option<String>,
-    },
+    CreateSession { ghost_name: String },
     /// Switch to a different session for a ghost
     SwitchSession {
         ghost_name: String,
@@ -306,14 +302,12 @@ pub enum WsResponse {
     },
     /// List of sessions
     SessionList { sessions: Vec<SessionInfo> },
-    /// Interface selection required
-    InterfaceSelectionRequired { message: String },
     /// List of ghosts
     GhostList { ghosts: Vec<GhostInfo> },
     /// Ghost selected successfully
     GhostSelected { ghost_name: String },
     /// Session created successfully
-    SessionCreated { session_id: String, title: String },
+    SessionCreated { session_id: String },
     /// Session switched successfully
     SessionSwitched { session_id: String },
     /// Session deleted successfully
@@ -334,8 +328,6 @@ pub enum WsResponse {
         operator_id: String,
         discord_notified: bool,
     },
-    /// Error response
-    Error { message: String },
     /// Pong response to ping
     Pong,
 }
@@ -392,11 +384,9 @@ mod tests {
     fn test_ws_message_session_commands() {
         let msg = WsMessage::CreateSession {
             ghost_name: "Alpha".to_string(),
-            title: Some("Test Session".to_string()),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"create_session\""));
-        assert!(json.contains("\"title\":\"Test Session\""));
     }
 
     #[test]

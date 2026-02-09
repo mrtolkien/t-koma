@@ -35,7 +35,6 @@ struct ConversationTurn {
 #[cfg(feature = "live-tests")]
 #[derive(Debug, serde::Serialize)]
 struct Conversation {
-    session_title: String,
     operator_id: String,
     turns: Vec<ConversationTurn>,
     total_messages: i64,
@@ -65,10 +64,9 @@ async fn test_multi_turn_story_conversation() {
     let ghost = env.ghost;
 
     // Create a session
-    let session =
-        SessionRepository::create(ghost_db.pool(), &operator.id, Some("Multi-turn Story Test"))
-            .await
-            .expect("Failed to create session");
+    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+        .await
+        .expect("Failed to create session");
 
     println!("Created session: {}", session.id);
 
@@ -244,7 +242,6 @@ async fn test_multi_turn_story_conversation() {
 
     // Build final conversation snapshot
     let conversation = Conversation {
-        session_title: session.title,
         operator_id: operator.id,
         turns: conversation_turns,
         total_messages: msg_count3,
@@ -290,10 +287,9 @@ async fn test_multi_turn_with_tool_use() {
     let ghost = env.ghost;
 
     // Create a session
-    let session =
-        SessionRepository::create(ghost_db.pool(), &operator.id, Some("Multi-turn Tool Test"))
-            .await
-            .expect("Failed to create session");
+    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+        .await
+        .expect("Failed to create session");
 
     // Set up system prompt and tools
     let system_prompt = SystemPrompt::new(&[

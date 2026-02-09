@@ -12,3 +12,11 @@ body = "`CHAT CORE` is `BUSY`. MESSAGE buffered as `IGNORED`. Send `CONTINUE` to
 
 [chat-continue-missing]
 body = "No `IGNORED` message in buffer. Send a fresh `MESSAGE`."
+
+[compaction-happened]
+kind = "info"
+body = "`CONTEXT` compacted to keep the session responsive."
+
+[session-started]
+kind = "info"
+body = "Started new `SESSION`."
