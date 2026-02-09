@@ -1,12 +1,44 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use serenity::async_trait;
 use serenity::builder::{CreateActionRow, CreateCommand, CreateCommandOption};
 use serenity::model::application::{Command, CommandOptionType};
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
+use serenity::model::id::ChannelId;
 use serenity::prelude::*;
+use tokio::task::JoinHandle;
 use tracing::{error, info};
+
+/// Maximum duration for a typing indicator before it auto-stops.
+const TYPING_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Typing indicator with an automatic timeout.
+///
+/// Wraps serenity's `Typing` so that the indicator stops after
+/// [`TYPING_TIMEOUT`] even if the owning task hangs or panics.
+/// Dropping this struct cancels the timeout and stops typing immediately.
+struct TimedTyping {
+    _handle: JoinHandle<()>,
+}
+
+impl TimedTyping {
+    fn start(channel_id: ChannelId, http: &Arc<serenity::http::Http>) -> Self {
+        let typing = channel_id.start_typing(http);
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(TYPING_TIMEOUT).await;
+            drop(typing);
+        });
+        Self { _handle: handle }
+    }
+}
+
+impl Drop for TimedTyping {
+    fn drop(&mut self) {
+        self._handle.abort();
+    }
+}
 
 use crate::content::{self, ids};
 use crate::operator_flow;
@@ -616,7 +648,7 @@ impl EventHandler for Bot {
             || clean_content.eq_ignore_ascii_case("deny")
             || operator_flow::parse_step_limit(clean_content).is_some()
         {
-            let typing = msg.channel_id.start_typing(&ctx.http);
+            let _typing = TimedTyping::start(msg.channel_id, &ctx.http);
             match operator_flow::run_tool_control_command(
                 self.state.as_ref(),
                 Some("discord"),
@@ -653,11 +685,10 @@ impl EventHandler for Bot {
                     .await;
                 }
             }
-            drop(typing);
             return;
         }
 
-        let typing = msg.channel_id.start_typing(&ctx.http);
+        let _typing = TimedTyping::start(msg.channel_id, &ctx.http);
 
         // Set up incremental tool call streaming when verbose mode is on
         let verbose = self.state.is_verbose(&operator_id).await;
@@ -722,7 +753,6 @@ impl EventHandler for Bot {
                 .await;
             }
         }
-        drop(typing);
     }
 
     async fn interaction_create(
@@ -902,7 +932,7 @@ impl Bot {
             }
         };
 
-        let typing = channel_id.start_typing(&ctx.http);
+        let _typing = TimedTyping::start(channel_id, &ctx.http);
         let ghost_response = match self
             .state
             .chat(&ghost.name, &session.id, operator_id, &bootstrap)
@@ -918,11 +948,9 @@ impl Bot {
                     None,
                 )
                 .await;
-                drop(typing);
                 return;
             }
         };
-        drop(typing);
 
         self.state.set_active_ghost(operator_id, &ghost.name).await;
 
@@ -1040,7 +1068,7 @@ impl Bot {
             }
         };
 
-        let typing = msg.channel_id.start_typing(&ctx.http);
+        let _typing = TimedTyping::start(msg.channel_id, &ctx.http);
         self.start_new_session_core(
             ctx,
             msg.channel_id,
@@ -1052,7 +1080,6 @@ impl Bot {
             &new_session.id,
         )
         .await;
-        drop(typing);
     }
 
     /// Shared new-session logic: spawn reflection on the previous session,
