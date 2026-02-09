@@ -50,7 +50,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch the textual content of a web page and return it as text or markdown."
+        "Fetch a web page as text or markdown. You MUST save valuable results with reference_write."
     }
 
     fn input_schema(&self) -> Value {
