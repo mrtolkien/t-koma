@@ -28,6 +28,7 @@ const REFLECTION_IDLE_ACTIVITY_SECS: i64 = 30 * 60; // 30 minutes since last ses
 pub async fn maybe_run_reflection(
     state: &Arc<AppState>,
     ghost_name: &str,
+    ghost_id: &str,
     session_id: &str,
     session_updated_at: i64,
     operator_id: &str,
@@ -36,6 +37,7 @@ pub async fn maybe_run_reflection(
     run_reflection(
         state,
         ghost_name,
+        ghost_id,
         session_id,
         session_updated_at,
         operator_id,
@@ -53,6 +55,7 @@ pub async fn maybe_run_reflection(
 pub async fn run_reflection_now(
     state: &Arc<AppState>,
     ghost_name: &str,
+    ghost_id: &str,
     session_id: &str,
     operator_id: &str,
     heartbeat_model_alias: Option<&str>,
@@ -60,6 +63,7 @@ pub async fn run_reflection_now(
     run_reflection(
         state,
         ghost_name,
+        ghost_id,
         session_id,
         Utc::now().timestamp(),
         operator_id,
@@ -74,6 +78,7 @@ pub async fn run_reflection_now(
 async fn run_reflection(
     state: &Arc<AppState>,
     ghost_name: &str,
+    ghost_id: &str,
     session_id: &str,
     session_updated_at: i64,
     operator_id: &str,
@@ -100,11 +105,11 @@ async fn run_reflection(
     }
 
     // Check if inbox has files
-    let ghost_db = match state.get_or_init_ghost_db(ghost_name).await {
-        Ok(db) => db,
+    let workspace_path = match t_koma_db::ghosts::ghost_workspace_path(ghost_name) {
+        Ok(path) => path,
         Err(_) => return,
     };
-    let inbox_path = ghost_db.workspace_path().join("inbox");
+    let inbox_path = workspace_path.join("inbox");
     let inbox_items = match read_inbox_items(&inbox_path).await {
         Ok(items) if items.is_empty() => return,
         Ok(items) => items,
@@ -134,8 +139,8 @@ async fn run_reflection(
     let result = state
         .session_chat
         .chat_job(
-            &ghost_db,
             &state.koma_db,
+            ghost_id,
             model.client.as_ref(),
             &model.provider,
             &model.model,
@@ -158,11 +163,11 @@ async fn run_reflection(
     match result {
         Ok(job_result) => {
             let status = format!("processed {} items", inbox_items.len());
-            let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
+            let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
             job_log.transcript = job_result.transcript;
             job_log.finish(&status);
 
-            if let Err(err) = JobLogRepository::insert(ghost_db.pool(), &job_log).await {
+            if let Err(err) = JobLogRepository::insert(state.koma_db.pool(), &job_log).await {
                 warn!("reflection: failed to write job log for {ghost_name}:{session_id}: {err}");
             }
 
@@ -176,10 +181,10 @@ async fn run_reflection(
         }
         Err(err) => {
             let status = format!("error: {err}");
-            let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
+            let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
             job_log.finish(&status);
 
-            let _ = JobLogRepository::insert(ghost_db.pool(), &job_log).await;
+            let _ = JobLogRepository::insert(state.koma_db.pool(), &job_log).await;
 
             state
                 .log(LogEntry::Reflection {

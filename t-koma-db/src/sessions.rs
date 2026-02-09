@@ -71,6 +71,7 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
+    pub ghost_id: String,
     pub operator_id: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -96,15 +97,16 @@ pub struct SessionRepository;
 
 impl SessionRepository {
     /// Create a new session
-    pub async fn create(pool: &SqlitePool, operator_id: &str) -> DbResult<Session> {
+    pub async fn create(pool: &SqlitePool, ghost_id: &str, operator_id: &str) -> DbResult<Session> {
         let id = format!("sess_{}", Uuid::new_v4());
         let now = Utc::now().timestamp();
 
         sqlx::query(
-            "INSERT INTO sessions (id, operator_id, created_at, updated_at, is_active)
-             VALUES (?, ?, ?, ?, 1)",
+            "INSERT INTO sessions (id, ghost_id, operator_id, created_at, updated_at, is_active)
+             VALUES (?, ?, ?, ?, ?, 1)",
         )
         .bind(&id)
+        .bind(ghost_id)
         .bind(operator_id)
         .bind(now)
         .bind(now)
@@ -114,17 +116,19 @@ impl SessionRepository {
         sqlx::query(
             "UPDATE sessions
              SET is_active = 0
-             WHERE operator_id = ? AND id != ?",
+             WHERE ghost_id = ? AND operator_id = ? AND id != ?",
         )
+        .bind(ghost_id)
         .bind(operator_id)
         .bind(&id)
         .execute(pool)
         .await?;
 
-        info!("Created new session: {} for operator: {}", id, operator_id);
+        info!("Created new session: {} for ghost: {}", id, ghost_id);
 
         Ok(Session {
             id,
+            ghost_id: ghost_id.to_string(),
             operator_id: operator_id.to_string(),
             created_at: now,
             updated_at: now,
@@ -137,7 +141,7 @@ impl SessionRepository {
     /// Get session by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Session>> {
         let row = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
+            "SELECT id, ghost_id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
              WHERE id = ?",
         )
@@ -148,13 +152,37 @@ impl SessionRepository {
         Ok(row.map(Session::from))
     }
 
-    /// Get active session for an operator
-    pub async fn get_active(pool: &SqlitePool, operator_id: &str) -> DbResult<Option<Session>> {
+    /// Get session by ID with ghost_id verification
+    pub async fn get_by_id_for_ghost(
+        pool: &SqlitePool,
+        id: &str,
+        ghost_id: &str,
+    ) -> DbResult<Option<Session>> {
         let row = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
+            "SELECT id, ghost_id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
-             WHERE operator_id = ? AND is_active = 1",
+             WHERE id = ? AND ghost_id = ?",
         )
+        .bind(id)
+        .bind(ghost_id)
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row.map(Session::from))
+    }
+
+    /// Get active session for an operator within a specific ghost
+    pub async fn get_active(
+        pool: &SqlitePool,
+        ghost_id: &str,
+        operator_id: &str,
+    ) -> DbResult<Option<Session>> {
+        let row = sqlx::query_as::<_, SessionRow>(
+            "SELECT id, ghost_id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
+             FROM sessions
+             WHERE ghost_id = ? AND operator_id = ? AND is_active = 1",
+        )
+        .bind(ghost_id)
         .bind(operator_id)
         .fetch_optional(pool)
         .await?;
@@ -162,34 +190,43 @@ impl SessionRepository {
         Ok(row.map(Session::from))
     }
 
-    /// Get or create active session for an operator
-    pub async fn get_or_create_active(pool: &SqlitePool, operator_id: &str) -> DbResult<Session> {
-        if let Some(session) = Self::get_active(pool, operator_id).await? {
+    /// Get or create active session for an operator within a ghost
+    pub async fn get_or_create_active(
+        pool: &SqlitePool,
+        ghost_id: &str,
+        operator_id: &str,
+    ) -> DbResult<Session> {
+        if let Some(session) = Self::get_active(pool, ghost_id, operator_id).await? {
             debug!(
-                "Found active session: {} for operator: {}",
-                session.id, operator_id
+                "Found active session: {} for ghost: {} operator: {}",
+                session.id, ghost_id, operator_id
             );
             return Ok(session);
         }
 
         debug!(
-            "No active session found for operator: {}, creating new",
-            operator_id
+            "No active session found for ghost: {} operator: {}, creating new",
+            ghost_id, operator_id
         );
-        Self::create(pool, operator_id).await
+        Self::create(pool, ghost_id, operator_id).await
     }
 
-    /// List all sessions for an operator
-    pub async fn list(pool: &SqlitePool, operator_id: &str) -> DbResult<Vec<SessionInfo>> {
+    /// List all sessions for an operator within a ghost
+    pub async fn list(
+        pool: &SqlitePool,
+        ghost_id: &str,
+        operator_id: &str,
+    ) -> DbResult<Vec<SessionInfo>> {
         let rows = sqlx::query_as::<_, SessionInfoRow>(
             "SELECT s.id, s.created_at, s.updated_at, s.is_active,
                     COUNT(m.id) as message_count
              FROM sessions s
              LEFT JOIN messages m ON s.id = m.session_id
-             WHERE s.operator_id = ?
+             WHERE s.ghost_id = ? AND s.operator_id = ?
              GROUP BY s.id
              ORDER BY s.updated_at DESC",
         )
+        .bind(ghost_id)
         .bind(operator_id)
         .fetch_all(pool)
         .await?;
@@ -203,7 +240,7 @@ impl SessionRepository {
         before_unix_seconds: i64,
     ) -> DbResult<Vec<Session>> {
         let rows = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
+            "SELECT id, ghost_id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
              WHERE is_active = 1 AND updated_at <= ?
              ORDER BY updated_at ASC",
@@ -215,9 +252,10 @@ impl SessionRepository {
         Ok(rows.into_iter().map(Session::from).collect())
     }
 
-    /// Switch active session
+    /// Switch active session (within a ghost)
     pub async fn switch(
         pool: &SqlitePool,
+        ghost_id: &str,
         operator_id: &str,
         session_id: &str,
     ) -> DbResult<Session> {
@@ -225,11 +263,12 @@ impl SessionRepository {
             .await?
             .ok_or_else(|| DbError::SessionNotFound(session_id.to_string()))?;
 
-        if session.operator_id != operator_id {
+        if session.ghost_id != ghost_id || session.operator_id != operator_id {
             return Err(DbError::Unauthorized);
         }
 
-        sqlx::query("UPDATE sessions SET is_active = 0 WHERE operator_id = ?")
+        sqlx::query("UPDATE sessions SET is_active = 0 WHERE ghost_id = ? AND operator_id = ?")
+            .bind(ghost_id)
             .bind(operator_id)
             .execute(pool)
             .await?;
@@ -247,6 +286,7 @@ impl SessionRepository {
     /// Add a message to a session
     pub async fn add_message(
         pool: &SqlitePool,
+        ghost_id: &str,
         session_id: &str,
         role: MessageRole,
         content: Vec<ContentBlock>,
@@ -258,10 +298,11 @@ impl SessionRepository {
             serde_json::to_string(&content).map_err(|e| DbError::Serialization(e.to_string()))?;
 
         sqlx::query(
-            "INSERT INTO messages (id, session_id, role, content, model, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (id, ghost_id, session_id, role, content, model, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
+        .bind(ghost_id)
         .bind(session_id)
         .bind(role.to_string())
         .bind(&content_json)
@@ -325,7 +366,7 @@ impl SessionRepository {
     /// List all active sessions.
     pub async fn list_active(pool: &SqlitePool) -> DbResult<Vec<Session>> {
         let rows = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
+            "SELECT id, ghost_id, operator_id, created_at, updated_at, is_active, compaction_summary, compaction_cursor_id
              FROM sessions
              WHERE is_active = 1
              ORDER BY updated_at ASC",
@@ -359,22 +400,34 @@ impl SessionRepository {
         Ok(row.try_get::<i64, _>("count").unwrap_or(0))
     }
 
-    /// Count messages created at or after the provided unix timestamp.
-    pub async fn count_messages_since(pool: &SqlitePool, since_unix_seconds: i64) -> DbResult<i64> {
-        let row = sqlx::query("SELECT COUNT(*) as count FROM messages WHERE created_at >= ?")
-            .bind(since_unix_seconds)
-            .fetch_one(pool)
-            .await?;
+    /// Count messages created at or after the provided unix timestamp for a ghost.
+    pub async fn count_messages_since(
+        pool: &SqlitePool,
+        ghost_id: &str,
+        since_unix_seconds: i64,
+    ) -> DbResult<i64> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count FROM messages WHERE ghost_id = ? AND created_at >= ?",
+        )
+        .bind(ghost_id)
+        .bind(since_unix_seconds)
+        .fetch_one(pool)
+        .await?;
         Ok(row.try_get::<i64, _>("count").unwrap_or(0))
     }
 
-    /// Delete a session if it belongs to the operator
-    pub async fn delete(pool: &SqlitePool, operator_id: &str, session_id: &str) -> DbResult<()> {
+    /// Delete a session if it belongs to the ghost and operator
+    pub async fn delete(
+        pool: &SqlitePool,
+        ghost_id: &str,
+        operator_id: &str,
+        session_id: &str,
+    ) -> DbResult<()> {
         let session = Self::get_by_id(pool, session_id)
             .await?
             .ok_or_else(|| DbError::SessionNotFound(session_id.to_string()))?;
 
-        if session.operator_id != operator_id {
+        if session.ghost_id != ghost_id || session.operator_id != operator_id {
             return Err(DbError::Unauthorized);
         }
 
@@ -463,6 +516,7 @@ impl SessionRepository {
 #[derive(Debug, sqlx::FromRow)]
 struct SessionRow {
     id: String,
+    ghost_id: String,
     operator_id: String,
     created_at: i64,
     updated_at: i64,
@@ -475,6 +529,7 @@ impl From<SessionRow> for Session {
     fn from(row: SessionRow) -> Self {
         Session {
             id: row.id,
+            ghost_id: row.ghost_id,
             operator_id: row.operator_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -537,17 +592,35 @@ impl TryFrom<MessageRow> for Message {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::create_test_ghost_pool;
+    use crate::{
+        GhostRepository, OperatorAccessLevel, OperatorRepository, Platform,
+        test_helpers::create_test_pool,
+    };
 
     #[tokio::test]
     async fn test_session_lifecycle() {
-        let db = create_test_ghost_pool("TestGhost").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "operator1").await.unwrap();
-        assert_eq!(session.operator_id, "operator1");
+        let operator = OperatorRepository::create_new(
+            pool,
+            "TestOp",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+        let ghost = GhostRepository::create(pool, &operator.id, "TestGhost")
+            .await
+            .unwrap();
 
-        let active = SessionRepository::get_active(pool, "operator1")
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
+        assert_eq!(session.ghost_id, ghost.id);
+        assert_eq!(session.operator_id, operator.id);
+
+        let active = SessionRepository::get_active(pool, &ghost.id, &operator.id)
             .await
             .unwrap()
             .unwrap();
@@ -556,13 +629,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_message() {
-        let db = create_test_ghost_pool("TestGhost").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "operator1").await.unwrap();
+        let operator = OperatorRepository::create_new(
+            pool,
+            "TestOp",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+        let ghost = GhostRepository::create(pool, &operator.id, "TestGhost")
+            .await
+            .unwrap();
+
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
 
         let message = SessionRepository::add_message(
             pool,
+            &ghost.id,
             &session.id,
             MessageRole::Operator,
             vec![ContentBlock::Text {
@@ -583,12 +671,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_count_messages_since() {
-        let db = create_test_ghost_pool("RecentGhost").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "operator1").await.unwrap();
+        let operator = OperatorRepository::create_new(
+            pool,
+            "TestOp",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+        let ghost = GhostRepository::create(pool, &operator.id, "TestGhost")
+            .await
+            .unwrap();
+
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
         SessionRepository::add_message(
             pool,
+            &ghost.id,
             &session.id,
             MessageRole::Operator,
             vec![ContentBlock::Text {
@@ -599,9 +702,10 @@ mod tests {
         .await
         .unwrap();
 
-        let count = SessionRepository::count_messages_since(pool, Utc::now().timestamp() - 300)
-            .await
-            .unwrap();
+        let count =
+            SessionRepository::count_messages_since(pool, &ghost.id, Utc::now().timestamp() - 300)
+                .await
+                .unwrap();
         assert!(count >= 1);
     }
 }

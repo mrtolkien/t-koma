@@ -2,12 +2,11 @@
 //!
 //! This crate provides database operations for:
 //! - Operator approval/denial workflows
-//! - Ghost registry and per-ghost session/message storage
+//! - Ghost registry and session/message storage
 //! - Platform-specific handling (Discord, API, CLI)
 //! - Audit trail via event logging
 
 pub mod error;
-pub mod ghost_db;
 pub mod ghosts;
 pub mod interfaces;
 pub mod job_logs;
@@ -20,7 +19,6 @@ pub mod usage_log;
 
 // Re-export commonly used types
 pub use error::{DbError, DbResult};
-pub use ghost_db::GhostDbPool;
 pub use ghosts::{Ghost, GhostRepository};
 pub use interfaces::{Interface, InterfaceRepository};
 pub use job_logs::{JobKind, JobLog, JobLogRepository, TranscriptEntry};

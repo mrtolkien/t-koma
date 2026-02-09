@@ -279,16 +279,57 @@ impl Bot {
             return;
         };
 
-        let ghost_db = match self.state.get_or_init_ghost_db(&ghost_name).await {
-            Ok(db) => db,
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.state.koma_db.pool(), &ghost_name)
+                .await
+            {
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    error!("Ghost not found: {}", ghost_name);
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content("Ghost not found.")
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    error!("Failed to load ghost: {}", e);
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content("Failed to load ghost.")
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+            };
+
+        let current_session = match t_koma_db::SessionRepository::get_or_create_active(
+            self.state.koma_db.pool(),
+            &ghost.id,
+            &operator_id,
+        )
+        .await
+        {
+            Ok(s) => s,
             Err(e) => {
-                error!("Failed to init ghost DB: {}", e);
+                error!("Failed to get current session: {}", e);
                 let _ = command
                     .create_response(
                         &ctx.http,
                         CreateInteractionResponse::Message(
                             CreateInteractionResponseMessage::new()
-                                .content("Failed to initialize ghost storage.")
+                                .content("Failed to access session.")
                                 .ephemeral(true),
                         ),
                     )
@@ -297,45 +338,29 @@ impl Bot {
             }
         };
 
-        let current_session =
-            match t_koma_db::SessionRepository::get_or_create_active(ghost_db.pool(), &operator_id)
-                .await
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("Failed to get current session: {}", e);
-                    let _ = command
-                        .create_response(
-                            &ctx.http,
-                            CreateInteractionResponse::Message(
-                                CreateInteractionResponseMessage::new()
-                                    .content("Failed to access session.")
-                                    .ephemeral(true),
-                            ),
-                        )
-                        .await;
-                    return;
-                }
-            };
-
-        let new_session =
-            match t_koma_db::SessionRepository::create(ghost_db.pool(), &operator_id).await {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("Failed to create new session: {}", e);
-                    let _ = command
-                        .create_response(
-                            &ctx.http,
-                            CreateInteractionResponse::Message(
-                                CreateInteractionResponseMessage::new()
-                                    .content("Failed to create new session.")
-                                    .ephemeral(true),
-                            ),
-                        )
-                        .await;
-                    return;
-                }
-            };
+        let new_session = match t_koma_db::SessionRepository::create(
+            self.state.koma_db.pool(),
+            &ghost.id,
+            &operator_id,
+        )
+        .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to create new session: {}", e);
+                let _ = command
+                    .create_response(
+                        &ctx.http,
+                        CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new()
+                                .content("Failed to create new session.")
+                                .ephemeral(true),
+                        ),
+                    )
+                    .await;
+                return;
+            }
+        };
 
         // Acknowledge immediately — the ghost response may take a while
         let _ = command

@@ -11,7 +11,7 @@ use crate::session::{ChatError, JobChatResult};
 use crate::state::{AppState, HeartbeatOverride, LogEntry};
 use t_koma_db::{
     ContentBlock, GhostRepository, JobKind as DbJobKind, JobLog, JobLogRepository, MessageRole,
-    Session, SessionRepository,
+    SessionRepository,
 };
 
 const HEARTBEAT_TOKEN: &str = "HEARTBEAT_OK";
@@ -217,7 +217,9 @@ async fn should_skip_empty_heartbeat_file(workspace_path: &Path) -> bool {
 async fn run_heartbeat_for_session(
     state: &AppState,
     ghost_name: &str,
-    session: &Session,
+    ghost_id: &str,
+    session_id: &str,
+    operator_id: &str,
     heartbeat_model_alias: Option<&str>,
 ) -> Result<JobChatResult, ChatError> {
     let model = if let Some(alias) = heartbeat_model_alias {
@@ -228,8 +230,8 @@ async fn run_heartbeat_for_session(
         state.default_model()
     };
 
-    let ghost_db = state.get_or_init_ghost_db(ghost_name).await?;
-    let heartbeat_path = ghost_db.workspace_path().join("HEARTBEAT.md");
+    let workspace_path = t_koma_db::ghosts::ghost_workspace_path(ghost_name)?;
+    let heartbeat_path = workspace_path.join("HEARTBEAT.md");
     let prompt = fs::read_to_string(&heartbeat_path)
         .await
         .unwrap_or_default();
@@ -237,14 +239,14 @@ async fn run_heartbeat_for_session(
     state
         .session_chat
         .chat_job(
-            &ghost_db,
             &state.koma_db,
+            ghost_id,
             model.client.as_ref(),
             &model.provider,
             &model.model,
             model.context_window,
-            &session.id,
-            &session.operator_id,
+            session_id,
+            operator_id,
             prompt.trim(),
             true, // load session history — ghost needs conversation context
         )
@@ -265,15 +267,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
     };
 
     for ghost in ghosts {
-        let ghost_db = match state.get_or_init_ghost_db(&ghost.name).await {
-            Ok(db) => db,
-            Err(err) => {
-                warn!("heartbeat: failed to init ghost db {}: {err}", ghost.name);
-                continue;
-            }
-        };
-
-        let sessions = match SessionRepository::list_active(ghost_db.pool()).await {
+        let sessions = match SessionRepository::list_active(state.koma_db.pool()).await {
             Ok(list) => list,
             Err(err) => {
                 warn!(
@@ -300,7 +294,8 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
 
             // Check if a successful heartbeat already ran since last session activity
             let had_ok_heartbeat = JobLogRepository::latest_ok_since(
-                ghost_db.pool(),
+                state.koma_db.pool(),
+                &ghost.id,
                 &session.id,
                 DbJobKind::Heartbeat,
                 session.updated_at,
@@ -324,6 +319,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 crate::reflection::maybe_run_reflection(
                     &state,
                     &ghost.name,
+                    &ghost.id,
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
@@ -337,6 +333,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 crate::reflection::maybe_run_reflection(
                     &state,
                     &ghost.name,
+                    &ghost.id,
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
@@ -350,6 +347,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 crate::reflection::maybe_run_reflection(
                     &state,
                     &ghost.name,
+                    &ghost.id,
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
@@ -359,10 +357,15 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 continue;
             }
 
-            if should_skip_empty_heartbeat_file(ghost_db.workspace_path()).await {
+            let workspace_path = match t_koma_db::ghosts::ghost_workspace_path(&ghost.name) {
+                Ok(path) => path,
+                Err(_) => continue,
+            };
+            if should_skip_empty_heartbeat_file(&workspace_path).await {
                 crate::reflection::maybe_run_reflection(
                     &state,
                     &ghost.name,
+                    &ghost.id,
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
@@ -373,8 +376,15 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
             }
 
             state.set_chat_in_flight(&chat_key).await;
-            let result =
-                run_heartbeat_for_session(state.as_ref(), &ghost.name, &session, model_alias).await;
+            let result = run_heartbeat_for_session(
+                state.as_ref(),
+                &ghost.name,
+                &ghost.id,
+                &session.id,
+                &session.operator_id,
+                model_alias,
+            )
+            .await;
             state.clear_chat_in_flight(&chat_key).await;
 
             match result {
@@ -390,11 +400,12 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                         "ran"
                     };
 
-                    let mut job_log = JobLog::start(DbJobKind::Heartbeat, &session.id);
+                    let mut job_log = JobLog::start(&ghost.id, DbJobKind::Heartbeat, &session.id);
                     job_log.transcript = job_result.transcript;
                     job_log.finish(status);
 
-                    if let Err(err) = JobLogRepository::insert(ghost_db.pool(), &job_log).await {
+                    if let Err(err) = JobLogRepository::insert(state.koma_db.pool(), &job_log).await
+                    {
                         warn!(
                             "heartbeat: failed to write job log for {}:{}: {err}",
                             ghost.name, session.id
@@ -418,7 +429,8 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     } else if status == "ran" {
                         // Post the final response to the session as a single ghost message
                         if let Err(err) = SessionRepository::add_message(
-                            ghost_db.pool(),
+                            state.koma_db.pool(),
+                            &ghost.id,
                             &session.id,
                             MessageRole::Ghost,
                             vec![ContentBlock::Text { text: text.clone() }],
@@ -446,6 +458,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     crate::reflection::maybe_run_reflection(
                         &state,
                         &ghost.name,
+                        &ghost.id,
                         &session.id,
                         session.updated_at,
                         &session.operator_id,
@@ -455,9 +468,9 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 }
                 Err(err) => {
                     // Write error job log
-                    let mut job_log = JobLog::start(DbJobKind::Heartbeat, &session.id);
+                    let mut job_log = JobLog::start(&ghost.id, DbJobKind::Heartbeat, &session.id);
                     job_log.finish(&format!("error: {err}"));
-                    let _ = JobLogRepository::insert(ghost_db.pool(), &job_log).await;
+                    let _ = JobLogRepository::insert(state.koma_db.pool(), &job_log).await;
 
                     state
                         .log(LogEntry::Heartbeat {

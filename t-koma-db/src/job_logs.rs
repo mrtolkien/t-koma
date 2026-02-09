@@ -54,6 +54,7 @@ pub struct TranscriptEntry {
 #[derive(Debug, Clone)]
 pub struct JobLog {
     pub id: String,
+    pub ghost_id: String,
     pub job_kind: JobKind,
     pub session_id: String,
     pub started_at: i64,
@@ -63,10 +64,11 @@ pub struct JobLog {
 }
 
 impl JobLog {
-    /// Start building a new job log for the given session.
-    pub fn start(job_kind: JobKind, session_id: &str) -> Self {
+    /// Start building a new job log for the given ghost and session.
+    pub fn start(ghost_id: &str, job_kind: JobKind, session_id: &str) -> Self {
         Self {
             id: format!("job_{}", Uuid::new_v4()),
+            ghost_id: ghost_id.to_string(),
             job_kind,
             session_id: session_id.to_string(),
             started_at: Utc::now().timestamp(),
@@ -93,10 +95,11 @@ impl JobLogRepository {
             .map_err(|e| DbError::Serialization(e.to_string()))?;
 
         sqlx::query(
-            "INSERT INTO job_logs (id, job_kind, session_id, started_at, finished_at, status, transcript)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO job_logs (id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&log.id)
+        .bind(&log.ghost_id)
         .bind(log.job_kind.to_string())
         .bind(&log.session_id)
         .bind(log.started_at)
@@ -115,18 +118,20 @@ impl JobLogRepository {
     /// the last session activity?"
     pub async fn latest_ok_since(
         pool: &SqlitePool,
+        ghost_id: &str,
         session_id: &str,
         kind: JobKind,
         since_ts: i64,
     ) -> DbResult<Option<JobLog>> {
         let row = sqlx::query_as::<_, JobLogRow>(
-            "SELECT id, job_kind, session_id, started_at, finished_at, status, transcript
+            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript
              FROM job_logs
-             WHERE session_id = ? AND job_kind = ? AND started_at >= ?
+             WHERE ghost_id = ? AND session_id = ? AND job_kind = ? AND started_at >= ?
                AND status IS NOT NULL AND status NOT LIKE 'error:%'
              ORDER BY started_at DESC
              LIMIT 1",
         )
+        .bind(ghost_id)
         .bind(session_id)
         .bind(kind.to_string())
         .bind(since_ts)
@@ -140,6 +145,7 @@ impl JobLogRepository {
 #[derive(Debug, sqlx::FromRow)]
 struct JobLogRow {
     id: String,
+    ghost_id: String,
     job_kind: String,
     session_id: String,
     started_at: i64,
@@ -158,6 +164,7 @@ impl TryFrom<JobLogRow> for JobLog {
 
         Ok(JobLog {
             id: row.id,
+            ghost_id: row.ghost_id,
             job_kind,
             session_id: row.session_id,
             started_at: row.started_at,
@@ -171,17 +178,33 @@ impl TryFrom<JobLogRow> for JobLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sessions::SessionRepository;
-    use crate::test_helpers::create_test_ghost_pool;
+    use crate::{
+        GhostRepository, OperatorAccessLevel, OperatorRepository, Platform,
+        sessions::SessionRepository, test_helpers::create_test_pool,
+    };
 
     #[tokio::test]
     async fn test_insert_and_retrieve_job_log() {
-        let db = create_test_ghost_pool("JobLogGhost").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1").await.unwrap();
+        let operator = OperatorRepository::create_new(
+            pool,
+            "TestOp",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+        let ghost = GhostRepository::create(pool, &operator.id, "TestGhost")
+            .await
+            .unwrap();
 
-        let mut log = JobLog::start(JobKind::Heartbeat, &session.id);
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
+
+        let mut log = JobLog::start(&ghost.id, JobKind::Heartbeat, &session.id);
         log.transcript.push(TranscriptEntry {
             role: MessageRole::Operator,
             content: vec![ContentBlock::Text {
@@ -202,6 +225,7 @@ mod tests {
 
         let found = JobLogRepository::latest_ok_since(
             pool,
+            &ghost.id,
             &session.id,
             JobKind::Heartbeat,
             log.started_at - 1,
@@ -218,17 +242,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_latest_ok_since_ignores_errors() {
-        let db = create_test_ghost_pool("JobLogGhost2").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1").await.unwrap();
+        let operator = OperatorRepository::create_new(
+            pool,
+            "TestOp",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+        let ghost = GhostRepository::create(pool, &operator.id, "TestGhost")
+            .await
+            .unwrap();
 
-        let mut log = JobLog::start(JobKind::Heartbeat, &session.id);
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
+
+        let mut log = JobLog::start(&ghost.id, JobKind::Heartbeat, &session.id);
         log.finish("error: something went wrong");
         JobLogRepository::insert(pool, &log).await.unwrap();
 
         let found = JobLogRepository::latest_ok_since(
             pool,
+            &ghost.id,
             &session.id,
             JobKind::Heartbeat,
             log.started_at - 1,

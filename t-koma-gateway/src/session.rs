@@ -19,8 +19,9 @@ use crate::tools::context::{ApprovalReason, is_within_workspace};
 use crate::tools::{ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
-    ContentBlock as DbContentBlock, GhostDbPool, GhostRepository, KomaDbPool, MessageRole,
-    OperatorRepository, Session, SessionRepository, TranscriptEntry, UsageLog, UsageLogRepository,
+    ContentBlock as DbContentBlock, GhostRepository, KomaDbPool, MessageRole, OperatorRepository,
+    Session, SessionRepository, TranscriptEntry, UsageLog, UsageLogRepository,
+    ghosts::ghost_workspace_path,
 };
 
 /// Errors that can occur during session chat
@@ -393,18 +394,24 @@ impl SessionChat {
     /// 7. Returns the final text response
     ///
     /// # Arguments
-    /// * `ghost_db` - The GHOST database pool for this ghost
+    /// * `pool` - The database pool
+    /// * `ghost_id` - The ghost ID for this session
+    /// * `provider` - The LLM provider
+    /// * `provider_name` - The provider name for logging
+    /// * `model` - The model name
+    /// * `context_window_override` - Optional context window override
     /// * `session_id` - The session ID to chat in
     /// * `operator_id` - The operator ID (for session ownership verification)
     /// * `message` - The operator's message content
+    /// * `tool_call_tx` - Optional sender for tool call summaries
     ///
     /// # Returns
-    /// The final text response from the provider
+    /// The final text response from the provider and tool call log
     #[allow(clippy::too_many_arguments)]
     pub async fn chat(
         &self,
-        ghost_db: &GhostDbPool,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -415,7 +422,7 @@ impl SessionChat {
         tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
         // Verify session exists and belongs to operator
-        let session = SessionRepository::get_by_id(ghost_db.pool(), session_id)
+        let session = SessionRepository::get_by_id(pool.pool(), session_id)
             .await?
             .ok_or(ChatError::SessionNotFound)?;
 
@@ -433,7 +440,8 @@ impl SessionChat {
             text: message.to_string(),
         }];
         SessionRepository::add_message(
-            ghost_db.pool(),
+            pool.pool(),
+            ghost_id,
             session_id,
             MessageRole::Operator,
             user_content,
@@ -443,13 +451,13 @@ impl SessionChat {
 
         // Build system prompt with ghost context (cached for 5 min)
         let system_blocks = self
-            .build_cached_system_blocks(ghost_db, session_id)
+            .build_cached_system_blocks(pool, ghost_id, session_id)
             .await?;
 
         // Load history (compaction-aware) and apply compaction if needed
         let api_messages = self
             .load_compacted_history(
-                ghost_db,
+                pool,
                 provider,
                 model,
                 context_window_override,
@@ -460,8 +468,8 @@ impl SessionChat {
 
         // Send to provider with tool loop
         self.send_with_tool_loop(
-            ghost_db,
-            koma_db,
+            pool,
+            ghost_id,
             provider,
             provider_name,
             model,
@@ -489,8 +497,8 @@ impl SessionChat {
     #[allow(clippy::too_many_arguments)]
     pub async fn chat_job(
         &self,
-        ghost_db: &GhostDbPool,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -501,7 +509,7 @@ impl SessionChat {
         load_session_history: bool,
     ) -> Result<JobChatResult, ChatError> {
         // Verify session exists
-        let session = SessionRepository::get_by_id(ghost_db.pool(), session_id)
+        let session = SessionRepository::get_by_id(pool.pool(), session_id)
             .await?
             .ok_or(ChatError::SessionNotFound)?;
 
@@ -516,13 +524,13 @@ impl SessionChat {
 
         // Build system prompt (cached for 5 min)
         let system_blocks = self
-            .build_cached_system_blocks(ghost_db, session_id)
+            .build_cached_system_blocks(pool, ghost_id, session_id)
             .await?;
 
         // Optionally load session history (compaction-aware)
         let session_history = if load_session_history {
             self.load_compacted_history(
-                ghost_db,
+                pool,
                 provider,
                 model,
                 context_window_override,
@@ -545,8 +553,8 @@ impl SessionChat {
 
         let text = self
             .send_job_with_tool_loop(
-                ghost_db,
-                koma_db,
+                pool,
+                ghost_id,
                 provider,
                 provider_name,
                 model,
@@ -573,8 +581,8 @@ impl SessionChat {
     #[allow(clippy::too_many_arguments)]
     async fn send_job_with_tool_loop(
         &self,
-        ghost_db: &GhostDbPool,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -602,11 +610,9 @@ impl SessionChat {
             )
             .await
             .map_err(|e| ChatError::Api(e.to_string()))?;
-        Self::log_usage(ghost_db, session_id, model, &response).await;
+        Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
-        let mut tool_context = self
-            .load_tool_context(koma_db, ghost_db, operator_id)
-            .await?;
+        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
 
         for iteration in 0..max_iterations {
             if !has_tool_uses(&response) {
@@ -639,7 +645,7 @@ impl SessionChat {
             self.execute_tool_uses(
                 session_id,
                 &tool_uses,
-                koma_db,
+                pool,
                 &mut tool_context,
                 &mut tool_results,
                 &mut _job_tool_log,
@@ -668,7 +674,7 @@ impl SessionChat {
                 )
                 .await
                 .map_err(|e| ChatError::Api(e.to_string()))?;
-            Self::log_usage(ghost_db, session_id, model, &response).await;
+            Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
 
         // Extract final text and append to transcript
@@ -709,8 +715,8 @@ impl SessionChat {
     #[allow(clippy::too_many_arguments)]
     async fn send_with_tool_loop(
         &self,
-        ghost_db: &GhostDbPool,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -739,12 +745,10 @@ impl SessionChat {
             )
             .await
             .map_err(|e| ChatError::Api(e.to_string()))?;
-        Self::log_usage(ghost_db, session_id, model, &response).await;
+        Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
         // Handle tool use loop (bounded to prevent infinite loops)
-        let mut tool_context = self
-            .load_tool_context(koma_db, ghost_db, operator_id)
-            .await?;
+        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
         for iteration in 0..max_iterations {
             let has_tool_use = has_tool_uses(&response);
 
@@ -759,7 +763,7 @@ impl SessionChat {
             );
 
             // Save ghost message with tool_use blocks
-            self.save_ghost_response(ghost_db, session_id, model, &response)
+            self.save_ghost_response(pool, session_id, model, &response)
                 .await?;
 
             if iteration + 1 == max_iterations {
@@ -773,7 +777,7 @@ impl SessionChat {
                 .execute_tools_from_response(
                     session_id,
                     &response,
-                    koma_db,
+                    pool,
                     &mut tool_context,
                     &mut tool_call_log,
                 )
@@ -796,11 +800,11 @@ impl SessionChat {
             }
 
             // Save tool results to database
-            self.save_tool_results(ghost_db, session_id, &tool_results)
+            self.save_tool_results(pool, ghost_id, session_id, &tool_results)
                 .await?;
 
             // Rebuild history with masking only (no Phase 2 mid-tool-loop)
-            let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
+            let history = SessionRepository::get_messages(pool.pool(), session_id).await?;
             let raw_messages = build_history_messages(&history, None);
             let tool_refs: Vec<&dyn crate::tools::Tool> = tools.to_vec();
             let new_api_messages = self.apply_masking_if_needed(
@@ -823,12 +827,12 @@ impl SessionChat {
                 )
                 .await
                 .map_err(|e| ChatError::Api(e.to_string()))?;
-            Self::log_usage(ghost_db, session_id, model, &response).await;
+            Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
 
         // Extract and save final text response
         let text = self
-            .finalize_response(ghost_db, session_id, provider_name, model, &response)
+            .finalize_response(pool, session_id, provider_name, model, &response)
             .await?;
 
         Ok((text, tool_call_log))
@@ -837,15 +841,21 @@ impl SessionChat {
     /// Save a ghost response (with tool_use blocks) to the database
     async fn save_ghost_response(
         &self,
-        ghost_db: &GhostDbPool,
+        pool: &KomaDbPool,
         session_id: &str,
         model: &str,
         response: &ProviderResponse,
     ) -> Result<(), ChatError> {
         let ghost_content = provider_to_db_blocks(response);
 
+        // Get ghost_id from session
+        let session = SessionRepository::get_by_id(pool.pool(), session_id)
+            .await?
+            .ok_or(ChatError::SessionNotFound)?;
+
         SessionRepository::add_message(
-            ghost_db.pool(),
+            pool.pool(),
+            &session.ghost_id,
             session_id,
             MessageRole::Ghost,
             ghost_content,
@@ -860,7 +870,7 @@ impl SessionChat {
         &self,
         session_id: &str,
         response: &ProviderResponse,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
         tool_context: &mut ToolContext,
         tool_call_log: &mut Vec<ToolCallSummary>,
     ) -> Result<Vec<DbContentBlock>, ChatError> {
@@ -870,7 +880,7 @@ impl SessionChat {
         self.execute_tool_uses(
             session_id,
             &tool_uses,
-            koma_db,
+            pool,
             tool_context,
             &mut tool_results,
             tool_call_log,
@@ -887,7 +897,7 @@ impl SessionChat {
         &self,
         session_id: &str,
         tool_uses: &[PendingToolUse],
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
         tool_context: &mut ToolContext,
         tool_results: &mut Vec<DbContentBlock>,
         tool_call_log: &mut Vec<ToolCallSummary>,
@@ -938,7 +948,7 @@ impl SessionChat {
                 is_error: None,
             });
 
-            self.persist_tool_context(koma_db, tool_context).await?;
+            self.persist_tool_context(pool, tool_context).await?;
         }
 
         // Inject reminder if web tools were used
@@ -958,8 +968,8 @@ your reply — do not respond without saving first."
     #[allow(clippy::too_many_arguments)]
     pub async fn resume_tool_approval(
         &self,
-        ghost_db: &GhostDbPool,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -969,21 +979,18 @@ your reply — do not respond without saving first."
         pending: PendingToolApproval,
         decision: ToolApprovalDecision,
     ) -> Result<String, ChatError> {
-        let mut tool_context = self
-            .load_tool_context(koma_db, ghost_db, operator_id)
-            .await?;
+        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
 
         let mut tool_results = pending.completed_results;
         match decision {
             ToolApprovalDecision::Approve => {
                 tool_context.apply_approval(&pending.reason);
-                self.persist_tool_context(koma_db, &mut tool_context)
-                    .await?;
+                self.persist_tool_context(pool, &mut tool_context).await?;
                 let mut _approval_tool_log = Vec::new();
                 self.execute_tool_uses(
                     session_id,
                     &pending.pending_tool_uses,
-                    koma_db,
+                    pool,
                     &mut tool_context,
                     &mut tool_results,
                     &mut _approval_tool_log,
@@ -1007,12 +1014,12 @@ your reply — do not respond without saving first."
             }
         }
 
-        self.save_tool_results(ghost_db, session_id, &tool_results)
+        self.save_tool_results(pool, ghost_id, session_id, &tool_results)
             .await?;
 
         self.resume_after_tool_results(
-            ghost_db,
-            koma_db,
+            pool,
+            ghost_id,
             provider,
             provider_name,
             model,
@@ -1027,8 +1034,8 @@ your reply — do not respond without saving first."
     #[allow(clippy::too_many_arguments)]
     pub async fn resume_tool_loop(
         &self,
-        ghost_db: &GhostDbPool,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -1038,27 +1045,25 @@ your reply — do not respond without saving first."
         pending: PendingToolContinuation,
         extra_iterations: usize,
     ) -> Result<String, ChatError> {
-        let mut tool_context = self
-            .load_tool_context(koma_db, ghost_db, operator_id)
-            .await?;
+        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
         let mut tool_results = Vec::new();
         let mut _resume_tool_log = Vec::new();
         self.execute_tool_uses(
             session_id,
             &pending.pending_tool_uses,
-            koma_db,
+            pool,
             &mut tool_context,
             &mut tool_results,
             &mut _resume_tool_log,
         )
         .await?;
 
-        self.save_tool_results(ghost_db, session_id, &tool_results)
+        self.save_tool_results(pool, ghost_id, session_id, &tool_results)
             .await?;
 
         self.resume_after_tool_results(
-            ghost_db,
-            koma_db,
+            pool,
+            ghost_id,
             provider,
             provider_name,
             model,
@@ -1073,8 +1078,8 @@ your reply — do not respond without saving first."
     #[allow(clippy::too_many_arguments)]
     async fn resume_after_tool_results(
         &self,
-        ghost_db: &GhostDbPool,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         provider: &dyn Provider,
         provider_name: &str,
         model: &str,
@@ -1083,17 +1088,17 @@ your reply — do not respond without saving first."
         operator_id: &str,
         max_iterations: usize,
     ) -> Result<String, ChatError> {
-        let session = SessionRepository::get_by_id(ghost_db.pool(), session_id)
+        let session = SessionRepository::get_by_id(pool.pool(), session_id)
             .await?
             .ok_or(ChatError::SessionNotFound)?;
 
         let system_blocks = self
-            .build_cached_system_blocks(ghost_db, session_id)
+            .build_cached_system_blocks(pool, ghost_id, session_id)
             .await?;
 
         let api_messages = self
             .load_compacted_history(
-                ghost_db,
+                pool,
                 provider,
                 model,
                 context_window_override,
@@ -1104,8 +1109,8 @@ your reply — do not respond without saving first."
 
         let (text, _tool_calls) = self
             .send_with_tool_loop(
-                ghost_db,
-                koma_db,
+                pool,
+                ghost_id,
                 provider,
                 provider_name,
                 model,
@@ -1124,15 +1129,19 @@ your reply — do not respond without saving first."
 
     async fn load_tool_context(
         &self,
-        koma_db: &KomaDbPool,
-        ghost_db: &GhostDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         operator_id: &str,
     ) -> Result<ToolContext, ChatError> {
-        let ghost_name = ghost_db.ghost_name().to_string();
-        let tool_state =
-            GhostRepository::get_tool_state_by_name(koma_db.pool(), &ghost_name).await?;
+        // Fetch ghost to get name and derive workspace path
+        let ghost = GhostRepository::get_by_id(pool.pool(), ghost_id)
+            .await?
+            .ok_or_else(|| t_koma_db::DbError::GhostNotFound(ghost_id.to_string()))?;
 
-        let workspace_root = ghost_db.workspace_path().to_path_buf();
+        let ghost_name = ghost.name;
+        let tool_state = GhostRepository::get_tool_state_by_name(pool.pool(), &ghost_name).await?;
+
+        let workspace_root = ghost_workspace_path(&ghost_name)?;
         let mut cwd = tool_state
             .cwd
             .map(std::path::PathBuf::from)
@@ -1143,7 +1152,7 @@ your reply — do not respond without saving first."
         }
 
         let mut context = ToolContext::new(ghost_name, workspace_root.clone(), cwd, false);
-        let operator = OperatorRepository::get_by_id(koma_db.pool(), operator_id)
+        let operator = OperatorRepository::get_by_id(pool.pool(), operator_id)
             .await?
             .ok_or_else(|| t_koma_db::DbError::OperatorNotFound(operator_id.to_string()))?;
         context.set_operator_access_level(operator.access_level);
@@ -1164,7 +1173,7 @@ your reply — do not respond without saving first."
         }
 
         if context.is_dirty() {
-            self.persist_tool_context(koma_db, &mut context).await?;
+            self.persist_tool_context(pool, &mut context).await?;
         }
 
         Ok(context)
@@ -1172,7 +1181,7 @@ your reply — do not respond without saving first."
 
     async fn persist_tool_context(
         &self,
-        koma_db: &KomaDbPool,
+        pool: &KomaDbPool,
         context: &mut ToolContext,
     ) -> Result<(), ChatError> {
         if !context.is_dirty() {
@@ -1180,8 +1189,7 @@ your reply — do not respond without saving first."
         }
 
         let cwd = context.cwd().to_string_lossy().to_string();
-        GhostRepository::update_tool_state_by_name(koma_db.pool(), context.ghost_name(), &cwd)
-            .await?;
+        GhostRepository::update_tool_state_by_name(pool.pool(), context.ghost_name(), &cwd).await?;
         context.clear_dirty();
         Ok(())
     }
@@ -1197,7 +1205,7 @@ your reply — do not respond without saving first."
     #[allow(clippy::too_many_arguments)]
     async fn load_compacted_history(
         &self,
-        ghost_db: &GhostDbPool,
+        pool: &KomaDbPool,
         provider: &dyn Provider,
         model: &str,
         context_window_override: Option<u32>,
@@ -1206,9 +1214,9 @@ your reply — do not respond without saving first."
     ) -> Result<Vec<ChatMessage>, ChatError> {
         // Load messages: if we have a compaction cursor, load only newer messages
         let raw_messages = if let Some(cursor_id) = &session.compaction_cursor_id {
-            SessionRepository::get_messages_after(ghost_db.pool(), &session.id, cursor_id).await?
+            SessionRepository::get_messages_after(pool.pool(), &session.id, cursor_id).await?
         } else {
-            SessionRepository::get_messages(ghost_db.pool(), &session.id).await?
+            SessionRepository::get_messages(pool.pool(), &session.id).await?
         };
 
         let mut api_messages = build_history_messages(&raw_messages, None);
@@ -1264,7 +1272,7 @@ your reply — do not respond without saving first."
                         "Unexpected compaction count — skipping cursor update"
                     );
                 } else if let Err(e) = SessionRepository::update_compaction(
-                    ghost_db.pool(),
+                    pool.pool(),
                     &session.id,
                     summary,
                     &raw_messages[raw_summarized - 1].id,
@@ -1329,20 +1337,26 @@ your reply — do not respond without saving first."
     /// 5-minute TTL, otherwise rebuilds and caches fresh blocks.
     async fn build_cached_system_blocks(
         &self,
-        ghost_db: &GhostDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         session_id: &str,
     ) -> Result<Vec<SystemBlock>, ChatError> {
+        // Fetch ghost to get name and derive workspace path
+        let ghost = GhostRepository::get_by_id(pool.pool(), ghost_id)
+            .await?
+            .ok_or_else(|| t_koma_db::DbError::GhostNotFound(ghost_id.to_string()))?;
+
+        let workspace_root = ghost_workspace_path(&ghost.name)?;
+
         // Build context vars to compute hash
-        let ghost_vars = self
-            .build_ghost_context_vars(ghost_db.workspace_path())
-            .await?;
+        let ghost_vars = self.build_ghost_context_vars(&workspace_root).await?;
         let pairs = ghost_vars.as_pairs();
         let ctx_hash = hash_context(&pairs);
 
         // Use cache: only rebuilds if hash changed or TTL expired
         let blocks = self
             .prompt_cache
-            .get_or_build(session_id, ghost_db, &ctx_hash, || {
+            .get_or_build(session_id, pool.pool(), ghost_id, &ctx_hash, || {
                 let system_prompt = SystemPrompt::new(&pairs);
                 async move { build_system_prompt(&system_prompt) }
             })
@@ -1401,12 +1415,14 @@ your reply — do not respond without saving first."
     /// Save tool results to the database
     async fn save_tool_results(
         &self,
-        ghost_db: &GhostDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         session_id: &str,
         tool_results: &[DbContentBlock],
     ) -> Result<(), ChatError> {
         SessionRepository::add_message(
-            ghost_db.pool(),
+            pool.pool(),
+            ghost_id,
             session_id,
             MessageRole::Operator,
             tool_results.to_vec(),
@@ -1419,7 +1435,7 @@ your reply — do not respond without saving first."
     /// Extract final text response and save it to the database
     async fn finalize_response(
         &self,
-        ghost_db: &GhostDbPool,
+        pool: &KomaDbPool,
         session_id: &str,
         provider_name: &str,
         model: &str,
@@ -1444,9 +1460,15 @@ your reply — do not respond without saving first."
             }
         );
 
+        // Get ghost_id from session
+        let session = SessionRepository::get_by_id(pool.pool(), session_id)
+            .await?
+            .ok_or(ChatError::SessionNotFound)?;
+
         let final_content = vec![DbContentBlock::Text { text: text.clone() }];
         SessionRepository::add_message(
-            ghost_db.pool(),
+            pool.pool(),
+            &session.ghost_id,
             session_id,
             MessageRole::Ghost,
             final_content,
@@ -1459,7 +1481,8 @@ your reply — do not respond without saving first."
 
     /// Log API usage data (fire-and-forget; failures are warned, not propagated).
     async fn log_usage(
-        ghost_db: &GhostDbPool,
+        pool: &KomaDbPool,
+        ghost_id: &str,
         session_id: &str,
         model: &str,
         response: &ProviderResponse,
@@ -1468,6 +1491,7 @@ your reply — do not respond without saving first."
             return;
         };
         let log = UsageLog::new(
+            ghost_id,
             session_id,
             None,
             model,
@@ -1476,7 +1500,7 @@ your reply — do not respond without saving first."
             usage.cache_read_tokens.unwrap_or(0),
             usage.cache_creation_tokens.unwrap_or(0),
         );
-        if let Err(e) = UsageLogRepository::insert(ghost_db.pool(), &log).await {
+        if let Err(e) = UsageLogRepository::insert(pool.pool(), &log).await {
             warn!(session_id, error = %e, "Failed to log API usage");
         }
     }

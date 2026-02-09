@@ -24,6 +24,7 @@ use crate::session::{
 };
 #[cfg(feature = "live-tests")]
 use crate::tools::ToolContext;
+use t_koma_db::DbError;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -251,8 +252,6 @@ pub struct AppState {
     log_tx: broadcast::Sender<LogEntry>,
     /// T-KOMA database pool
     pub koma_db: t_koma_db::KomaDbPool,
-    /// Cached GHOST database pools by name
-    ghost_dbs: RwLock<HashMap<String, t_koma_db::GhostDbPool>>,
     /// Active ghost name per operator
     active_ghosts: RwLock<HashMap<String, String>>,
     /// Pending interface selections (platform + external_id)
@@ -328,7 +327,6 @@ impl AppState {
             models,
             log_tx,
             koma_db,
-            ghost_dbs: RwLock::new(HashMap::new()),
             active_ghosts: RwLock::new(HashMap::new()),
             pending_interfaces: RwLock::new(HashMap::new()),
             pending_tool_approvals: RwLock::new(HashMap::new()),
@@ -589,15 +587,35 @@ impl AppState {
         .await;
 
         let model = self.default_model();
-        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.koma_db.pool(), ghost_name).await {
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    return Err(ChatError::Database(DbError::GhostNotFound(
+                        ghost_name.to_string(),
+                    )));
+                }
+                Err(e) => return Err(ChatError::Database(e)),
+            };
         let pre_compaction_state =
-            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
+            t_koma_db::SessionRepository::get_by_id(self.koma_db.pool(), session_id).await?;
         self.set_chat_in_flight(&chat_key).await;
+
+        let workspace_path = t_koma_db::ghosts::ghost_workspace_path(&ghost.name)?;
+        if let Err(err) = crate::heartbeat::ensure_heartbeat_file(&workspace_path) {
+            tracing::warn!(
+                "Failed to ensure HEARTBEAT.md for ghost {}: {}",
+                ghost_name,
+                err
+            );
+        }
+        self.ensure_ghost_watcher(ghost_name).await;
+
         let response = self
             .session_chat
             .chat(
-                &ghost_db,
                 &self.koma_db,
+                &ghost.id,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
@@ -633,7 +651,7 @@ impl AppState {
             Err(err) => return Err(err),
         };
         let post_compaction_state =
-            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
+            t_koma_db::SessionRepository::get_by_id(self.koma_db.pool(), session_id).await?;
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),
@@ -727,15 +745,35 @@ impl AppState {
             .get(model_alias)
             .unwrap_or_else(|| self.default_model());
 
-        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.koma_db.pool(), ghost_name).await {
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    return Err(ChatError::Database(DbError::GhostNotFound(
+                        ghost_name.to_string(),
+                    )));
+                }
+                Err(e) => return Err(ChatError::Database(e)),
+            };
         let pre_compaction_state =
-            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
+            t_koma_db::SessionRepository::get_by_id(self.koma_db.pool(), session_id).await?;
         self.set_chat_in_flight(&chat_key).await;
+
+        let workspace_path = t_koma_db::ghosts::ghost_workspace_path(&ghost.name)?;
+        if let Err(err) = crate::heartbeat::ensure_heartbeat_file(&workspace_path) {
+            tracing::warn!(
+                "Failed to ensure HEARTBEAT.md for ghost {}: {}",
+                ghost_name,
+                err
+            );
+        }
+        self.ensure_ghost_watcher(ghost_name).await;
+
         let response = self
             .session_chat
             .chat(
-                &ghost_db,
                 &self.koma_db,
+                &ghost.id,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
@@ -772,7 +810,7 @@ impl AppState {
             Err(err) => return Err(err),
         };
         let post_compaction_state =
-            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
+            t_koma_db::SessionRepository::get_by_id(self.koma_db.pool(), session_id).await?;
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),
@@ -793,41 +831,6 @@ impl AppState {
             compaction_happened,
             tool_calls,
         })
-    }
-
-    /// Get or initialize a GHOST database pool by name
-    pub async fn get_or_init_ghost_db(
-        &self,
-        ghost_name: &str,
-    ) -> Result<t_koma_db::GhostDbPool, ChatError> {
-        {
-            let guard = self.ghost_dbs.read().await;
-            if let Some(db) = guard.get(ghost_name) {
-                self.ensure_ghost_watcher(ghost_name).await;
-                let db = db.clone();
-                if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
-                    tracing::warn!(
-                        "Failed to ensure HEARTBEAT.md for ghost {}: {}",
-                        ghost_name,
-                        err
-                    );
-                }
-                return Ok(db);
-            }
-        }
-
-        let db = t_koma_db::GhostDbPool::new(ghost_name).await?;
-        let mut guard = self.ghost_dbs.write().await;
-        guard.insert(ghost_name.to_string(), db.clone());
-        self.ensure_ghost_watcher(ghost_name).await;
-        if let Err(err) = crate::heartbeat::ensure_heartbeat_file(db.workspace_path()) {
-            tracing::warn!(
-                "Failed to ensure HEARTBEAT.md for ghost {}: {}",
-                ghost_name,
-                err
-            );
-        }
-        Ok(db)
     }
 
     /// Start the shared knowledge watcher if not already running.
@@ -1137,12 +1140,21 @@ impl AppState {
             .and_then(|alias| self.get_model_by_alias(alias))
             .unwrap_or_else(|| self.default_model());
 
-        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.koma_db.pool(), ghost_name).await {
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    return Err(ChatError::Database(DbError::GhostNotFound(
+                        ghost_name.to_string(),
+                    )));
+                }
+                Err(e) => return Err(ChatError::Database(e)),
+            };
         let response = self
             .session_chat
             .resume_tool_approval(
-                &ghost_db,
                 &self.koma_db,
+                &ghost.id,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
@@ -1177,12 +1189,21 @@ impl AppState {
             .and_then(|alias| self.get_model_by_alias(alias))
             .unwrap_or_else(|| self.default_model());
 
-        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.koma_db.pool(), ghost_name).await {
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    return Err(ChatError::Database(DbError::GhostNotFound(
+                        ghost_name.to_string(),
+                    )));
+                }
+                Err(e) => return Err(ChatError::Database(e)),
+            };
         let response = self
             .session_chat
             .resume_tool_loop(
-                &ghost_db,
                 &self.koma_db,
+                &ghost.id,
                 model.client.as_ref(),
                 &model.provider,
                 &model.model,
@@ -1239,7 +1260,12 @@ impl AppState {
         use t_koma_db::SessionRepository;
         use tracing::info;
 
-        let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.koma_db.pool(), ghost_name).await {
+                Ok(Some(g)) => g,
+                Ok(None) => return Err(format!("Ghost '{}' not found", ghost_name).into()),
+                Err(e) => return Err(e.into()),
+            };
 
         // Initial request to AI
         let mut response = provider
@@ -1268,7 +1294,7 @@ impl AppState {
             );
 
             // Save assistant message with tool_use blocks
-            self.save_assistant_response(&ghost_db, session_id, model, &response)
+            self.save_assistant_response(&self.koma_db, &ghost.id, session_id, model, &response)
                 .await;
 
             // Execute tools and get results
@@ -1277,11 +1303,11 @@ impl AppState {
                 .await;
 
             // Save tool results to database
-            self.save_tool_results(&ghost_db, session_id, &tool_results)
+            self.save_tool_results(&self.koma_db, &ghost.id, session_id, &tool_results)
                 .await;
 
             // Build new API messages including the tool results
-            let history = SessionRepository::get_messages(ghost_db.pool(), session_id).await?;
+            let history = SessionRepository::get_messages(self.koma_db.pool(), session_id).await?;
             let new_api_messages = build_history_messages(&history, None);
 
             // Send tool results back to AI
@@ -1299,7 +1325,14 @@ impl AppState {
 
         // Extract and save final text response
         let text = self
-            .finalize_response(&ghost_db, session_id, provider.name(), model, &response)
+            .finalize_response(
+                &self.koma_db,
+                &ghost.id,
+                session_id,
+                provider.name(),
+                model,
+                &response,
+            )
             .await;
 
         Ok(text)
@@ -1309,7 +1342,8 @@ impl AppState {
     #[cfg(feature = "live-tests")]
     async fn save_assistant_response(
         &self,
-        ghost_db: &t_koma_db::GhostDbPool,
+        pool: &t_koma_db::KomaDbPool,
+        ghost_id: &str,
         session_id: &str,
         model: &str,
         response: &ProviderResponse,
@@ -1343,7 +1377,8 @@ impl AppState {
             .collect();
 
         if let Err(e) = SessionRepository::add_message(
-            ghost_db.pool(),
+            pool.pool(),
+            ghost_id,
             session_id,
             MessageRole::Ghost,
             assistant_content,
@@ -1423,14 +1458,16 @@ impl AppState {
     #[cfg(feature = "live-tests")]
     async fn save_tool_results(
         &self,
-        ghost_db: &t_koma_db::GhostDbPool,
+        pool: &t_koma_db::KomaDbPool,
+        ghost_id: &str,
         session_id: &str,
         tool_results: &[t_koma_db::ContentBlock],
     ) {
         use t_koma_db::{MessageRole, SessionRepository};
 
         if let Err(e) = SessionRepository::add_message(
-            ghost_db.pool(),
+            pool.pool(),
+            ghost_id,
             session_id,
             MessageRole::Operator,
             tool_results.to_vec(),
@@ -1449,7 +1486,8 @@ impl AppState {
     #[cfg(feature = "live-tests")]
     async fn finalize_response(
         &self,
-        ghost_db: &t_koma_db::GhostDbPool,
+        pool: &t_koma_db::KomaDbPool,
+        ghost_id: &str,
         session_id: &str,
         provider_name: &str,
         model: &str,
@@ -1471,7 +1509,8 @@ impl AppState {
 
         let final_content = vec![t_koma_db::ContentBlock::Text { text: text.clone() }];
         let _ = SessionRepository::add_message(
-            ghost_db.pool(),
+            pool.pool(),
+            ghost_id,
             session_id,
             t_koma_db::MessageRole::Ghost,
             final_content,

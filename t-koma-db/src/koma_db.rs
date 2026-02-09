@@ -57,7 +57,7 @@ impl KomaDbPool {
 
     /// Run database migrations using sqlx migrate macro
     async fn run_migrations(pool: &SqlitePool) -> DbResult<()> {
-        sqlx::migrate!("./migrations/koma")
+        sqlx::migrate!("./migrations")
             .run(pool)
             .await
             .map_err(|e| DbError::Migration(e.to_string()))?;
