@@ -23,15 +23,6 @@ actions = [
 [discord-existing-operator-todo]
 body = "`EXISTING OPERATOR` linking is not online yet. TODO // トゥードゥー"
 
-[operator-approved-dm]
-body = '''
-### ACCESS GRANTED // アクセス許可
-┄┄┄┄┄┄┄┄┄┄┄┄
-
-Your `OPERATOR` profile has been approved.
-Send a message to begin `GHOST BOOT`.
-'''
-
 [error-failed-create-operator-discord]
 body = "`OPERATOR` creation failed. オペレータ生成エラー。"
 
