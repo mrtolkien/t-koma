@@ -7,6 +7,7 @@ use t_koma_core::Config;
 use t_koma_db::{GhostDbPool, GhostRepository, KomaDbPool, Operator, OperatorRepository, Platform};
 use t_koma_gateway::providers::Provider;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::llama_cpp::LlamaCppClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::state::{AppState, ModelEntry};
 
@@ -53,6 +54,23 @@ pub fn load_default_model() -> DefaultModelInfo {
                     .model_provider
                     .get(&alias)
                     .cloned(),
+            );
+            DefaultModelInfo {
+                alias,
+                provider: model_config.provider.to_string(),
+                model: model_config.model.clone(),
+                client: Arc::new(client),
+            }
+        }
+        "llama_cpp" => {
+            let base_url = config
+                .llama_cpp_base_url()
+                .map(ToOwned::to_owned)
+                .expect("llama_cpp.base_url must be set for llama_cpp provider");
+            let client = LlamaCppClient::new(
+                base_url,
+                config.llama_cpp_api_key().map(ToOwned::to_owned),
+                &model_config.model,
             );
             DefaultModelInfo {
                 alias,

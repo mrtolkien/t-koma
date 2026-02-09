@@ -10,8 +10,9 @@ pub use skills::{Skill, SkillError};
 
 // Config re-exports
 pub use config::{
-    Config, ConfigError, GatewaySettings, ModelConfig, OpenRouterProviderRoutingSettings,
-    OpenRouterSettings, Secrets, SecretsError, Settings, SettingsError, load_dotenv,
+    Config, ConfigError, GatewaySettings, LlamaCppSettings, ModelConfig,
+    OpenRouterProviderRoutingSettings, OpenRouterSettings, Secrets, SecretsError, Settings,
+    SettingsError, load_dotenv,
 };
 
 // Message re-exports

@@ -103,6 +103,8 @@ Make extensive use of MCPs available to you:
 - OpenRouter upstream routing is configured in `[openrouter.model_provider]`
   keyed by model alias (for example `[openrouter.model_provider.kimi25]` with
   `order = ["provider-slug"]` and optional `allow_fallbacks`).
+- llama.cpp uses `[llama_cpp]` config with `base_url`, while model name stays
+  in `[models.<alias>]`; optional auth uses `LLAMA_CPP_API_KEY` from env.
 
 ### Locality of Concern
 

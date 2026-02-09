@@ -5,6 +5,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use t_koma_gateway::discord::start_discord_bot;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::llama_cpp::LlamaCppClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::server;
 use t_koma_gateway::state::AppState;
@@ -111,6 +112,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         alias
                     );
                 }
+            }
+            "llama_cpp" => {
+                let base_url = config
+                    .llama_cpp_base_url()
+                    .map(ToOwned::to_owned)
+                    .expect("llama_cpp.base_url must be validated by Config::load");
+                let client = LlamaCppClient::new(
+                    base_url,
+                    config.llama_cpp_api_key().map(ToOwned::to_owned),
+                    &model_config.model,
+                )
+                .with_dump_queries(config.settings.logging.dump_queries);
+                info!(
+                    "llama.cpp client created for alias '{}' with model: {}",
+                    alias, model_config.model
+                );
+                models.insert(
+                    alias.clone(),
+                    t_koma_gateway::state::ModelEntry {
+                        alias: alias.clone(),
+                        provider: model_config.provider.to_string(),
+                        model: model_config.model.clone(),
+                        client: Arc::new(client),
+                        context_window: model_config.context_window,
+                    },
+                );
             }
             other => {
                 info!("Skipping model '{}' - unknown provider '{}'", alias, other);
