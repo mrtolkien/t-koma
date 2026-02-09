@@ -528,8 +528,39 @@ pub async fn send_approved_operator_ghost_prompt_dm(
         .await
         .map_err(|e| e.to_string())?;
 
-    let text = super::render_message("operator-approved-dm", &[]);
-    send_gateway_v2(&http, dm.id, &text, None, Some(GATEWAY_EMBED_COLOR))
+    let token = uuid::Uuid::new_v4().to_string();
+    state
+        .set_pending_gateway_action(
+            &token,
+            PendingGatewayAction {
+                operator_id: operator_id.to_string(),
+                ghost_name: String::new(),
+                session_id: String::new(),
+                external_id: discord_iface.external_id.clone(),
+                channel_id: dm.id.get().to_string(),
+                intent: "ghost.name_prompt".to_string(),
+                payload: None,
+                expires_at: chrono::Utc::now().timestamp() + 900,
+            },
+        )
+        .await;
+
+    let button = serenity::builder::CreateButton::new(format!("tk:a:{}", token))
+        .label("NAME YOUR GHOST")
+        .style(serenity::model::application::ButtonStyle::Success);
+
+    let text = super::render_message(ids::GHOST_NAME_PROMPT, &[]);
+    send_gateway_v2(
+        &http,
+        dm.id,
+        &text,
+        Some(vec![CreateActionRow::Buttons(vec![button])]),
+        Some(GATEWAY_EMBED_COLOR),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    t_koma_db::OperatorRepository::mark_welcomed(state.koma_db.pool(), operator_id)
         .await
         .map_err(|e| e.to_string())?;
 
