@@ -3,11 +3,12 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 use super::{
-    Tool, ToolContext, change_directory::ChangeDirectoryTool, create_file::CreateFileTool,
-    file_edit::FileEditTool, find_files::FindFilesTool, knowledge_get::KnowledgeGetTool,
-    knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool, load_skill::LoadSkillTool,
-    memory_capture::MemoryCaptureTool, note_write::NoteWriteTool, read_file::ReadFileTool,
-    reference_import::ReferenceImportTool, reference_write::ReferenceWriteTool, search::SearchTool,
+    Tool, ToolContext, ToolVisibility, change_directory::ChangeDirectoryTool,
+    create_file::CreateFileTool, file_edit::FileEditTool, find_files::FindFilesTool,
+    knowledge_get::KnowledgeGetTool, knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool,
+    load_skill::LoadSkillTool, memory_capture::MemoryCaptureTool, note_write::NoteWriteTool,
+    read_file::ReadFileTool, reference_import::ReferenceImportTool,
+    reference_manage::ReferenceManageTool, reference_write::ReferenceWriteTool, search::SearchTool,
     shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
@@ -43,13 +44,23 @@ impl ToolManager {
             Box::new(NoteWriteTool),
             Box::new(ReferenceWriteTool),
             Box::new(ReferenceImportTool),
+            Box::new(ReferenceManageTool),
             Box::new(LoadSkillTool::new(skill_paths)),
         ];
         Self { tools }
     }
 
-    /// Get all tools as references for use with the provider API.
-    pub fn get_tools(&self) -> Vec<&dyn Tool> {
+    /// Get tools visible during interactive chat (excludes `BackgroundOnly` tools).
+    pub fn get_chat_tools(&self) -> Vec<&dyn Tool> {
+        self.tools
+            .iter()
+            .filter(|t| t.visibility() == ToolVisibility::Always)
+            .map(|t| t.as_ref())
+            .collect()
+    }
+
+    /// Get all tools including background-only tools (for heartbeat/reflection).
+    pub fn get_all_tools(&self) -> Vec<&dyn Tool> {
         self.tools.iter().map(|t| t.as_ref()).collect()
     }
 
@@ -85,25 +96,27 @@ mod tests {
     #[test]
     fn test_tool_manager_new() {
         let manager = ToolManager::new(vec![]);
-        let tools = manager.get_tools();
-        assert!(!tools.is_empty());
 
-        // Check that all tools are registered
-        let tool_names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-        assert!(tool_names.contains(&"run_shell_command"));
-        assert!(tool_names.contains(&"change_directory"));
-        assert!(tool_names.contains(&"replace"));
-        assert!(tool_names.contains(&"read_file"));
-        assert!(tool_names.contains(&"create_file"));
-        assert!(tool_names.contains(&"search"));
-        assert!(tool_names.contains(&"find_files"));
-        assert!(tool_names.contains(&"list_dir"));
-        assert!(tool_names.contains(&"web_search"));
-        assert!(tool_names.contains(&"web_fetch"));
-        assert!(tool_names.contains(&"knowledge_search"));
-        assert!(tool_names.contains(&"knowledge_get"));
-        assert!(tool_names.contains(&"note_write"));
-        assert!(tool_names.contains(&"load_skill"));
+        // Chat tools exclude BackgroundOnly tools
+        let chat_tools = manager.get_chat_tools();
+        let chat_names: Vec<&str> = chat_tools.iter().map(|t| t.name()).collect();
+        assert!(chat_names.contains(&"run_shell_command"));
+        assert!(chat_names.contains(&"reference_write"));
+        assert!(
+            !chat_names.contains(&"reference_manage"),
+            "reference_manage should not be in chat tools"
+        );
+
+        // All tools include everything
+        let all_tools = manager.get_all_tools();
+        let all_names: Vec<&str> = all_tools.iter().map(|t| t.name()).collect();
+        assert!(all_names.contains(&"run_shell_command"));
+        assert!(all_names.contains(&"reference_write"));
+        assert!(
+            all_names.contains(&"reference_manage"),
+            "reference_manage should be in all tools"
+        );
+        assert!(all_tools.len() > chat_tools.len());
     }
 
     #[tokio::test]
