@@ -157,7 +157,7 @@ impl std::fmt::Display for LogEntry {
                 timestamp,
                 user,
                 if content.len() > 50 {
-                    format!("{}...", &content[..50])
+                    format!("{}...", &content[..content.floor_char_boundary(50)])
                 } else {
                     content.clone()
                 }
@@ -649,7 +649,7 @@ impl AppState {
             Ok(pair) => pair,
             Err(ChatError::EmptyResponse) => {
                 let message_preview = if message.len() > 240 {
-                    format!("{}...", &message[..240])
+                    format!("{}...", &message[..message.floor_char_boundary(240)])
                 } else {
                     message.clone()
                 };
@@ -807,7 +807,7 @@ impl AppState {
             Ok(pair) => pair,
             Err(ChatError::EmptyResponse) => {
                 let message_preview = if message.len() > 240 {
-                    format!("{}...", &message[..240])
+                    format!("{}...", &message[..message.floor_char_boundary(240)])
                 } else {
                     message.clone()
                 };
@@ -1515,7 +1515,7 @@ impl AppState {
         let text = extract_all_text(response);
 
         let preview = if text.len() > 100 {
-            &text[..100]
+            &text[..text.floor_char_boundary(100)]
         } else {
             &text
         };
