@@ -33,6 +33,8 @@ impl TuiApp {
             Category::Operators => self.draw_operators_content(frame, inner),
             Category::Ghosts => self.draw_ghosts_content(frame, inner),
             Category::Gate => self.draw_gate_content(frame, inner),
+            Category::Jobs => self.draw_jobs_content(frame, inner),
+            Category::Knowledge => self.draw_knowledge_content(frame, inner),
         }
     }
 
@@ -132,5 +134,129 @@ impl TuiApp {
             .scroll((self.gate_scroll, 0))
             .wrap(Wrap { trim: false });
         frame.render_widget(p, inner);
+    }
+
+    fn draw_jobs_content(&self, frame: &mut Frame, inner: Rect) {
+        if self.job_view.summaries.is_empty() {
+            let p = Paragraph::new("No job logs found").style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(p, inner);
+            return;
+        }
+
+        let items: Vec<ListItem> = self
+            .job_view
+            .summaries
+            .iter()
+            .enumerate()
+            .map(|(idx, job)| {
+                let status_icon = match job.status.as_deref() {
+                    Some("ran") | Some("ok") => "✓",
+                    Some(s) if s.starts_with("error") => "✗",
+                    Some("skipped") | Some("suppressed") => "·",
+                    _ => "?",
+                };
+                let status_color = match job.status.as_deref() {
+                    Some("ran") | Some("ok") => Color::Green,
+                    Some(s) if s.starts_with("error") => Color::Red,
+                    Some("skipped") | Some("suppressed") => Color::Yellow,
+                    _ => Color::DarkGray,
+                };
+                let kind_str = format!("{:?}", job.job_kind);
+                let duration = job.finished_at.map(|f| {
+                    let secs = (f - job.started_at) as f64 / 1000.0;
+                    format!("{:.1}s", secs)
+                });
+                let dur_str = duration.unwrap_or_default();
+                let ghost = self
+                    .ghosts
+                    .iter()
+                    .find(|g| g.ghost.id == job.ghost_id)
+                    .map(|g| g.ghost.name.as_str())
+                    .unwrap_or("?");
+                let preview = job
+                    .last_message
+                    .as_deref()
+                    .map(|m| {
+                        let trimmed: String = m.chars().take(60).collect();
+                        trimmed
+                    })
+                    .unwrap_or_default();
+
+                let text = format!(
+                    "{} {:12} {:12} {} {:8} {}\n          {}",
+                    status_icon,
+                    kind_str,
+                    ghost,
+                    &job.session_id[..12.min(job.session_id.len())],
+                    dur_str,
+                    job.status.as_deref().unwrap_or("-"),
+                    preview
+                );
+                let mut item = ListItem::new(Text::from(text));
+                if idx == self.content_idx && self.focus == FocusPane::Content {
+                    item = item.style(theme::selected());
+                } else {
+                    item = item.style(Style::default().fg(status_color));
+                }
+                item
+            })
+            .collect();
+
+        frame.render_widget(List::new(items), inner);
+    }
+
+    fn draw_knowledge_content(&self, frame: &mut Frame, inner: Rect) {
+        if self.knowledge_view.notes.is_empty() {
+            let p =
+                Paragraph::new("No knowledge entries").style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(p, inner);
+            return;
+        }
+
+        let items: Vec<ListItem> = self
+            .knowledge_view
+            .notes
+            .iter()
+            .enumerate()
+            .map(|(idx, note)| {
+                let tags_str = if note.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " {}",
+                        note.tags
+                            .iter()
+                            .map(|t| format!("#{}", t))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    )
+                };
+                let text = format!(
+                    "[{}] {}{}\n        {}",
+                    note.entry_type.to_uppercase(),
+                    note.title,
+                    tags_str,
+                    truncate_snippet(&note.snippet, 60),
+                );
+                let mut item = ListItem::new(Text::from(text));
+                if idx == self.content_idx && self.focus == FocusPane::Content {
+                    item = item.style(theme::selected());
+                }
+                item
+            })
+            .collect();
+
+        frame.render_widget(List::new(items), inner);
+    }
+}
+
+fn truncate_snippet(s: &str, max: usize) -> String {
+    let first_line = s.lines().next().unwrap_or("");
+    let chars: Vec<char> = first_line.chars().collect();
+    if chars.len() <= max {
+        first_line.to_string()
+    } else {
+        let kept: String = chars.into_iter().take(max - 1).collect();
+        format!("{kept}…")
     }
 }
