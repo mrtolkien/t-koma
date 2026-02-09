@@ -85,6 +85,23 @@ impl JobLog {
     }
 }
 
+/// Lightweight job log summary without the full transcript.
+///
+/// Used for list views where loading the complete transcript JSON
+/// would be wasteful.
+#[derive(Debug, Clone)]
+pub struct JobLogSummary {
+    pub id: String,
+    pub ghost_id: String,
+    pub job_kind: JobKind,
+    pub session_id: String,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub status: Option<String>,
+    /// Last transcript entry's first text block (extracted via SQLite JSON1).
+    pub last_message: Option<String>,
+}
+
 /// Repository for job_logs table operations.
 pub struct JobLogRepository;
 
@@ -110,6 +127,62 @@ impl JobLogRepository {
         .await?;
 
         Ok(())
+    }
+
+    /// Get a single job log by ID (with full transcript).
+    pub async fn get(pool: &SqlitePool, id: &str) -> DbResult<Option<JobLog>> {
+        let row = sqlx::query_as::<_, JobLogRow>(
+            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript
+             FROM job_logs
+             WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+        row.map(JobLog::try_from).transpose()
+    }
+
+    /// List recent job logs across all ghosts (lightweight, no transcript).
+    pub async fn list_recent(pool: &SqlitePool, limit: i64) -> DbResult<Vec<JobLogSummary>> {
+        let rows = sqlx::query_as::<_, JobLogSummaryRow>(
+            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status,
+                    json_extract(transcript, '$[#-1].content[0].text') as last_message
+             FROM job_logs
+             ORDER BY started_at DESC
+             LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+        rows.into_iter()
+            .map(JobLogSummary::try_from)
+            .collect::<DbResult<Vec<_>>>()
+    }
+
+    /// List recent job logs for a specific ghost (lightweight, no transcript).
+    pub async fn list_for_ghost(
+        pool: &SqlitePool,
+        ghost_id: &str,
+        limit: i64,
+    ) -> DbResult<Vec<JobLogSummary>> {
+        let rows = sqlx::query_as::<_, JobLogSummaryRow>(
+            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status,
+                    json_extract(transcript, '$[#-1].content[0].text') as last_message
+             FROM job_logs
+             WHERE ghost_id = ?
+             ORDER BY started_at DESC
+             LIMIT ?",
+        )
+        .bind(ghost_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+        rows.into_iter()
+            .map(JobLogSummary::try_from)
+            .collect::<DbResult<Vec<_>>>()
     }
 
     /// Find the most recent successful job of the given kind since a timestamp.
@@ -176,6 +249,36 @@ struct JobLogRow {
     finished_at: Option<i64>,
     status: Option<String>,
     transcript: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct JobLogSummaryRow {
+    id: String,
+    ghost_id: String,
+    job_kind: String,
+    session_id: String,
+    started_at: i64,
+    finished_at: Option<i64>,
+    status: Option<String>,
+    last_message: Option<String>,
+}
+
+impl TryFrom<JobLogSummaryRow> for JobLogSummary {
+    type Error = DbError;
+
+    fn try_from(row: JobLogSummaryRow) -> Result<Self, Self::Error> {
+        let job_kind: JobKind = row.job_kind.parse()?;
+        Ok(JobLogSummary {
+            id: row.id,
+            ghost_id: row.ghost_id,
+            job_kind,
+            session_id: row.session_id,
+            started_at: row.started_at,
+            finished_at: row.finished_at,
+            status: row.status,
+            last_message: row.last_message,
+        })
+    }
 }
 
 impl TryFrom<JobLogRow> for JobLog {
