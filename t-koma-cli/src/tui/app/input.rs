@@ -550,7 +550,11 @@ impl TuiApp {
             }
             Category::Ghosts => self.refresh_ghosts().await,
             Category::Jobs => self.refresh_jobs(None).await,
-            Category::Knowledge => self.refresh_knowledge_recent().await,
+            Category::Knowledge => {
+                if self.knowledge_view.notes.is_empty() {
+                    self.refresh_knowledge_recent().await;
+                }
+            }
             Category::Config | Category::Gate => {}
         }
         self.refresh_metrics().await;
