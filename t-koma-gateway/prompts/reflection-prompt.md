@@ -12,6 +12,39 @@ recent conversation below, then curate knowledge accordingly.
 
 {{ include "note-guidelines.md" }}
 
+## Using Content References (content_ref)
+
+When you see `[Result #N]` in tool results above, you can reference that cached
+content by its ID when calling `reference_write`. Use `content_ref=N` instead of
+copying the content:
+
+```
+reference_write(
+  topic="3d-printers",
+  filename="toms-hardware-guide.md",
+  content_ref=1,
+  source_url="https://www.tomshardware.com/..."
+)
+```
+
+This is more efficient and preserves the full content from `web_fetch` or
+`web_search` results. Look for the `[Result #N]` prefix in the tool results
+above to find the correct ID.
+
+## Writing Diary Entries
+
+Diary entries are plain markdown files (no front matter) stored in the `diary/`
+subdirectory of your workspace:
+
+- **Format**: `YYYY-MM-DD.md` (e.g., `2026-02-09.md`)
+- **Location**: `diary/` subdirectory (NOT in `notes/`)
+- **Style**: Bullet points for events, decisions, observations
+- **Content**: Brief timeline entries — details belong in notes
+
+To create or append to today's diary, use `create_file` with the path
+`diary/YYYY-MM-DD.md`. Use `read_file` first to check if the entry exists,
+then `replace` to append new bullets.
+
 ## Your Input
 
 ### Recent Conversation (full transcript)
@@ -20,12 +53,12 @@ recent conversation below, then curate knowledge accordingly.
 
 ## Processing Workflow
 
-1. **Make a TODO list** — analyze the conversation above.
+1. **Make a TODO list first, in your mind** — analyze the conversation above.
    Create a numbered checklist of specific actions to take (notes to create,
    references to curate, diary entries, identity updates, etc.)
 
-2. **Search existing knowledge** with `knowledge_search` to avoid duplicates
-   and find notes to update.
+2. **Search existing knowledge** with `knowledge_search` to avoid duplicates and
+   find notes to update.
 
 3. **Extract knowledge** — create or update notes via `note_write`:
    - Create new notes for novel concepts, decisions, or learnings.
