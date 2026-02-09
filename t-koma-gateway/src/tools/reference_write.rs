@@ -101,15 +101,12 @@ impl Tool for ReferenceWriteTool {
 fn resolve_content(context: &ToolContext, input: &ReferenceWriteInput) -> Result<String, String> {
     match (&input.content, input.content_ref) {
         (Some(content), None) => Ok(content.clone()),
-        (None, Some(ref_id)) => context
-            .resolve_content_ref(ref_id)
-            .map(|s| s.to_string())
-            .ok_or_else(|| {
-                format!(
-                    "content_ref {} not found — only results from this turn are available",
-                    ref_id
-                )
-            }),
+        (None, Some(ref_id)) => context.resolve_content_ref(ref_id).ok_or_else(|| {
+            format!(
+                "content_ref {} not found — only results from this turn are available",
+                ref_id
+            )
+        }),
         (Some(_), Some(_)) => {
             Err("Provide either 'content' or 'content_ref', not both.".to_string())
         }
