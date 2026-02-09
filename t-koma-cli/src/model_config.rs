@@ -181,7 +181,11 @@ fn prompt_alias(suggested: Option<&str>) -> Result<String, Box<dyn std::error::E
 }
 
 fn prompt_provider(default: Option<ProviderType>) -> Result<ProviderType, Box<dyn std::error::Error>> {
-    let providers = [ProviderType::Anthropic, ProviderType::OpenRouter];
+    let providers = [
+        ProviderType::Anthropic,
+        ProviderType::OpenRouter,
+        ProviderType::LlamaCpp,
+    ];
     let default_index = default
         .and_then(|value| providers.iter().position(|p| *p == value))
         .unwrap_or(0);
@@ -192,8 +196,11 @@ fn prompt_provider(default: Option<ProviderType>) -> Result<ProviderType, Box<dy
 
     loop {
         match default {
-            Some(value) => print!("Provider (anthropic/openrouter) [default: {}]: ", value),
-            None => print!("Provider (anthropic/openrouter): "),
+            Some(value) => print!(
+                "Provider (anthropic/openrouter/llama_cpp) [default: {}]: ",
+                value
+            ),
+            None => print!("Provider (anthropic/openrouter/llama_cpp): "),
         }
         io::stdout().flush()?;
 

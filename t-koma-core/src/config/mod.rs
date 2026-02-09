@@ -8,6 +8,7 @@
 //! ## Secrets (Environment Variables)
 //! - `ANTHROPIC_API_KEY` - Anthropic API key
 //! - `OPENROUTER_API_KEY` - OpenRouter API key
+//! - `LLAMA_CPP_API_KEY` - Optional llama.cpp API key
 //! - `DISCORD_BOT_TOKEN` - Discord bot token
 //! - `BRAVE_API_KEY` - Brave Search API key
 //!
@@ -41,8 +42,8 @@ use crate::message::ProviderType;
 pub use knowledge::{KnowledgeSettings, SearchDefaults};
 pub use secrets::{Secrets, SecretsError};
 pub use settings::{
-    GatewaySettings, KnowledgeSearchSettings, KnowledgeToolsSettings, ModelConfig,
-    OpenRouterProviderRoutingSettings, OpenRouterSettings, Settings, SettingsError,
+    GatewaySettings, KnowledgeSearchSettings, KnowledgeToolsSettings, LlamaCppSettings,
+    ModelConfig, OpenRouterProviderRoutingSettings, OpenRouterSettings, Settings, SettingsError,
 };
 
 #[cfg(test)]
@@ -78,11 +79,17 @@ pub enum ConfigError {
     #[error("Provider '{provider}' for default model '{alias}' has no configured API key")]
     DefaultModelProviderNotConfigured { provider: String, alias: String },
 
+    #[error("Provider '{provider}' for default model '{alias}' is missing required settings")]
+    DefaultModelProviderMisconfigured { provider: String, alias: String },
+
     #[error("Heartbeat model alias '{0}' not found in config")]
     HeartbeatModelNotFound(String),
 
     #[error("Provider '{provider}' for heartbeat model '{alias}' has no configured API key")]
     HeartbeatModelProviderNotConfigured { provider: String, alias: String },
+
+    #[error("Provider '{provider}' for heartbeat model '{alias}' is missing required settings")]
+    HeartbeatModelProviderMisconfigured { provider: String, alias: String },
 
     #[error(
         "OpenRouter model_provider alias '{alias}' points to provider '{provider}' (must be 'openrouter')"
@@ -106,8 +113,8 @@ impl Config {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - No provider API keys are configured
     /// - The default provider's API key is missing
+    /// - The selected provider has missing required settings (for example `llama_cpp.base_url`)
     /// - The TOML file cannot be read or parsed
     pub fn load() -> Result<Self, ConfigError> {
         let secrets = Secrets::from_env()?;
@@ -126,11 +133,28 @@ impl Config {
             .get(default_alias)
             .ok_or_else(|| ConfigError::DefaultModelNotFound(default_alias.to_string()))?;
 
-        if !secrets.has_provider_type(default_model.provider) {
-            return Err(ConfigError::DefaultModelProviderNotConfigured {
-                provider: default_model.provider.to_string(),
-                alias: default_alias.to_string(),
-            });
+        match default_model.provider {
+            ProviderType::Anthropic | ProviderType::OpenRouter => {
+                if !secrets.has_provider_type(default_model.provider) {
+                    return Err(ConfigError::DefaultModelProviderNotConfigured {
+                        provider: default_model.provider.to_string(),
+                        alias: default_alias.to_string(),
+                    });
+                }
+            }
+            ProviderType::LlamaCpp => {
+                let has_base_url = settings
+                    .llama_cpp
+                    .base_url
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty());
+                if !has_base_url {
+                    return Err(ConfigError::DefaultModelProviderMisconfigured {
+                        provider: default_model.provider.to_string(),
+                        alias: default_alias.to_string(),
+                    });
+                }
+            }
         }
 
         if let Some(heartbeat_alias) = settings
@@ -143,11 +167,28 @@ impl Config {
                 .models
                 .get(heartbeat_alias)
                 .ok_or_else(|| ConfigError::HeartbeatModelNotFound(heartbeat_alias.to_string()))?;
-            if !secrets.has_provider_type(heartbeat_model.provider) {
-                return Err(ConfigError::HeartbeatModelProviderNotConfigured {
-                    provider: heartbeat_model.provider.to_string(),
-                    alias: heartbeat_alias.to_string(),
-                });
+            match heartbeat_model.provider {
+                ProviderType::Anthropic | ProviderType::OpenRouter => {
+                    if !secrets.has_provider_type(heartbeat_model.provider) {
+                        return Err(ConfigError::HeartbeatModelProviderNotConfigured {
+                            provider: heartbeat_model.provider.to_string(),
+                            alias: heartbeat_alias.to_string(),
+                        });
+                    }
+                }
+                ProviderType::LlamaCpp => {
+                    let has_base_url = settings
+                        .llama_cpp
+                        .base_url
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty());
+                    if !has_base_url {
+                        return Err(ConfigError::HeartbeatModelProviderMisconfigured {
+                            provider: heartbeat_model.provider.to_string(),
+                            alias: heartbeat_alias.to_string(),
+                        });
+                    }
+                }
             }
         }
 
@@ -228,6 +269,16 @@ impl Config {
         self.secrets.openrouter_api_key.as_deref()
     }
 
+    /// Get the llama.cpp API key (if configured).
+    pub fn llama_cpp_api_key(&self) -> Option<&str> {
+        self.secrets.llama_cpp_api_key.as_deref()
+    }
+
+    /// Get the llama.cpp base URL (if configured).
+    pub fn llama_cpp_base_url(&self) -> Option<&str> {
+        self.settings.llama_cpp.base_url.as_deref()
+    }
+
     /// Get the Discord bot token (if configured).
     pub fn discord_bot_token(&self) -> Option<&str> {
         self.secrets.discord_bot_token.as_deref()
@@ -261,6 +312,7 @@ mod tests {
         unsafe {
             env::remove_var("ANTHROPIC_API_KEY");
             env::remove_var("OPENROUTER_API_KEY");
+            env::remove_var("LLAMA_CPP_API_KEY");
             env::remove_var("DISCORD_BOT_TOKEN");
             env::remove_var("BRAVE_API_KEY");
         }
@@ -449,5 +501,46 @@ mod tests {
             err,
             ConfigError::OpenRouterProviderUnknownAlias { .. }
         ));
+    }
+
+    #[test]
+    fn test_llama_cpp_base_url_validation() {
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
+        clear_env();
+
+        let secrets = Secrets::from_env_inner().unwrap();
+
+        let mut missing_url = Settings::default();
+        missing_url.models.insert(
+            "local".to_string(),
+            ModelConfig {
+                provider: ProviderType::LlamaCpp,
+                model: "qwen2.5".to_string(),
+                context_window: None,
+            },
+        );
+        missing_url.default_model = "local".to_string();
+
+        let err = Config::from_parts(secrets.clone(), missing_url).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::DefaultModelProviderMisconfigured { .. }
+        ));
+
+        let mut valid = Settings::default();
+        valid.models.insert(
+            "local".to_string(),
+            ModelConfig {
+                provider: ProviderType::LlamaCpp,
+                model: "qwen2.5".to_string(),
+                context_window: None,
+            },
+        );
+        valid.default_model = "local".to_string();
+        valid.llama_cpp.base_url = Some("http://127.0.0.1:8080".to_string());
+
+        let config = Config::from_parts(secrets, valid).expect("llama_cpp config should validate");
+        assert_eq!(config.default_provider(), ProviderType::LlamaCpp);
+        assert_eq!(config.llama_cpp_base_url(), Some("http://127.0.0.1:8080"));
     }
 }

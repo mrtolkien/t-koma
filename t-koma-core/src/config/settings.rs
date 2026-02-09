@@ -21,6 +21,7 @@ const DEFAULT_CONFIG_TOML: &str = r#"# t-koma configuration file
 # Secrets (API keys) are loaded from environment variables:
 #   - ANTHROPIC_API_KEY
 #   - OPENROUTER_API_KEY
+#   - LLAMA_CPP_API_KEY (optional)
 #   - DISCORD_BOT_TOKEN
 
 # Default model alias (must exist under [models])
@@ -50,6 +51,9 @@ level = "info"
 file_enabled = false
 # file_path = "/var/log/t-koma.log"
 # dump_queries = true
+
+[llama_cpp]
+# base_url = "http://127.0.0.1:8080"
 
 [tools.web]
 enabled = true
@@ -118,6 +122,10 @@ pub struct Settings {
     #[serde(default)]
     pub openrouter: OpenRouterSettings,
 
+    /// llama.cpp-specific settings
+    #[serde(default)]
+    pub llama_cpp: LlamaCppSettings,
+
     /// Tooling configuration
     #[serde(default)]
     pub tools: ToolsSettings,
@@ -130,7 +138,7 @@ pub struct Settings {
 /// Model configuration entry
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelConfig {
-    /// Provider type (e.g. "anthropic", "openrouter")
+    /// Provider type (e.g. "anthropic", "openrouter", "llama_cpp")
     #[serde(
         deserialize_with = "deserialize_model_provider",
         serialize_with = "serialize_model_provider"
@@ -165,6 +173,13 @@ pub struct OpenRouterSettings {
     /// Optional upstream provider routing keyed by model alias.
     #[serde(default)]
     pub model_provider: BTreeMap<String, OpenRouterProviderRoutingSettings>,
+}
+
+/// llama.cpp settings
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct LlamaCppSettings {
+    /// Base URL for llama.cpp OpenAI-compatible server
+    pub base_url: Option<String>,
 }
 
 /// Gateway server settings
@@ -625,6 +640,7 @@ mod tests {
         assert!(settings.openrouter.http_referer.is_none());
         assert!(settings.openrouter.app_name.is_none());
         assert!(settings.openrouter.model_provider.is_empty());
+        assert!(settings.llama_cpp.base_url.is_none());
 
         assert!(!settings.tools.web.enabled);
         assert!(!settings.tools.web.search.enabled);
@@ -673,6 +689,9 @@ app_name = "Example App"
 [openrouter.model_provider.kimi25]
 order = ["anthropic"]
 allow_fallbacks = false
+
+[llama_cpp]
+base_url = "http://127.0.0.1:8080"
 
 [models.alpha]
 provider = "anthropic"
@@ -730,6 +749,10 @@ cache_ttl_minutes = 2
         assert_eq!(
             settings.openrouter.app_name,
             Some("Example App".to_string())
+        );
+        assert_eq!(
+            settings.llama_cpp.base_url,
+            Some("http://127.0.0.1:8080".to_string())
         );
 
         assert_eq!(settings.gateway.host, "0.0.0.0");

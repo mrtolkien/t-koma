@@ -19,6 +19,9 @@ pub struct Secrets {
     /// OpenRouter API key (env: OPENROUTER_API_KEY)
     pub openrouter_api_key: Option<String>,
 
+    /// Optional llama.cpp API key (env: LLAMA_CPP_API_KEY)
+    pub llama_cpp_api_key: Option<String>,
+
     /// Discord bot token (env: DISCORD_BOT_TOKEN)
     pub discord_bot_token: Option<String>,
 
@@ -31,9 +34,6 @@ pub struct Secrets {
 pub enum SecretsError {
     #[error("Missing required secret: {0}")]
     MissingSecret(String),
-
-    #[error("No provider API key configured. Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY")]
-    NoProviderConfigured,
 }
 
 impl Secrets {
@@ -53,14 +53,10 @@ impl Secrets {
         let secrets = Self {
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
             openrouter_api_key: env::var("OPENROUTER_API_KEY").ok(),
+            llama_cpp_api_key: env::var("LLAMA_CPP_API_KEY").ok(),
             discord_bot_token: env::var("DISCORD_BOT_TOKEN").ok(),
             brave_api_key: env::var("BRAVE_API_KEY").ok(),
         };
-
-        // Validate that at least one provider is configured
-        if secrets.anthropic_api_key.is_none() && secrets.openrouter_api_key.is_none() {
-            return Err(SecretsError::NoProviderConfigured);
-        }
 
         Ok(secrets)
     }
@@ -77,6 +73,7 @@ impl Secrets {
         match provider {
             ProviderType::Anthropic => self.anthropic_api_key.is_some(),
             ProviderType::OpenRouter => self.openrouter_api_key.is_some(),
+            ProviderType::LlamaCpp => true,
         }
     }
 
@@ -101,6 +98,7 @@ mod tests {
         unsafe {
             env::remove_var("ANTHROPIC_API_KEY");
             env::remove_var("OPENROUTER_API_KEY");
+            env::remove_var("LLAMA_CPP_API_KEY");
             env::remove_var("DISCORD_BOT_TOKEN");
             env::remove_var("BRAVE_API_KEY");
         }
@@ -131,6 +129,7 @@ mod tests {
         assert!(secrets.openrouter_api_key.is_none());
         assert!(secrets.has_provider("anthropic"));
         assert!(!secrets.has_provider("openrouter"));
+        assert!(secrets.has_provider("llama_cpp"));
     }
 
     #[test]
@@ -145,15 +144,17 @@ mod tests {
         assert_eq!(secrets.openrouter_api_key, Some("sk-or-test".to_string()));
         assert!(secrets.anthropic_api_key.is_none());
         assert!(secrets.has_provider("openrouter"));
+        assert!(secrets.has_provider("llama_cpp"));
     }
 
     #[test]
-    fn test_load_both_providers() {
+    fn test_load_all_secrets() {
         let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
         unsafe {
             env::set_var("ANTHROPIC_API_KEY", "sk-ant");
             env::set_var("OPENROUTER_API_KEY", "sk-or");
+            env::set_var("LLAMA_CPP_API_KEY", "llama-key");
             env::set_var("DISCORD_BOT_TOKEN", "discord-token");
             env::set_var("BRAVE_API_KEY", "brave-token");
         }
@@ -161,6 +162,7 @@ mod tests {
         let secrets = Secrets::from_env_inner().unwrap();
         assert!(secrets.anthropic_api_key.is_some());
         assert!(secrets.openrouter_api_key.is_some());
+        assert_eq!(secrets.llama_cpp_api_key, Some("llama-key".to_string()));
         assert_eq!(secrets.discord_bot_token, Some("discord-token".to_string()));
         assert_eq!(secrets.brave_api_key, Some("brave-token".to_string()));
 
@@ -168,18 +170,6 @@ mod tests {
         assert_eq!(providers.len(), 2);
         assert!(providers.contains(&ProviderType::Anthropic));
         assert!(providers.contains(&ProviderType::OpenRouter));
-    }
-
-    #[test]
-    fn test_no_provider_error() {
-        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
-        clear_env();
-
-        let result = Secrets::from_env_inner();
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            SecretsError::NoProviderConfigured
-        ));
+        assert!(secrets.has_provider_type(ProviderType::LlamaCpp));
     }
 }
