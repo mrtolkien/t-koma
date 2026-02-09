@@ -578,11 +578,11 @@ impl From<OperatorRow> for Operator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::create_test_koma_pool;
+    use crate::test_helpers::create_test_pool;
 
     #[tokio::test]
     async fn test_get_or_create_operator() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         let operator = OperatorRepository::get_or_create(
@@ -620,7 +620,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_approve_operator() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         OperatorRepository::get_or_create(
@@ -648,7 +648,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deny_operator() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         OperatorRepository::get_or_create(
@@ -671,7 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_by_status() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         OperatorRepository::get_or_create(
@@ -728,7 +728,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_prune_pending() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         OperatorRepository::get_or_create(
@@ -758,7 +758,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_welcomed() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         OperatorRepository::get_or_create(
@@ -786,7 +786,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_operator_logs_event_and_deletes_under_fk_enforcement() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         sqlx::query(
@@ -848,7 +848,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_operator_returns_not_found_for_unknown_id() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         let result = OperatorRepository::remove(pool, "missing-operator").await;
@@ -860,7 +860,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_rate_limits() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         OperatorRepository::get_or_create(
@@ -882,7 +882,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_allow_workspace_escape() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         OperatorRepository::get_or_create(

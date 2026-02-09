@@ -26,9 +26,11 @@ const DEFAULT_REFLECTION_IDLE_MINUTES: i64 = 4;
 /// Conditions:
 /// 1. New messages exist since last reflection
 /// 2. Session has been idle for at least N minutes
+#[allow(clippy::too_many_arguments)]
 pub async fn maybe_run_reflection(
     state: &Arc<AppState>,
     ghost_name: &str,
+    ghost_id: &str,
     session_id: &str,
     session_updated_at: i64,
     operator_id: &str,
@@ -38,6 +40,7 @@ pub async fn maybe_run_reflection(
     run_reflection(
         state,
         ghost_name,
+        ghost_id,
         session_id,
         session_updated_at,
         operator_id,
@@ -55,6 +58,7 @@ pub async fn maybe_run_reflection(
 pub async fn run_reflection_now(
     state: &Arc<AppState>,
     ghost_name: &str,
+    ghost_id: &str,
     session_id: &str,
     operator_id: &str,
     heartbeat_model_alias: Option<&str>,
@@ -62,6 +66,7 @@ pub async fn run_reflection_now(
     run_reflection(
         state,
         ghost_name,
+        ghost_id,
         session_id,
         Utc::now().timestamp(),
         operator_id,
@@ -76,6 +81,7 @@ pub async fn run_reflection_now(
 async fn run_reflection(
     state: &Arc<AppState>,
     ghost_name: &str,
+    ghost_id: &str,
     session_id: &str,
     session_updated_at: i64,
     operator_id: &str,
@@ -91,32 +97,29 @@ async fn run_reflection(
         return;
     }
 
-    let ghost_db = match state.get_or_init_ghost_db(ghost_name).await {
-        Ok(db) => db,
-        Err(_) => return,
-    };
+    let pool = state.koma_db.pool();
 
     // Find the timestamp of the last successful reflection for this session.
-    let last_reflection_ts =
-        match JobLogRepository::latest_ok(ghost_db.pool(), session_id, DbJobKind::Reflection).await
-        {
-            Ok(Some(log)) => log.finished_at.unwrap_or(log.started_at),
-            Ok(None) => 0, // never reflected — process everything
-            Err(_) => return,
-        };
-
-    // Check if new messages exist since last reflection.
-    let recent_messages = match SessionRepository::get_messages_since(
-        ghost_db.pool(),
+    let last_reflection_ts = match JobLogRepository::latest_ok(
+        pool,
+        ghost_id,
         session_id,
-        last_reflection_ts,
+        DbJobKind::Reflection,
     )
     .await
     {
-        Ok(msgs) if msgs.is_empty() => return,
-        Ok(msgs) => msgs,
+        Ok(Some(log)) => log.finished_at.unwrap_or(log.started_at),
+        Ok(None) => 0, // never reflected — process everything
         Err(_) => return,
     };
+
+    // Check if new messages exist since last reflection.
+    let recent_messages =
+        match SessionRepository::get_messages_since(pool, session_id, last_reflection_ts).await {
+            Ok(msgs) if msgs.is_empty() => return,
+            Ok(msgs) => msgs,
+            Err(_) => return,
+        };
 
     info!(
         "reflection: {} new messages since last reflection for ghost '{}'",
@@ -141,8 +144,8 @@ async fn run_reflection(
     let result = state
         .session_chat
         .chat_job(
-            &ghost_db,
             &state.koma_db,
+            ghost_id,
             model.client.as_ref(),
             &model.provider,
             &model.model,
@@ -165,11 +168,11 @@ async fn run_reflection(
     match result {
         Ok(job_result) => {
             let status = format!("processed {} messages", recent_messages.len());
-            let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
+            let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
             job_log.transcript = job_result.transcript;
             job_log.finish(&status);
 
-            if let Err(err) = JobLogRepository::insert(ghost_db.pool(), &job_log).await {
+            if let Err(err) = JobLogRepository::insert(pool, &job_log).await {
                 warn!("reflection: failed to write job log for {ghost_name}:{session_id}: {err}");
             }
 
@@ -183,10 +186,10 @@ async fn run_reflection(
         }
         Err(err) => {
             let status = format!("error: {err}");
-            let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
+            let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
             job_log.finish(&status);
 
-            let _ = JobLogRepository::insert(ghost_db.pool(), &job_log).await;
+            let _ = JobLogRepository::insert(pool, &job_log).await;
 
             state
                 .log(LogEntry::Reflection {

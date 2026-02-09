@@ -4,6 +4,7 @@ use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::path::PathBuf;
 use tracing::info;
 use uuid::Uuid;
 
@@ -44,6 +45,16 @@ pub fn validate_ghost_name(name: &str) -> DbResult<String> {
     Ok(trimmed.to_string())
 }
 
+/// Get workspace path for a ghost
+pub fn ghost_workspace_path(ghost_name: &str) -> DbResult<PathBuf> {
+    let ghost_name = validate_ghost_name(ghost_name)?;
+    if let Ok(override_dir) = std::env::var("T_KOMA_DATA_DIR") {
+        return Ok(PathBuf::from(override_dir).join("ghosts").join(ghost_name));
+    }
+    let data_dir = dirs::data_dir().ok_or(DbError::NoConfigDir)?;
+    Ok(data_dir.join("t-koma").join("ghosts").join(ghost_name))
+}
+
 /// Ghost record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ghost {
@@ -67,7 +78,7 @@ impl GhostRepository {
     /// Create a new ghost for an operator
     pub async fn create(pool: &SqlitePool, owner_operator_id: &str, name: &str) -> DbResult<Ghost> {
         let name = validate_ghost_name(name)?;
-        let default_cwd = crate::ghost_db::GhostDbPool::workspace_path_for(&name)?;
+        let default_cwd = ghost_workspace_path(&name)?;
         let default_cwd = default_cwd.to_string_lossy().to_string();
 
         if let Some(existing) = Self::get_by_name(pool, &name).await? {
@@ -84,7 +95,7 @@ impl GhostRepository {
         .bind(&id)
         .bind(&name)
         .bind(owner_operator_id)
-        .bind(default_cwd)
+        .bind(&default_cwd)
         .bind(now)
         .execute(pool)
         .await?;
@@ -246,7 +257,7 @@ impl From<GhostRow> for Ghost {
 mod tests {
     use super::*;
     use crate::{
-        OperatorAccessLevel, OperatorRepository, Platform, test_helpers::create_test_koma_pool,
+        OperatorAccessLevel, OperatorRepository, Platform, test_helpers::create_test_pool,
     };
 
     #[tokio::test]
@@ -263,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ghost() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         let operator = OperatorRepository::create_new(
@@ -287,7 +298,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_all_and_delete_by_name() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         let operator = OperatorRepository::create_new(

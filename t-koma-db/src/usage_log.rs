@@ -5,12 +5,15 @@
 
 use chrono::Utc;
 use sqlx::SqlitePool;
+use uuid::Uuid;
 
 use crate::error::DbResult;
 
 /// A single API request's token usage.
 #[derive(Debug, Clone)]
 pub struct UsageLog {
+    pub id: String,
+    pub ghost_id: String,
     pub session_id: String,
     pub message_id: Option<String>,
     pub request_at: i64,
@@ -24,6 +27,7 @@ pub struct UsageLog {
 impl UsageLog {
     /// Create a new usage log entry for the current time.
     pub fn new(
+        ghost_id: &str,
         session_id: &str,
         message_id: Option<&str>,
         model: &str,
@@ -33,6 +37,8 @@ impl UsageLog {
         cache_creation_tokens: u32,
     ) -> Self {
         Self {
+            id: format!("usage_{}", Uuid::new_v4()),
+            ghost_id: ghost_id.to_string(),
             session_id: session_id.to_string(),
             message_id: message_id.map(|s| s.to_string()),
             request_at: Utc::now().timestamp(),
@@ -62,10 +68,12 @@ impl UsageLogRepository {
     /// Insert a usage log entry.
     pub async fn insert(pool: &SqlitePool, log: &UsageLog) -> DbResult<()> {
         sqlx::query(
-            "INSERT INTO usage_log (session_id, message_id, request_at, model,
+            "INSERT INTO usage_log (id, ghost_id, session_id, message_id, created_at, model,
                 input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
+        .bind(&log.id)
+        .bind(&log.ghost_id)
         .bind(&log.session_id)
         .bind(&log.message_id)
         .bind(log.request_at)
@@ -124,20 +132,61 @@ impl From<UsageTotalsRow> for UsageTotals {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sessions::SessionRepository;
-    use crate::test_helpers::create_test_ghost_pool;
+    use crate::{
+        GhostRepository, OperatorAccessLevel, OperatorRepository, Platform,
+        sessions::SessionRepository, test_helpers::create_test_pool,
+    };
+
+    async fn create_test_operator_and_ghost(
+        pool: &sqlx::SqlitePool,
+    ) -> (crate::operators::Operator, crate::ghosts::Ghost) {
+        let operator = OperatorRepository::create_new(
+            pool,
+            "TestOp",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+        let ghost = GhostRepository::create(pool, &operator.id, "TestGhost")
+            .await
+            .unwrap();
+        (operator, ghost)
+    }
 
     #[tokio::test]
     async fn test_insert_and_totals() {
-        let db = create_test_ghost_pool("UsageGhost").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1").await.unwrap();
+        let (operator, ghost) = create_test_operator_and_ghost(pool).await;
 
-        let log1 = UsageLog::new(&session.id, None, "claude-sonnet-4-5", 1000, 200, 500, 100);
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
+
+        let log1 = UsageLog::new(
+            &ghost.id,
+            &session.id,
+            None,
+            "claude-sonnet-4-5",
+            1000,
+            200,
+            500,
+            100,
+        );
         UsageLogRepository::insert(pool, &log1).await.unwrap();
 
-        let log2 = UsageLog::new(&session.id, None, "claude-sonnet-4-5", 1200, 300, 800, 0);
+        let log2 = UsageLog::new(
+            &ghost.id,
+            &session.id,
+            None,
+            "claude-sonnet-4-5",
+            1200,
+            300,
+            800,
+            0,
+        );
         UsageLogRepository::insert(pool, &log2).await.unwrap();
 
         let totals = UsageLogRepository::session_totals(pool, &session.id)
@@ -153,10 +202,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_session_totals() {
-        let db = create_test_ghost_pool("UsageGhost2").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1").await.unwrap();
+        let (operator, ghost) = create_test_operator_and_ghost(pool).await;
+
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
 
         let totals = UsageLogRepository::session_totals(pool, &session.id)
             .await
@@ -168,12 +221,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_usage_with_message_id() {
-        let db = create_test_ghost_pool("UsageGhost3").await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1").await.unwrap();
+        let (operator, ghost) = create_test_operator_and_ghost(pool).await;
+
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
 
         let log = UsageLog::new(
+            &ghost.id,
             &session.id,
             Some("msg_abc"),
             "claude-opus-4",

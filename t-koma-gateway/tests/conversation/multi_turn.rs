@@ -58,13 +58,13 @@ async fn test_multi_turn_story_conversation() {
     let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
         .expect("Failed to set up test environment");
-    let state = common::build_state_with_default_model(env.koma_db.clone()).await;
-    let ghost_db = env.ghost_db;
+    let koma_db = env.koma_db;
+    let state = common::build_state_with_default_model(koma_db.clone()).await;
     let operator = env.operator;
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+    let session = SessionRepository::create(koma_db.pool(), &ghost.id, &operator.id)
         .await
         .expect("Failed to create session");
 
@@ -89,7 +89,8 @@ async fn test_multi_turn_story_conversation() {
 
     // Save user message
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -101,7 +102,7 @@ async fn test_multi_turn_story_conversation() {
     .expect("Failed to save turn 1 user message");
 
     // Get conversation history and build API messages
-    let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history1 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages1 = build_history_messages(&history1, Some(50));
@@ -124,7 +125,7 @@ async fn test_multi_turn_story_conversation() {
     println!("Turn 1 response:\n{}\n", response1);
 
     // Count messages after turn 1
-    let msg_count1 = SessionRepository::count_messages(ghost_db.pool(), &session.id)
+    let msg_count1 = SessionRepository::count_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
@@ -141,7 +142,8 @@ async fn test_multi_turn_story_conversation() {
 
     // Save user message
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -153,7 +155,7 @@ async fn test_multi_turn_story_conversation() {
     .expect("Failed to save turn 2 user message");
 
     // Get updated conversation history
-    let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history2 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages2 = build_history_messages(&history2, Some(50));
@@ -176,7 +178,7 @@ async fn test_multi_turn_story_conversation() {
     println!("Turn 2 response:\n{}\n", response2);
 
     // Count messages after turn 2
-    let msg_count2 = SessionRepository::count_messages(ghost_db.pool(), &session.id)
+    let msg_count2 = SessionRepository::count_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
@@ -193,7 +195,8 @@ async fn test_multi_turn_story_conversation() {
 
     // Save user message
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -205,7 +208,7 @@ async fn test_multi_turn_story_conversation() {
     .expect("Failed to save turn 3 user message");
 
     // Get updated conversation history
-    let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history3 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages3 = build_history_messages(&history3, Some(50));
@@ -228,7 +231,7 @@ async fn test_multi_turn_story_conversation() {
     println!("Turn 3 response:\n{}\n", response3);
 
     // Count messages after turn 3
-    let msg_count3 = SessionRepository::count_messages(ghost_db.pool(), &session.id)
+    let msg_count3 = SessionRepository::count_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
@@ -281,13 +284,13 @@ async fn test_multi_turn_with_tool_use() {
     let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
         .expect("Failed to set up test environment");
-    let state = common::build_state_with_default_model(env.koma_db.clone()).await;
-    let ghost_db = env.ghost_db;
+    let koma_db = env.koma_db;
+    let state = common::build_state_with_default_model(koma_db.clone()).await;
     let operator = env.operator;
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+    let session = SessionRepository::create(koma_db.pool(), &ghost.id, &operator.id)
         .await
         .expect("Failed to create session");
 
@@ -307,7 +310,8 @@ async fn test_multi_turn_with_tool_use() {
     let turn1_message = "What directory are we in? Use the shell tool to find out.";
 
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -318,7 +322,7 @@ async fn test_multi_turn_with_tool_use() {
     .await
     .expect("Failed to save turn 1 user message");
 
-    let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history1 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages1 = build_history_messages(&history1, Some(50));
@@ -349,7 +353,8 @@ async fn test_multi_turn_with_tool_use() {
     let turn2_message = "What command did you just run to find that out?";
 
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -360,7 +365,7 @@ async fn test_multi_turn_with_tool_use() {
     .await
     .expect("Failed to save turn 2 user message");
 
-    let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history2 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages2 = build_history_messages(&history2, Some(50));
@@ -390,7 +395,7 @@ async fn test_multi_turn_with_tool_use() {
     );
 
     // Verify message count includes tool_use and tool_result blocks
-    let msg_count = SessionRepository::count_messages(ghost_db.pool(), &session.id)
+    let msg_count = SessionRepository::count_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 

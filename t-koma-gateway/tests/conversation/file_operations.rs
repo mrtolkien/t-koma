@@ -32,13 +32,13 @@ async fn test_file_create_edit_delete_workflow() {
     let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
         .expect("Failed to set up test environment");
-    let state = common::build_state_with_default_model(env.koma_db.clone()).await;
-    let ghost_db = env.ghost_db;
+    let koma_db = env.koma_db;
+    let state = common::build_state_with_default_model(koma_db.clone()).await;
     let operator = env.operator;
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+    let session = SessionRepository::create(koma_db.pool(), &ghost.id, &operator.id)
         .await
         .expect("Failed to create session");
 
@@ -69,7 +69,8 @@ async fn test_file_create_edit_delete_workflow() {
     );
 
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -80,7 +81,7 @@ async fn test_file_create_edit_delete_workflow() {
     .await
     .expect("Failed to save create message");
 
-    let history1 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history1 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages1 = build_history_messages(&history1, Some(50));
@@ -125,7 +126,8 @@ async fn test_file_create_edit_delete_workflow() {
     );
 
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -136,7 +138,7 @@ async fn test_file_create_edit_delete_workflow() {
     .await
     .expect("Failed to save edit message");
 
-    let history2 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history2 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages2 = build_history_messages(&history2, Some(50));
@@ -179,7 +181,8 @@ async fn test_file_create_edit_delete_workflow() {
     );
 
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -190,7 +193,7 @@ async fn test_file_create_edit_delete_workflow() {
     .await
     .expect("Failed to save delete message");
 
-    let history3 = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history3 = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages3 = build_history_messages(&history3, Some(50));
@@ -220,7 +223,7 @@ async fn test_file_create_edit_delete_workflow() {
     println!("✅ File deleted successfully");
 
     // Verify message count
-    let msg_count = SessionRepository::count_messages(ghost_db.pool(), &session.id)
+    let msg_count = SessionRepository::count_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to count messages");
 
@@ -239,13 +242,13 @@ async fn test_replace_tool_exact_match_requirement() {
     let env = common::setup_test_environment("Test Operator", &ghost_name)
         .await
         .expect("Failed to set up test environment");
-    let state = common::build_state_with_default_model(env.koma_db.clone()).await;
-    let ghost_db = env.ghost_db;
+    let koma_db = env.koma_db;
+    let state = common::build_state_with_default_model(koma_db.clone()).await;
     let operator = env.operator;
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+    let session = SessionRepository::create(koma_db.pool(), &ghost.id, &operator.id)
         .await
         .expect("Failed to create session");
 
@@ -279,7 +282,8 @@ async fn test_replace_tool_exact_match_requirement() {
     );
 
     SessionRepository::add_message(
-        ghost_db.pool(),
+        koma_db.pool(),
+        &ghost.id,
         &session.id,
         t_koma_db::MessageRole::Operator,
         vec![t_koma_db::ContentBlock::Text {
@@ -290,7 +294,7 @@ async fn test_replace_tool_exact_match_requirement() {
     .await
     .expect("Failed to save edit message");
 
-    let history = SessionRepository::get_messages(ghost_db.pool(), &session.id)
+    let history = SessionRepository::get_messages(koma_db.pool(), &session.id)
         .await
         .expect("Failed to get history");
     let api_messages = build_history_messages(&history, Some(50));
