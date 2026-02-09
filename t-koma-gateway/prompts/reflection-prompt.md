@@ -1,30 +1,26 @@
 +++
 id = "reflection-prompt"
 role = "system"
-vars = ["recent_messages", "recent_references"]
-# loaded: reflection.rs — build_reflection_prompt() renders with conversation + references
+vars = ["recent_messages"]
+# loaded: reflection.rs — build_reflection_prompt() renders with full conversation
 +++
 
 # Reflection Mode
 
 You are in autonomous reflection mode. There is no operator present. Analyze the
-recent conversation and reference saves below, then curate knowledge accordingly.
+recent conversation below, then curate knowledge accordingly.
 
 {{ include "note-guidelines.md" }}
 
-## Your Inputs
+## Your Input
 
-### Recent Conversation
+### Recent Conversation (full transcript)
 
 {{ recent_messages }}
 
-### Recently Saved References
-
-{{ recent_references }}
-
 ## Processing Workflow
 
-1. **Make a TODO list** — analyze the conversation and reference saves above.
+1. **Make a TODO list** — analyze the conversation above.
    Create a numbered checklist of specific actions to take (notes to create,
    references to curate, diary entries, identity updates, etc.)
 
@@ -37,7 +33,8 @@ recent conversation and reference saves below, then curate knowledge accordingly
    - Add comments for minor observations.
 
 4. **Curate references** — use `reference_manage` to:
-   - Add topic descriptions and tags to recently saved references.
+   - Add topic descriptions and tags to reference topics that were saved during
+     the conversation (you can see the `reference_write` tool calls above).
    - Mark bad or obsolete references (status: problematic/obsolete).
 
 5. **Update diary** if significant events happened (milestones, decisions,

@@ -422,16 +422,16 @@ After each heartbeat tick completes, the reflection runner
 (`t-koma-gateway/src/reflection.rs`) checks whether new messages exist since the
 last successful reflection (via `JobLogRepository::latest_ok()` +
 `SessionRepository::get_messages_since()`). If new messages exist and the session
-has been idle for the configured idle time (default 4 minutes), it builds context
-from:
-1. Recent conversation messages (formatted as `OPERATOR`/`GHOST` excerpts)
-2. Recently saved references (via `KnowledgeEngine::recent_reference_files()`)
+has been idle for the configured idle time (default 4 minutes), it sends the
+**full untruncated conversation transcript** (including complete tool use inputs
+and tool results) through `chat_job()` with `load_session_history=false`.
 
-The context is rendered into `prompts/reflection-prompt.md` (which includes
-`note-guidelines.md` via `{{ include }}`), then sent through `chat_job()` with
-`load_session_history=false` (context is embedded in the prompt). The ghost
-curates conversation insights into structured notes, curates reference saves via
-`reference_manage`, updates diary entries, or updates identity files.
+The transcript is rendered into `prompts/reflection-prompt.md` (which includes
+`note-guidelines.md` via `{{ include }}`). The ghost curates conversation
+insights into structured notes, curates reference saves via `reference_manage`,
+updates diary entries, or updates identity files. Because the transcript is
+untruncated, reflection sees exactly the same information the ghost had during
+chat — including full `web_fetch` content, `reference_write` arguments, etc.
 
 No cooldown — reflection runs once per idle window, then waits for new messages
 to appear before triggering again.
