@@ -234,6 +234,24 @@ impl SessionRepository {
         Ok(rows.into_iter().map(SessionInfo::from).collect())
     }
 
+    /// List all sessions for a ghost (admin view, no operator filter).
+    pub async fn list_for_ghost(pool: &SqlitePool, ghost_id: &str) -> DbResult<Vec<SessionInfo>> {
+        let rows = sqlx::query_as::<_, SessionInfoRow>(
+            "SELECT s.id, s.created_at, s.updated_at, s.is_active,
+                    COUNT(m.id) as message_count
+             FROM sessions s
+             LEFT JOIN messages m ON s.id = m.session_id
+             WHERE s.ghost_id = ?
+             GROUP BY s.id
+             ORDER BY s.updated_at DESC",
+        )
+        .bind(ghost_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(SessionInfo::from).collect())
+    }
+
     /// List active sessions whose last update is at or before the given unix timestamp.
     pub async fn list_active_before(
         pool: &SqlitePool,
