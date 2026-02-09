@@ -2,7 +2,7 @@ use serenity::builder::{CreateActionRow, CreateAttachment, CreateEmbed, CreateMe
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
-use tracing::{error, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::content::ids;
 use crate::operator_flow::OutboundMessage;
@@ -35,21 +35,51 @@ pub async fn send_assistant_v2(
         attachments,
     } = markdown::markdown_to_v2_components(content);
 
+    debug!(
+        channel_id = %channel_id,
+        component_count = components.len(),
+        attachment_count = attachments.len(),
+        content_len = content.len(),
+        "v2 markdown conversion complete"
+    );
+
     if components.is_empty() {
         warn!(
-            "Ghost response produced no v2 components (content length: {})",
-            content.len()
+            channel_id = %channel_id,
+            content_len = content.len(),
+            "Ghost response produced no v2 components, falling back to legacy"
         );
-        return Ok(());
+        return send_discord_message_http(http, channel_id, content).await;
     }
 
-    for chunk in group_into_v2_messages(components) {
-        let files = attachments_for_chunk(&chunk, &attachments);
-        if let Err(e) = send_v2_message(http, channel_id, &chunk, files).await {
-            warn!("v2 message failed, falling back to legacy: {}", e);
+    let chunks = group_into_v2_messages(components);
+    trace!(
+        channel_id = %channel_id,
+        chunk_count = chunks.len(),
+        "sending v2 message chunks"
+    );
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        let files = attachments_for_chunk(chunk, &attachments);
+        trace!(
+            channel_id = %channel_id,
+            chunk_index = i,
+            components_in_chunk = chunk.len(),
+            file_count = files.len(),
+            "sending v2 chunk"
+        );
+        if let Err(e) = send_v2_message(http, channel_id, chunk, files).await {
+            warn!(
+                channel_id = %channel_id,
+                chunk_index = i,
+                error = %e,
+                "v2 message failed, falling back to legacy"
+            );
             return send_discord_message_http(http, channel_id, content).await;
         }
     }
+
+    debug!(channel_id = %channel_id, "v2 assistant message sent");
     Ok(())
 }
 
@@ -272,9 +302,17 @@ async fn send_discord_message_http(
     channel_id: ChannelId,
     content: &str,
 ) -> serenity::Result<()> {
-    for chunk in split_discord_message(content) {
+    let chunks = split_discord_message(content);
+    debug!(
+        channel_id = %channel_id,
+        chunk_count = chunks.len(),
+        content_len = content.len(),
+        "sending legacy plain-text message"
+    );
+    for chunk in chunks {
         channel_id.say(http, chunk).await?;
     }
+    debug!(channel_id = %channel_id, "legacy message sent");
     Ok(())
 }
 
@@ -440,10 +478,24 @@ pub async fn send_outbound_messages(
     session_id: &str,
     messages: Vec<OutboundMessage>,
 ) {
-    for message in messages {
+    debug!(
+        ghost = ghost_name,
+        channel_id = %channel_id,
+        message_count = messages.len(),
+        "sending outbound messages to Discord"
+    );
+
+    for (i, message) in messages.iter().enumerate() {
         match message {
             OutboundMessage::AssistantText(text) => {
-                if let Err(e) = send_assistant_v2(&ctx.http, channel_id, &text).await {
+                debug!(
+                    ghost = ghost_name,
+                    channel_id = %channel_id,
+                    index = i,
+                    text_len = text.len(),
+                    "sending assistant text"
+                );
+                if let Err(e) = send_assistant_v2(&ctx.http, channel_id, text).await {
                     error!(
                         "[ghost:{}] Failed to send assistant message to Discord: {}",
                         ghost_name, e
@@ -451,6 +503,12 @@ pub async fn send_outbound_messages(
                 }
             }
             OutboundMessage::Gateway(msg) => {
+                debug!(
+                    ghost = ghost_name,
+                    channel_id = %channel_id,
+                    index = i,
+                    "sending gateway message"
+                );
                 if let Err(e) = send_discord_gateway_message(
                     state,
                     ctx,
@@ -459,7 +517,7 @@ pub async fn send_outbound_messages(
                     operator_id,
                     ghost_name,
                     session_id,
-                    *msg,
+                    *msg.clone(),
                 )
                 .await
                 {
@@ -470,7 +528,14 @@ pub async fn send_outbound_messages(
                 }
             }
             OutboundMessage::ToolCalls(calls) => {
-                if let Err(e) = send_tool_calls_v2(&ctx.http, channel_id, &calls).await {
+                debug!(
+                    ghost = ghost_name,
+                    channel_id = %channel_id,
+                    index = i,
+                    call_count = calls.len(),
+                    "sending tool calls"
+                );
+                if let Err(e) = send_tool_calls_v2(&ctx.http, channel_id, calls).await {
                     error!(
                         "[ghost:{}] Failed to send tool calls to Discord: {}",
                         ghost_name, e
@@ -479,6 +544,12 @@ pub async fn send_outbound_messages(
             }
         }
     }
+
+    debug!(
+        ghost = ghost_name,
+        channel_id = %channel_id,
+        "outbound messages sent"
+    );
 }
 
 // ---------------------------------------------------------------------------

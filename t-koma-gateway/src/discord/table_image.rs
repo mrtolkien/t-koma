@@ -31,6 +31,16 @@ static SVG_OPTIONS: LazyLock<usvg::Options> = LazyLock::new(|| {
     opt
 });
 
+/// Eagerly initialize the system font database.
+///
+/// The underlying `LazyLock` scans every font file on the system, which can
+/// block for seconds on large font collections.  Calling this at startup
+/// (from a blocking context) avoids stalling the tokio runtime on the first
+/// table render.
+pub(crate) fn init_fonts() {
+    LazyLock::force(&SVG_OPTIONS);
+}
+
 /// Render a parsed markdown table to PNG bytes.
 ///
 /// `raw_lines` are the original markdown table lines (header, separator, data).

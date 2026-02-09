@@ -32,6 +32,11 @@ pub async fn start_discord_bot(
 
     info!("Starting Discord bot...");
 
+    // Eagerly load system fonts so the first table-to-PNG render doesn't
+    // block the tokio runtime (LazyLock scans every font on the system).
+    table_image::init_fonts();
+    info!("System font database initialized");
+
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
