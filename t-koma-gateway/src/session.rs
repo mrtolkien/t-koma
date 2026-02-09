@@ -1517,7 +1517,10 @@ fn truncate_preview(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}…", &s[..max.saturating_sub(1)])
+        // Find a safe char boundary at or before the target byte offset
+        let target = max.saturating_sub(1);
+        let boundary = s.floor_char_boundary(target);
+        format!("{}…", &s[..boundary])
     }
 }
 
