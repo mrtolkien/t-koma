@@ -369,7 +369,11 @@ impl OpenRouterClient {
     }
 
     /// Convert OpenAI response to provider response
-    fn convert_response(&self, response: ChatCompletionsResponse) -> ProviderResponse {
+    fn convert_response(
+        &self,
+        response: ChatCompletionsResponse,
+        raw_json: &str,
+    ) -> ProviderResponse {
         let stop_reason = response
             .choices
             .first()
@@ -416,6 +420,7 @@ impl OpenRouterClient {
                 cache_creation_tokens: u.cache_creation_tokens(),
             }),
             stop_reason,
+            raw_json: Some(raw_json.to_string()),
         }
     }
 
@@ -554,7 +559,7 @@ impl Provider for OpenRouterClient {
                     "Failed to parse OpenRouter response: {e}\nBody preview: {preview}"
                 ))
             })?;
-        Ok(self.convert_response(completions_response))
+        Ok(self.convert_response(completions_response, &response_text))
     }
 
     fn clone_box(&self) -> Box<dyn Provider> {

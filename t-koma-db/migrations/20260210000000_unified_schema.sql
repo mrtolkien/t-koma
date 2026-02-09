@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS operators (
     rate_limit_5m_max INTEGER DEFAULT 10,
     rate_limit_1h_max INTEGER DEFAULT 100,
     allow_workspace_escape INTEGER DEFAULT 0 CHECK (allow_workspace_escape IN (0, 1)),
+    verbose INTEGER DEFAULT 0 CHECK (verbose IN (0, 1)),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     approved_at INTEGER,

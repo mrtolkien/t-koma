@@ -290,8 +290,6 @@ pub struct AppState {
     scheduler: RwLock<SchedulerState>,
     /// Discord bot token (optional, used by server-side Discord notifications)
     discord_bot_token: RwLock<Option<String>>,
-    /// Operators with verbose tool call visibility enabled
-    verbose_operators: RwLock<HashSet<String>>,
 }
 
 /// Model entry tracked by the gateway
@@ -343,24 +341,25 @@ impl AppState {
             heartbeat_overrides: RwLock::new(HashMap::new()),
             scheduler: RwLock::new(SchedulerState::new()),
             discord_bot_token: RwLock::new(None),
-            verbose_operators: RwLock::new(HashSet::new()),
         }
     }
 
-    /// Toggle verbose tool call visibility for an operator.
+    /// Toggle verbose tool call visibility for an operator (persisted in DB).
     pub async fn set_verbose(&self, operator_id: &str, enabled: bool) {
-        let mut guard = self.verbose_operators.write().await;
-        if enabled {
-            guard.insert(operator_id.to_string());
-        } else {
-            guard.remove(operator_id);
+        if let Err(e) =
+            t_koma_db::OperatorRepository::set_verbose(self.koma_db.pool(), operator_id, enabled)
+                .await
+        {
+            warn!("failed to persist verbose setting for {operator_id}: {e}");
         }
     }
 
     /// Check if an operator has verbose tool call visibility.
     pub async fn is_verbose(&self, operator_id: &str) -> bool {
-        let guard = self.verbose_operators.read().await;
-        guard.contains(operator_id)
+        match t_koma_db::OperatorRepository::get_by_id(self.koma_db.pool(), operator_id).await {
+            Ok(Some(op)) => op.verbose,
+            _ => false,
+        }
     }
 
     pub async fn set_discord_bot_token(&self, token: Option<String>) {

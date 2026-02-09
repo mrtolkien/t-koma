@@ -50,6 +50,10 @@ pub struct ProviderResponse {
     pub usage: Option<ProviderUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
+    /// Raw JSON response from the provider for debugging.
+    /// TODO: Put this behind a config flag to avoid memory bloat.
+    #[serde(skip)]
+    pub raw_json: Option<String>,
 }
 
 /// Provider error types
@@ -169,6 +173,7 @@ mod tests {
                 cache_creation_tokens: None,
             }),
             stop_reason: Some("stop".to_string()),
+            raw_json: None,
         };
 
         assert_eq!(extract_text(&response), Some("Hello, world!".to_string()));
@@ -191,6 +196,7 @@ mod tests {
             ],
             usage: None,
             stop_reason: Some("tool_calls".to_string()),
+            raw_json: None,
         };
 
         let tools = extract_tool_uses(&response);

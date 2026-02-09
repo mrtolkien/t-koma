@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::NaiveDate;
@@ -681,6 +682,19 @@ impl SessionChat {
         let text = extract_all_text(&response);
         let text = text.trim().to_string();
         if text.is_empty() {
+            // TODO: Put this behind a config flag to avoid disk bloat.
+            // Log the full raw response for debugging empty responses.
+            if let Some(raw_json) = &response.raw_json {
+                let log_path = self.write_empty_response_log(session_id, raw_json).await;
+                warn!(
+                    event_kind = "empty_response_debug",
+                    session_id = session_id,
+                    provider = provider_name,
+                    model = model,
+                    log_path = ?log_path,
+                    "Empty response detected in job. Full raw response written to log file."
+                );
+            }
             return Err(ChatError::EmptyResponse);
         }
 
@@ -1444,6 +1458,19 @@ with your reply — do not respond without saving first."
         let text = extract_all_text(response);
         let text = text.trim().to_string();
         if text.is_empty() {
+            // TODO: Put this behind a config flag to avoid disk bloat.
+            // Log the full raw response for debugging empty responses.
+            if let Some(raw_json) = &response.raw_json {
+                let log_path = self.write_empty_response_log(session_id, raw_json).await;
+                warn!(
+                    event_kind = "empty_response_debug",
+                    session_id = session_id,
+                    provider = provider_name,
+                    model = model,
+                    log_path = ?log_path,
+                    "Empty response detected. Full raw response written to log file."
+                );
+            }
             return Err(ChatError::EmptyResponse);
         }
 
@@ -1477,6 +1504,28 @@ with your reply — do not respond without saving first."
         .await?;
 
         Ok(text)
+    }
+
+    /// Write raw JSON response to a debug log file when empty response is detected.
+    /// Returns the path to the written file.
+    /// TODO: Put this behind a config flag to avoid disk bloat.
+    async fn write_empty_response_log(&self, session_id: &str, raw_json: &str) -> PathBuf {
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("empty_response_{}_{}.json", session_id, timestamp);
+        let log_path = std::env::temp_dir()
+            .join("t-koma")
+            .join("empty_response_logs")
+            .join(&filename);
+
+        // Ensure directory exists
+        if let Some(parent) = log_path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+
+        // Write the file (best effort)
+        let _ = tokio::fs::write(&log_path, raw_json).await;
+
+        log_path
     }
 
     /// Log API usage data (fire-and-forget; failures are warned, not propagated).
