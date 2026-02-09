@@ -8,7 +8,6 @@ pub mod knowledge_search;
 pub mod list_dir;
 pub mod load_skill;
 pub mod manager;
-pub mod memory_capture;
 pub mod note_write;
 pub mod read_file;
 pub mod reference_import;

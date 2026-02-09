@@ -31,7 +31,8 @@
       "WebFetch(domain:stevekinney.com)",
       "WebFetch(domain:docs.rs)",
       "WebFetch(domain:crates.io)",
-      "mcp__github__get_file_contents"
+      "mcp__github__get_file_contents",
+      "WebFetch(domain:ollama.com)"
     ]
   },
   "enableAllProjectMcpServers": true,
