@@ -2,18 +2,139 @@ use serenity::builder::{CreateActionRow, CreateEmbed, CreateMessage};
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
+use tracing::warn;
 
 use crate::content::ids;
 use crate::operator_flow::OutboundMessage;
 use crate::state::{AppState, PendingGatewayAction};
 
+use super::components_v2::{
+    action_row_to_json, container, group_into_v2_messages, send_v2_message, text_display,
+};
+use super::markdown;
+
 pub const DISCORD_MESSAGE_LIMIT: usize = 2000;
-pub const DISCORD_EMBED_DESC_LIMIT: usize = 4096;
+const DISCORD_EMBED_DESC_LIMIT: usize = 4096;
 pub const GATEWAY_EMBED_COLOR: u32 = 0x12_83_D8;
 pub const WARNING_EMBED_COLOR: u32 = 0xE0_3B_24;
 pub const APPROVAL_EMBED_COLOR: u32 = 0xF2_99_4A;
 
-pub fn split_discord_message(content: &str) -> Vec<String> {
+// ---------------------------------------------------------------------------
+// v2 assistant text (ghost responses)
+// ---------------------------------------------------------------------------
+
+/// Send ghost assistant text using Components v2 markdown rendering.
+/// Falls back to legacy plain text on v2 errors.
+pub async fn send_assistant_v2(
+    http: &Http,
+    channel_id: ChannelId,
+    content: &str,
+) -> serenity::Result<()> {
+    let components = markdown::markdown_to_v2_components(content);
+    if components.is_empty() {
+        return Ok(());
+    }
+
+    for chunk in group_into_v2_messages(components) {
+        if let Err(e) = send_v2_message(http, channel_id, &chunk).await {
+            warn!("v2 message failed, falling back to legacy: {}", e);
+            return send_discord_message_http(http, channel_id, content).await;
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// v2 gateway messages (system/info/approval messages)
+// ---------------------------------------------------------------------------
+
+/// Send a gateway system message as a v2 Container with accent color.
+pub async fn send_gateway_v2(
+    http: &Http,
+    channel_id: ChannelId,
+    content: &str,
+    action_rows: Option<Vec<CreateActionRow>>,
+    color: Option<u32>,
+) -> serenity::Result<()> {
+    let mut inner = vec![text_display(&format!(
+        "**T-KOMA // ティコマ**\n\n{}",
+        content
+    ))];
+
+    if let Some(rows) = &action_rows {
+        for row in rows {
+            inner.push(action_row_to_json(row));
+        }
+    }
+
+    let accent = color.unwrap_or(GATEWAY_EMBED_COLOR);
+    let message_components = vec![container(inner, Some(accent))];
+
+    match send_v2_message(http, channel_id, &message_components).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            warn!("v2 gateway message failed, falling back to embed: {}", e);
+            send_gateway_embed_http(http, channel_id, content, action_rows, color).await
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public convenience wrappers (matching old API for callers)
+// ---------------------------------------------------------------------------
+
+pub async fn send_discord_message(
+    ctx: &Context,
+    channel_id: ChannelId,
+    content: &str,
+) -> serenity::Result<()> {
+    send_assistant_v2(&ctx.http, channel_id, content).await
+}
+
+pub async fn send_gateway_embed(
+    ctx: &Context,
+    channel_id: ChannelId,
+    content: &str,
+    components: Option<Vec<CreateActionRow>>,
+) -> serenity::Result<()> {
+    send_gateway_v2(&ctx.http, channel_id, content, components, None).await
+}
+
+pub async fn send_gateway_embed_colored(
+    ctx: &Context,
+    channel_id: ChannelId,
+    content: &str,
+    components: Option<Vec<CreateActionRow>>,
+    color: Option<u32>,
+) -> serenity::Result<()> {
+    send_gateway_v2(&ctx.http, channel_id, content, components, color).await
+}
+
+pub async fn send_interface_prompt(ctx: &Context, channel_id: ChannelId) {
+    let text = super::render_message(ids::DISCORD_INTERFACE_PROMPT, &[]);
+    let buttons = vec![
+        serenity::builder::CreateButton::new("tk:iface:new")
+            .label("NEW")
+            .style(serenity::model::application::ButtonStyle::Success),
+        serenity::builder::CreateButton::new("tk:iface:existing")
+            .label("EXISTING")
+            .style(serenity::model::application::ButtonStyle::Secondary),
+    ];
+    let _ = send_gateway_v2(
+        &ctx.http,
+        channel_id,
+        &text,
+        Some(vec![CreateActionRow::Buttons(buttons)]),
+        Some(WARNING_EMBED_COLOR),
+    )
+    .await;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy fallbacks (kept private)
+// ---------------------------------------------------------------------------
+
+fn split_discord_message(content: &str) -> Vec<String> {
     if content.chars().count() <= DISCORD_MESSAGE_LIMIT {
         return vec![content.to_string()];
     }
@@ -22,7 +143,6 @@ pub fn split_discord_message(content: &str) -> Vec<String> {
     let mut current = String::new();
     let mut open_fence = false;
 
-    // Prefer splitting by line to preserve formatting, and keep fenced blocks balanced.
     for line in content.split_inclusive('\n') {
         let line_len = line.chars().count();
         let current_len = current.chars().count();
@@ -53,11 +173,9 @@ pub fn split_discord_message(content: &str) -> Vec<String> {
         return chunks;
     }
 
-    // Hard fallback if a single line is too long.
     let mut chunks = Vec::new();
     let mut current = String::new();
     let mut current_len = 0usize;
-
     for ch in content.chars() {
         if current_len + 1 > DISCORD_MESSAGE_LIMIT {
             chunks.push(current);
@@ -67,7 +185,6 @@ pub fn split_discord_message(content: &str) -> Vec<String> {
         current.push(ch);
         current_len += 1;
     }
-
     if !current.is_empty() {
         chunks.push(current);
     }
@@ -75,18 +192,18 @@ pub fn split_discord_message(content: &str) -> Vec<String> {
     chunks
 }
 
-pub async fn send_discord_message(
-    ctx: &Context,
+async fn send_discord_message_http(
+    http: &Http,
     channel_id: ChannelId,
     content: &str,
 ) -> serenity::Result<()> {
     for chunk in split_discord_message(content) {
-        channel_id.say(&ctx.http, chunk).await?;
+        channel_id.say(http, chunk).await?;
     }
     Ok(())
 }
 
-pub fn split_discord_embed_description(content: &str) -> Vec<String> {
+fn split_discord_embed_description(content: &str) -> Vec<String> {
     if content.chars().count() <= DISCORD_EMBED_DESC_LIMIT {
         return vec![content.to_string()];
     }
@@ -129,26 +246,7 @@ pub fn split_discord_embed_description(content: &str) -> Vec<String> {
     chunks
 }
 
-pub async fn send_gateway_embed(
-    ctx: &Context,
-    channel_id: ChannelId,
-    content: &str,
-    components: Option<Vec<CreateActionRow>>,
-) -> serenity::Result<()> {
-    send_gateway_embed_colored(ctx, channel_id, content, components, None).await
-}
-
-pub async fn send_gateway_embed_colored(
-    ctx: &Context,
-    channel_id: ChannelId,
-    content: &str,
-    components: Option<Vec<CreateActionRow>>,
-    color: Option<u32>,
-) -> serenity::Result<()> {
-    send_gateway_embed_colored_http(&ctx.http, channel_id, content, components, color).await
-}
-
-pub async fn send_gateway_embed_colored_http(
+async fn send_gateway_embed_http(
     http: &Http,
     channel_id: ChannelId,
     content: &str,
@@ -178,6 +276,10 @@ pub async fn send_gateway_embed_colored_http(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Outbound message dispatch
+// ---------------------------------------------------------------------------
+
 #[allow(clippy::too_many_arguments)]
 pub async fn send_discord_gateway_message(
     state: &AppState,
@@ -189,7 +291,7 @@ pub async fn send_discord_gateway_message(
     session_id: &str,
     message: t_koma_core::GatewayMessage,
 ) -> serenity::Result<()> {
-    let mut components: Vec<CreateActionRow> = Vec::new();
+    let mut action_rows: Vec<CreateActionRow> = Vec::new();
 
     if !message.actions.is_empty() {
         let mut buttons = Vec::new();
@@ -229,20 +331,27 @@ pub async fn send_discord_gateway_message(
                     .style(style),
             );
         }
-        components.push(CreateActionRow::Buttons(buttons));
+        action_rows.push(CreateActionRow::Buttons(buttons));
     }
 
-    let components = if components.is_empty() {
+    let action_rows = if action_rows.is_empty() {
         None
     } else {
-        Some(components)
+        Some(action_rows)
     };
     let color = match message.kind {
         t_koma_core::GatewayMessageKind::ApprovalRequest => Some(APPROVAL_EMBED_COLOR),
         t_koma_core::GatewayMessageKind::Warning => Some(WARNING_EMBED_COLOR),
         _ => Some(GATEWAY_EMBED_COLOR),
     };
-    send_gateway_embed_colored(ctx, channel_id, &message.text_fallback, components, color).await
+    send_gateway_v2(
+        &ctx.http,
+        channel_id,
+        &message.text_fallback,
+        action_rows,
+        color,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -259,7 +368,7 @@ pub async fn send_outbound_messages(
     for message in messages {
         match message {
             OutboundMessage::AssistantText(text) => {
-                let _ = send_discord_message(ctx, channel_id, &text).await;
+                let _ = send_assistant_v2(&ctx.http, channel_id, &text).await;
             }
             OutboundMessage::Gateway(msg) => {
                 let _ = send_discord_gateway_message(
@@ -278,25 +387,9 @@ pub async fn send_outbound_messages(
     }
 }
 
-pub async fn send_interface_prompt(ctx: &Context, channel_id: ChannelId) {
-    let text = super::render_message(ids::DISCORD_INTERFACE_PROMPT, &[]);
-    let buttons = vec![
-        serenity::builder::CreateButton::new("tk:iface:new")
-            .label("NEW")
-            .style(serenity::model::application::ButtonStyle::Success),
-        serenity::builder::CreateButton::new("tk:iface:existing")
-            .label("EXISTING")
-            .style(serenity::model::application::ButtonStyle::Secondary),
-    ];
-    let _ = send_gateway_embed_colored(
-        ctx,
-        channel_id,
-        &text,
-        Some(vec![CreateActionRow::Buttons(buttons)]),
-        Some(WARNING_EMBED_COLOR),
-    )
-    .await;
-}
+// ---------------------------------------------------------------------------
+// DM for approved operators
+// ---------------------------------------------------------------------------
 
 pub async fn send_approved_operator_ghost_prompt_dm(
     state: &AppState,
@@ -342,7 +435,7 @@ pub async fn send_approved_operator_ghost_prompt_dm(
         .map_err(|e| e.to_string())?;
 
     let text = super::render_message(ids::GHOST_NAME_PROMPT, &[]);
-    send_gateway_embed_colored_http(&http, dm.id, &text, None, Some(GATEWAY_EMBED_COLOR))
+    send_gateway_v2(&http, dm.id, &text, None, Some(GATEWAY_EMBED_COLOR))
         .await
         .map_err(|e| e.to_string())?;
 
