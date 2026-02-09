@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use serenity::async_trait;
-use serenity::builder::{CreateCommand, CreateCommandOption};
+use serenity::builder::{CreateActionRow, CreateCommand, CreateCommandOption};
 use serenity::model::application::{Command, CommandOptionType};
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
@@ -50,6 +50,14 @@ pub(super) fn format_ghost_list_lines(ghosts: &[t_koma_db::Ghost]) -> String {
 }
 
 pub(super) async fn persist_ghost_name_to_soul(workspace_path: &std::path::Path, ghost_name: &str) {
+    if let Err(err) = tokio::fs::create_dir_all(workspace_path).await {
+        error!(
+            "Failed to create ghost workspace directory for {}: {}",
+            ghost_name, err
+        );
+        return;
+    }
+
     let soul_path = workspace_path.join("SOUL.md");
     let line = format!("I am called {}.", ghost_name);
 
@@ -764,45 +772,79 @@ impl Bot {
         ctx: &Context,
         msg: &Message,
         operator_id: &str,
-        clean_content: &str,
+        _clean_content: &str,
     ) {
-        if !self.is_operator_welcomed(operator_id).await {
-            if let Err(e) =
+        if !self.is_operator_welcomed(operator_id).await
+            && let Err(e) =
                 t_koma_db::OperatorRepository::mark_welcomed(self.state.koma_db.pool(), operator_id)
                     .await
-            {
-                error!("Failed to mark operator {} as welcomed: {}", operator_id, e);
-            }
-
-            let _ = send_gateway_embed(
-                ctx,
-                msg.channel_id,
-                &super::render_message(ids::GHOST_NAME_PROMPT, &[]),
-                None,
-            )
-            .await;
-            return;
+        {
+            error!("Failed to mark operator {} as welcomed: {}", operator_id, e);
         }
 
+        self.send_ghost_name_button(ctx, msg.channel_id, operator_id, &msg.author.id.to_string())
+            .await;
+    }
+
+    async fn send_ghost_name_button(
+        &self,
+        ctx: &Context,
+        channel_id: serenity::model::id::ChannelId,
+        operator_id: &str,
+        external_id: &str,
+    ) {
+        let token = uuid::Uuid::new_v4().to_string();
+        self.state
+            .set_pending_gateway_action(
+                &token,
+                PendingGatewayAction {
+                    operator_id: operator_id.to_string(),
+                    ghost_name: String::new(),
+                    session_id: String::new(),
+                    external_id: external_id.to_string(),
+                    channel_id: channel_id.get().to_string(),
+                    intent: "ghost.name_prompt".to_string(),
+                    payload: None,
+                    expires_at: chrono::Utc::now().timestamp() + 900,
+                },
+            )
+            .await;
+
+        let button = serenity::builder::CreateButton::new(format!("tk:a:{}", token))
+            .label("NAME YOUR GHOST")
+            .style(serenity::model::application::ButtonStyle::Success);
+
+        let _ = send_gateway_embed(
+            ctx,
+            channel_id,
+            &super::render_message(ids::GHOST_NAME_PROMPT, &[]),
+            Some(vec![CreateActionRow::Buttons(vec![button])]),
+        )
+        .await;
+    }
+
+    pub(super) async fn boot_new_ghost(
+        &self,
+        ctx: &Context,
+        channel_id: serenity::model::id::ChannelId,
+        operator_id: &str,
+        ghost_name: &str,
+    ) {
         let ghost = match t_koma_db::GhostRepository::create(
             self.state.koma_db.pool(),
             operator_id,
-            clean_content,
+            ghost_name,
         )
         .await
         {
             Ok(ghost) => ghost,
             Err(e) => {
-                let prompt = super::render_message(ids::GHOST_NAME_PROMPT, &[]);
                 let error_text = e.to_string();
                 let invalid = super::render_message(
                     "invalid-ghost-name",
-                    &[
-                        ("error", error_text.as_str()),
-                        ("ghost_name_prompt", prompt.as_str()),
-                    ],
+                    &[("error", error_text.as_str()), ("ghost_name_prompt", "")],
                 );
-                let _ = send_gateway_embed(ctx, msg.channel_id, &invalid, None).await;
+                let _ = send_gateway_embed(ctx, channel_id, &invalid, None).await;
                 return;
             }
         };
@@ -813,7 +855,7 @@ impl Bot {
                 error!("Failed to get workspace path: {}", e);
                 let _ = send_gateway_embed(
                     ctx,
-                    msg.channel_id,
+                    channel_id,
                     &super::render_message("error-failed-init-ghost-storage", &[]),
                     None,
                 )
@@ -836,7 +878,7 @@ impl Bot {
                 error!("Failed to create session: {}", e);
                 let _ = send_gateway_embed(
                     ctx,
-                    msg.channel_id,
+                    channel_id,
                     &super::render_message("error-failed-create-session-discord", &[]),
                     None,
                 )
@@ -851,7 +893,7 @@ impl Bot {
                 error!("Failed to load prompts/bootstrap.md: {}", e);
                 let _ = send_gateway_embed(
                     ctx,
-                    msg.channel_id,
+                    channel_id,
                     &super::render_message("error-missing-bootstrap", &[]),
                     None,
                 )
@@ -860,7 +902,7 @@ impl Bot {
             }
         };
 
-        let typing = msg.channel_id.start_typing(&ctx.http);
+        let typing = channel_id.start_typing(&ctx.http);
         let ghost_response = match self
             .state
             .chat(&ghost.name, &session.id, operator_id, &bootstrap)
@@ -871,7 +913,7 @@ impl Bot {
                 error!("[session:{}] Chat error: {}", session.id, e);
                 let _ = send_gateway_embed(
                     ctx,
-                    msg.channel_id,
+                    channel_id,
                     &super::render_message("error-ghost-boot-failed", &[]),
                     None,
                 )
@@ -888,14 +930,14 @@ impl Bot {
             "ghost-created-header-with-name",
             &[("ghost_name", ghost.name.as_str())],
         );
-        if let Err(e) = send_gateway_embed(ctx, msg.channel_id, &header, None).await {
+        if let Err(e) = send_gateway_embed(ctx, channel_id, &header, None).await {
             error!(
                 "[session:{}] Failed to send Discord message: {}",
                 session.id, e
             );
             return;
         }
-        if let Err(e) = send_discord_message(ctx, msg.channel_id, &ghost_response).await {
+        if let Err(e) = send_discord_message(ctx, channel_id, &ghost_response).await {
             error!(
                 "[session:{}] Failed to send Discord message: {}",
                 session.id, e
