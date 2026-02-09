@@ -351,6 +351,17 @@ async fn handle_websocket(
         }
     }
 
+    async fn require_puppet_master(state: &AppState, operator_id: &str) -> Result<(), String> {
+        match t_koma_db::OperatorRepository::get_by_id(state.koma_db.pool(), operator_id).await {
+            Ok(Some(op)) if op.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster => {
+                Ok(())
+            }
+            Ok(Some(_)) => Err("This command requires Puppet Master access".to_string()),
+            Ok(None) => Err("Operator not found".to_string()),
+            Err(e) => Err(format!("Failed to check access level: {}", e)),
+        }
+    }
+
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(text) => match serde_json::from_str::<WsMessage>(&text) {
@@ -595,6 +606,22 @@ async fn handle_websocket(
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        WsMessage::SearchKnowledge { .. }
+                        | WsMessage::ListRecentNotes { .. }
+                        | WsMessage::GetKnowledgeEntry { .. }
+                        | WsMessage::GetSchedulerState
+                            if require_puppet_master(&state, &op_id).await.is_err() =>
+                        {
+                            let error_response = ws_error_response(
+                                "This command requires Puppet Master access".to_string(),
+                            );
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into(),
                                 ))
                                 .await;
                             continue;
