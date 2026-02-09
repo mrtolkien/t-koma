@@ -34,20 +34,22 @@ workspace I open you in.
   Operator `NEW` command creates a fresh active session, seeds it with a
   synthetic first user message (`hello`) to get an initial ghost reply, and
   triggers immediate reflection on the previously active session.
-- HEARTBEAT: Background session check triggered after 15 minutes of inactivity
-  when no successful heartbeat has run since the last session activity (checked
-  via `job_logs` table). Uses `HEARTBEAT.md` in the ghost workspace as
-  instructions (auto-created on first use). `HEARTBEAT_CONTINUE` suppresses
-  output and reschedules in ~30 minutes. Heartbeat transcripts are stored in
-  `job_logs`, not in session messages. Only meaningful content (status "ran")
-  posts a summary to the session.
+- HEARTBEAT: Background session check triggered after configurable idle time
+  (default 4 minutes) when no successful heartbeat has run since the last session
+  activity (checked via `job_logs` table). Uses `HEARTBEAT.md` in the ghost
+  workspace as instructions (auto-created on first use). `HEARTBEAT_CONTINUE`
+  suppresses output and reschedules after configurable continue interval (default
+  30 minutes). Heartbeat transcripts are stored in `job_logs`, not in session
+  messages. Only meaningful content (status "ran") posts a summary to the
+  session.
 - REFLECTION: Background job checked after each heartbeat tick (including when
-  heartbeat is skipped). Processes unread inbox captures into structured
-  knowledge (notes, diary, identity files) using the `reflection-prompt.md`
-  template (which includes `note-guidelines.md`). Reflection only runs after at
-  least 30 minutes of session inactivity and also has a 30-minute cooldown
-  between runs. Reflection transcripts are stored in `job_logs` and do NOT
-  appear in session messages.
+  heartbeat is skipped). Processes recent conversation messages and reference
+  saves into structured knowledge (notes, diary, identity files) using the
+  `reflection-prompt.md` template (which includes `note-guidelines.md`).
+  Reflection runs when new messages exist since last reflection AND the session
+  has been idle for the configured idle time (default 4 minutes). No cooldown —
+  runs once per idle window, then waits for new messages. Reflection transcripts
+  are stored in `job_logs` and do NOT appear in session messages.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -161,6 +163,8 @@ as a single row in the `job_logs` table (ghost DB) with the transcript as JSON.
 - `JobLogRepository::insert()` persists the completed log.
 - `JobLogRepository::latest_ok_since()` checks for recent successful runs (used
   by heartbeat skip logic).
+- `JobLogRepository::latest_ok()` finds last successful run of a given kind (no
+  time bound, used by reflection to find "since" timestamp).
 
 Path override knobs for testing:
 
@@ -313,7 +317,7 @@ Full examples live in:
 ## Knowledge & Memory Tools
 
 The knowledge system lives in `t-koma-knowledge` with gateway tools in
-`t-koma-gateway/src/tools/` (`knowledge_*.rs`, `memory_*.rs`, `reference_*.rs`).
+`t-koma-gateway/src/tools/` (`knowledge_*.rs`, `reference_*.rs`).
 
 ### Folder Layout
 
@@ -321,7 +325,6 @@ The knowledge system lives in `t-koma-knowledge` with gateway tools in
 $DATA_DIR/shared/notes/              → SharedNote scope
 $DATA_DIR/shared/references/         → SharedReference scope
 
-$DATA_DIR/ghosts/$slug/inbox/        → NOT indexed, NOT embedded
 $DATA_DIR/ghosts/$slug/notes/        → GhostNote scope (tag-based subfolders)
 $DATA_DIR/ghosts/$slug/references/   → GhostReference scope
 $DATA_DIR/ghosts/$slug/diary/        → GhostDiary scope
@@ -365,9 +368,14 @@ Notes have two classification axes:
 
 ### Tools
 
-All knowledge tools are always visible to the ghost. Basic reference usage
-guidance is in the system prompt (`reference_system.md`); the
-`reference-researcher` skill covers advanced import strategies.
+Tools have a `ToolVisibility` enum: `Always` (visible in interactive chat) or
+`BackgroundOnly` (only available to background jobs like reflection). The
+`ToolManager` exposes `get_chat_tools()` for interactive sessions and
+`get_all_tools()` for background jobs. Tool execution always searches all tools
+regardless of visibility.
+
+Basic reference usage guidance is in the system prompt (`reference_system.md`);
+the `reference-researcher` skill covers advanced import strategies.
 
 Query tools:
 
@@ -379,24 +387,25 @@ Query tools:
 - `knowledge_get`: Retrieve full content by ID (searches all scopes) or by
   `topic` + `path` for reference files. Supports `max_chars` truncation.
 
-Memory write tools:
+Write tools:
 
-- `memory_capture`: Write raw text to ghost inbox (private only). NOT embedded,
-  NOT indexed. Requires `source` field for provenance tracking. Inbox items are
-  processed during the reflection job.
 - `note_write`: Consolidated tool for note operations. Actions: `create`,
   `update`, `validate`, `comment`, `delete`. (skill: `note-writer`)
-
-Reference write tools:
-
-- `reference_write`: Consolidated tool for reference operations. Actions: `save`
-  (file content or topic upsert), `update` (file status or topic metadata),
-  `delete` (file only). The `path` field determines scope: present = file
-  operation, absent = topic operation. No approval needed.
+- `reference_write`: Save-only tool for reference files. Fields: `topic`
+  (required), `filename` (required), `content` or `content_ref` (one required),
+  `collection` (optional), `source_url` (optional). Web tool results are cached
+  with IDs; use `content_ref=N` to reference cached content instead of copying.
+  No approval needed. Topic and collection auto-created on first save.
 - `reference_import`: Bulk import from git repos, web pages, and crawled doc
   sites into a reference topic. Source types: `git`, `web`, `crawl` (BFS from
   seed URL). Sources can have a `role` (docs/code) to control search boost.
   Requires operator approval. (skill: `reference-researcher`)
+
+Background-only tools (reflection):
+
+- `reference_manage`: Curation tool for reference topics and files. Actions:
+  `update` (change file status, topic description/tags), `delete` (remove file).
+  Only available during reflection, not in interactive chat.
 
 Other:
 
@@ -410,16 +419,22 @@ deletion is available via `note_write` action `delete`.
 ### Reflection Job
 
 After each heartbeat tick completes, the reflection runner
-(`t-koma-gateway/src/reflection.rs`) checks whether the ghost has unprocessed
-inbox files. If so, and the session has been idle for at least 30 minutes, and
-the last reflection was > 30 minutes ago, it renders
-`prompts/reflection-prompt.md` (which includes `note-guidelines.md` via
-`{{ include }}`) with the inbox items, then sends it through the normal chat
-pipeline. The ghost curates inbox captures into structured notes, diary entries,
-or identity file updates.
+(`t-koma-gateway/src/reflection.rs`) checks whether new messages exist since the
+last successful reflection (via `JobLogRepository::latest_ok()` +
+`SessionRepository::get_messages_since()`). If new messages exist and the session
+has been idle for the configured idle time (default 4 minutes), it builds context
+from:
+1. Recent conversation messages (formatted as `OPERATOR`/`GHOST` excerpts)
+2. Recently saved references (via `KnowledgeEngine::recent_reference_files()`)
 
-Reflection uses `JobKind::Reflection` in the scheduler with a 30-minute
-cooldown.
+The context is rendered into `prompts/reflection-prompt.md` (which includes
+`note-guidelines.md` via `{{ include }}`), then sent through `chat_job()` with
+`load_session_history=false` (context is embedded in the prompt). The ghost
+curates conversation insights into structured notes, curates reference saves via
+`reference_manage`, updates diary entries, or updates identity files.
+
+No cooldown — reflection runs once per idle window, then waits for new messages
+to appear before triggering again.
 
 ### Skills
 
@@ -584,6 +599,17 @@ context_window = 200000  # overrides built-in lookup
 threshold = 0.85        # fraction of context window triggering compaction
 keep_window = 20        # recent messages kept verbatim
 mask_preview_chars = 100 # chars retained from masked tool results
+
+# Heartbeat timing (all optional, shown with defaults)
+[heartbeat_timing]
+idle_minutes = 4          # session idle time before heartbeat triggers
+check_seconds = 60        # polling interval for heartbeat loop
+continue_minutes = 30     # reschedule interval after HEARTBEAT_CONTINUE
+
+# Reflection timing (all optional, shown with defaults)
+[reflection]
+idle_minutes = 4           # session idle time before reflection triggers
+# No cooldown — reflection runs once after idle, then waits for new messages
 ```
 
 ## Common Tasks (Pointer Only)
