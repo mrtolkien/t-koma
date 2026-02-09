@@ -1,7 +1,6 @@
 use futures::StreamExt;
 use tokio::sync::mpsc;
-use tracing::{error, info};
-use uuid::Uuid;
+use tracing::info;
 
 use t_koma_core::{ChatMessage, MessageRole, WsMessage, WsResponse};
 
@@ -52,18 +51,6 @@ impl App {
                         ));
                     }
                 }
-            }
-            WsResponse::Error { message } => {
-                self.set_status(format!("Error: {}", message));
-                error!("WebSocket error: {}", message);
-            }
-            WsResponse::InterfaceSelectionRequired { message } => {
-                self.set_interface_selection_required(true);
-                self.messages_mut().push(ChatMessage::new(
-                    format!("system_{}", Uuid::new_v4()),
-                    MessageRole::System,
-                    message,
-                ));
             }
             WsResponse::Pong => {}
             WsResponse::SessionList { .. } => {}

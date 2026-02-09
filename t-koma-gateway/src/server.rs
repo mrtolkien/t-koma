@@ -9,42 +9,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
-use crate::content::{self, ids};
+use crate::content::ids;
 use crate::discord;
 use crate::gateway_message;
-use crate::session::{ChatError, ToolApprovalDecision};
+use crate::operator_flow::{self, OutboundMessage};
 use crate::state::{AppState, LogEntry, RateLimitDecision};
 
 fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
-    match content::message_text(id, None, vars) {
-        Ok(text) => text,
-        Err(err) => {
-            error!("Message render failed for {}: {}", id, err);
-            format!("[missing message: {}]", id)
-        }
-    }
-}
-
-fn approval_required_message(reason: &crate::tools::context::ApprovalReason) -> String {
-    use crate::tools::context::ApprovalReason;
-    match reason {
-        ApprovalReason::WorkspaceEscape(path) => {
-            render_message(ids::APPROVAL_REQUIRED_WITH_PATH, &[("path", path)])
-        }
-        ApprovalReason::ReferenceImport { title, summary } => render_message(
-            ids::APPROVAL_REFERENCE_IMPORT,
-            &[("title", title), ("summary", summary)],
-        ),
-    }
-}
-
-fn tool_loop_limit_reached_message(limit: usize, extra: usize) -> String {
-    let limit = limit.to_string();
-    let extra = extra.to_string();
-    render_message(
-        "tool-loop-limit-reached",
-        &[("limit", limit.as_str()), ("extra", extra.as_str())],
-    )
+    gateway_message::from_content(id, None, vars).text_fallback
 }
 
 fn ws_text_response(text: impl Into<String>) -> t_koma_core::WsResponse {
@@ -59,6 +31,37 @@ fn ws_text_response(text: impl Into<String>) -> t_koma_core::WsResponse {
         message,
         done: true,
         usage: None,
+    }
+}
+
+fn ws_gateway_response(message: t_koma_core::GatewayMessage) -> t_koma_core::WsResponse {
+    let id = format!("ws_{}", uuid::Uuid::new_v4());
+    t_koma_core::WsResponse::Response {
+        id,
+        message,
+        done: true,
+        usage: None,
+    }
+}
+
+fn ws_error_response(text: impl Into<String>) -> t_koma_core::WsResponse {
+    ws_gateway_response(gateway_message::text(
+        t_koma_core::GatewayMessageKind::Error,
+        text,
+    ))
+}
+
+fn ws_info_response(text: impl Into<String>) -> t_koma_core::WsResponse {
+    ws_gateway_response(gateway_message::text(
+        t_koma_core::GatewayMessageKind::Info,
+        text,
+    ))
+}
+
+fn ws_from_outbound(message: OutboundMessage) -> t_koma_core::WsResponse {
+    match message {
+        OutboundMessage::AssistantText(text) => ws_text_response(text),
+        OutboundMessage::Gateway(message) => ws_gateway_response(*message),
     }
 }
 
@@ -102,18 +105,6 @@ fn create_router(state: Arc<AppState>) -> Router {
         .route("/logs", get(logs_ws_handler))
         .with_state(state)
         .layer(tower_http::trace::TraceLayer::new_for_http())
-}
-
-fn parse_step_limit(content: &str) -> Option<usize> {
-    let trimmed = content.trim();
-    let lower = trimmed.to_lowercase();
-    let candidates = ["steps ", "step ", "max ", "limit "];
-    for prefix in candidates {
-        if let Some(rest) = lower.strip_prefix(prefix) {
-            return rest.trim().parse::<usize>().ok().filter(|value| *value > 0);
-        }
-    }
-    None
 }
 
 /// Health check handler
@@ -190,9 +181,7 @@ async fn handle_websocket(
         Ok(found) => found,
         Err(e) => {
             error!("Failed to load interface {}: {}", external_id, e);
-            let error_response = WsResponse::Error {
-                message: render_message(ids::FAILED_LOAD_INTERFACE, &[]),
-            };
+            let error_response = ws_error_response(render_message(ids::FAILED_LOAD_INTERFACE, &[]));
             let _ = sender
                 .send(Message::Text(
                     serde_json::to_string(&error_response).unwrap().into(),
@@ -211,9 +200,8 @@ async fn handle_websocket(
                 operator_status = Some(op.status);
             }
             Ok(None) => {
-                let error_response = WsResponse::Error {
-                    message: render_message(ids::INTERFACE_INVALID_OPERATOR, &[]),
-                };
+                let error_response =
+                    ws_error_response(render_message(ids::INTERFACE_INVALID_OPERATOR, &[]));
                 let _ = sender
                     .send(Message::Text(
                         serde_json::to_string(&error_response).unwrap().into(),
@@ -223,9 +211,8 @@ async fn handle_websocket(
             }
             Err(e) => {
                 error!("Failed to load operator: {}", e);
-                let error_response = WsResponse::Error {
-                    message: render_message(ids::FAILED_LOAD_OPERATOR, &[]),
-                };
+                let error_response =
+                    ws_error_response(render_message(ids::FAILED_LOAD_OPERATOR, &[]));
                 let _ = sender
                     .send(Message::Text(
                         serde_json::to_string(&error_response).unwrap().into(),
@@ -236,9 +223,7 @@ async fn handle_websocket(
         }
     } else {
         state.set_interface_pending(platform, &external_id).await;
-        let response = WsResponse::InterfaceSelectionRequired {
-            message: render_message(ids::INTERFACE_REQUIRED, &[]),
-        };
+        let response = ws_info_response(render_message(ids::INTERFACE_REQUIRED, &[]));
         let _ = sender
             .send(Message::Text(
                 serde_json::to_string(&response).unwrap().into(),
@@ -254,9 +239,7 @@ async fn handle_websocket(
             t_koma_db::OperatorStatus::Denied => render_message(ids::ACCESS_DENIED, &[]),
             _ => render_message(ids::UNKNOWN_OPERATOR_STATUS, &[]),
         };
-        let error_response = WsResponse::Error {
-            message: status_msg,
-        };
+        let error_response = ws_error_response(status_msg);
         let _ = sender
             .send(Message::Text(
                 serde_json::to_string(&error_response).unwrap().into(),
@@ -315,9 +298,8 @@ async fn handle_websocket(
                     let choice = choice.to_lowercase();
                     if choice == "existing" {
                         // TODO: Implement existing-operator flow
-                        let error_response = WsResponse::Error {
-                            message: render_message(ids::EXISTING_OPERATOR_TODO, &[]),
-                        };
+                        let error_response =
+                            ws_error_response(render_message(ids::EXISTING_OPERATOR_TODO, &[]));
                         let _ = sender
                             .send(Message::Text(
                                 serde_json::to_string(&error_response).unwrap().into(),
@@ -327,9 +309,8 @@ async fn handle_websocket(
                     }
 
                     if choice != "new" {
-                        let response = WsResponse::InterfaceSelectionRequired {
-                            message: render_message(ids::REPLY_WITH_NEW_OR_EXISTING, &[]),
-                        };
+                        let response =
+                            ws_info_response(render_message(ids::REPLY_WITH_NEW_OR_EXISTING, &[]));
                         let _ = sender
                             .send(Message::Text(
                                 serde_json::to_string(&response).unwrap().into(),
@@ -349,9 +330,8 @@ async fn handle_websocket(
                         Ok(op) => op,
                         Err(e) => {
                             error!("Failed to create operator: {}", e);
-                            let error_response = WsResponse::Error {
-                                message: render_message(ids::FAILED_CREATE_OPERATOR, &[]),
-                            };
+                            let error_response =
+                                ws_error_response(render_message(ids::FAILED_CREATE_OPERATOR, &[]));
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&error_response).unwrap().into(),
@@ -371,9 +351,8 @@ async fn handle_websocket(
                     .await
                     {
                         error!("Failed to create interface: {}", e);
-                        let error_response = WsResponse::Error {
-                            message: render_message(ids::FAILED_CREATE_INTERFACE, &[]),
-                        };
+                        let error_response =
+                            ws_error_response(render_message(ids::FAILED_CREATE_INTERFACE, &[]));
                         let _ = sender
                             .send(Message::Text(
                                 serde_json::to_string(&error_response).unwrap().into(),
@@ -386,9 +365,10 @@ async fn handle_websocket(
 
                     operator_id = Some(operator.id.clone());
                     operator_status = Some(operator.status);
-                    let response = WsResponse::Error {
-                        message: render_message(ids::OPERATOR_CREATED_AWAITING_APPROVAL, &[]),
-                    };
+                    let response = ws_error_response(render_message(
+                        ids::OPERATOR_CREATED_AWAITING_APPROVAL,
+                        &[],
+                    ));
                     let _ = sender
                         .send(Message::Text(
                             serde_json::to_string(&response).unwrap().into(),
@@ -402,9 +382,9 @@ async fn handle_websocket(
                     } = other_message.clone()
                     {
                         if platform != t_koma_db::Platform::Cli {
-                            let error_response = WsResponse::Error {
-                                message: "approve_operator requires CLI client context".to_string(),
-                            };
+                            let error_response = ws_error_response(
+                                "approve_operator requires CLI client context".to_string(),
+                            );
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&error_response).unwrap().into(),
@@ -419,9 +399,8 @@ async fn handle_websocket(
                         )
                         .await
                         {
-                            let error_response = WsResponse::Error {
-                                message: format!("Approve failed: {}", e),
-                            };
+                            let error_response =
+                                ws_error_response(format!("Approve failed: {}", e));
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&error_response).unwrap().into(),
@@ -464,9 +443,10 @@ async fn handle_websocket(
                     }
 
                     let Some(op_id) = operator_id.clone() else {
-                        let response = WsResponse::InterfaceSelectionRequired {
-                            message: render_message(ids::SELECT_NEW_OR_EXISTING_FIRST, &[]),
-                        };
+                        let response = ws_info_response(render_message(
+                            ids::SELECT_NEW_OR_EXISTING_FIRST,
+                            &[],
+                        ));
                         let _ = sender
                             .send(Message::Text(
                                 serde_json::to_string(&response).unwrap().into(),
@@ -487,9 +467,7 @@ async fn handle_websocket(
                                 }
                                 _ => render_message(ids::UNKNOWN_OPERATOR_STATUS, &[]),
                             };
-                            let error_response = WsResponse::Error {
-                                message: status_msg,
-                            };
+                            let error_response = ws_error_response(status_msg);
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&error_response).unwrap().into(),
@@ -510,15 +488,10 @@ async fn handle_websocket(
                             {
                                 Some(entry) => entry,
                                 None => {
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(
-                                            ids::MODEL_NOT_CONFIGURED,
-                                            &[
-                                                ("model", model.as_str()),
-                                                ("provider", provider_name),
-                                            ],
-                                        ),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::MODEL_NOT_CONFIGURED,
+                                        &[("model", model.as_str()), ("provider", provider_name)],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -544,12 +517,10 @@ async fn handle_websocket(
                             let provider_name = provider.as_str();
                             let models = state.list_models_for_provider(provider_name);
                             if models.is_empty() {
-                                let error_response = WsResponse::Error {
-                                    message: render_message(
-                                        ids::NO_MODELS_CONFIGURED,
-                                        &[("provider", provider_name)],
-                                    ),
-                                };
+                                let error_response = ws_error_response(render_message(
+                                    ids::NO_MODELS_CONFIGURED,
+                                    &[("provider", provider_name)],
+                                ));
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&error_response).unwrap().into(),
@@ -579,9 +550,10 @@ async fn handle_websocket(
                                         .await;
                                 }
                                 Err(e) => {
-                                    let error_response = WsResponse::Error {
-                                        message: format!("Failed to restart gateway: {}", e),
-                                    };
+                                    let error_response = ws_error_response(format!(
+                                        "Failed to restart gateway: {}",
+                                        e
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -609,9 +581,8 @@ async fn handle_websocket(
                         Ok(list) => list,
                         Err(e) => {
                             error!("Failed to list ghosts: {}", e);
-                            let error_response = WsResponse::Error {
-                                message: render_message(ids::FAILED_LIST_GHOSTS, &[]),
-                            };
+                            let error_response =
+                                ws_error_response(render_message(ids::FAILED_LIST_GHOSTS, &[]));
                             let _ = sender
                                 .send(Message::Text(
                                     serde_json::to_string(&error_response).unwrap().into(),
@@ -622,9 +593,8 @@ async fn handle_websocket(
                     };
 
                     if ghosts.is_empty() {
-                        let error_response = WsResponse::Error {
-                            message: render_message(ids::NO_GHOSTS_FOR_OPERATOR, &[]),
-                        };
+                        let error_response =
+                            ws_error_response(render_message(ids::NO_GHOSTS_FOR_OPERATOR, &[]));
                         let _ = sender
                             .send(Message::Text(
                                 serde_json::to_string(&error_response).unwrap().into(),
@@ -667,12 +637,10 @@ async fn handle_websocket(
                             {
                                 Ok(Some(ghost)) => ghost,
                                 Ok(None) => {
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(
-                                            ids::UNKNOWN_GHOST_NAME_SERVER,
-                                            &[],
-                                        ),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::UNKNOWN_GHOST_NAME_SERVER,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -682,9 +650,10 @@ async fn handle_websocket(
                                 }
                                 Err(e) => {
                                     error!("Failed to load ghost: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_LOAD_GHOST, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_GHOST,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -695,9 +664,8 @@ async fn handle_websocket(
                             };
 
                             if ghost.owner_operator_id != op_id {
-                                let error_response = WsResponse::Error {
-                                    message: render_message(ids::GHOST_NOT_OWNED, &[]),
-                                };
+                                let error_response =
+                                    ws_error_response(render_message(ids::GHOST_NOT_OWNED, &[]));
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&error_response).unwrap().into(),
@@ -721,12 +689,10 @@ async fn handle_websocket(
                                 Ok(db) => db,
                                 Err(e) => {
                                     error!("Failed to init ghost DB: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(
-                                            ids::FAILED_INIT_GHOST_SESSION,
-                                            &[],
-                                        ),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_INIT_GHOST_SESSION,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -745,7 +711,6 @@ async fn handle_websocket(
                                 Ok(session) => {
                                     let response = WsResponse::SessionCreated {
                                         session_id: session.id,
-                                        title: session.title,
                                     };
                                     let _ = sender
                                         .send(Message::Text(
@@ -755,9 +720,10 @@ async fn handle_websocket(
                                 }
                                 Err(e) => {
                                     error!("Failed to create session: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_CREATE_SESSION, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_CREATE_SESSION,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -792,9 +758,10 @@ async fn handle_websocket(
                                 match active_ghost.clone() {
                                     Some(name) => name,
                                     None => {
-                                        let error_response = WsResponse::Error {
-                                            message: render_message(ids::NO_ACTIVE_GHOST, &[]),
-                                        };
+                                        let error_response = ws_error_response(render_message(
+                                            ids::NO_ACTIVE_GHOST,
+                                            &[],
+                                        ));
                                         let _ = sender
                                             .send(Message::Text(
                                                 serde_json::to_string(&error_response)
@@ -812,7 +779,7 @@ async fn handle_websocket(
                             if let Err(message) =
                                 ensure_operator_owns_ghost(&state, &op_id, &ghost_name).await
                             {
-                                let error_response = WsResponse::Error { message };
+                                let error_response = ws_error_response(message);
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&error_response).unwrap().into(),
@@ -830,9 +797,10 @@ async fn handle_websocket(
                                 Ok(db) => db,
                                 Err(e) => {
                                     error!("Failed to init ghost DB: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_INIT_GHOST_DB, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_INIT_GHOST_DB,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -852,9 +820,10 @@ async fn handle_websocket(
                                     Ok(s) => s.id,
                                     Err(e) => {
                                         error!("Failed to create active session: {}", e);
-                                        let error_response = WsResponse::Error {
-                                            message: render_message(ids::FAILED_INIT_SESSION, &[]),
-                                        };
+                                        let error_response = ws_error_response(render_message(
+                                            ids::FAILED_INIT_SESSION,
+                                            &[],
+                                        ));
                                         let _ = sender
                                             .send(Message::Text(
                                                 serde_json::to_string(&error_response)
@@ -874,9 +843,10 @@ async fn handle_websocket(
                                 {
                                     Ok(Some(s)) if s.operator_id == op_id => session_id,
                                     _ => {
-                                        let error_response = WsResponse::Error {
-                                            message: render_message(ids::INVALID_SESSION, &[]),
-                                        };
+                                        let error_response = ws_error_response(render_message(
+                                            ids::INVALID_SESSION,
+                                            &[],
+                                        ));
                                         let _ = sender
                                             .send(Message::Text(
                                                 serde_json::to_string(&error_response)
@@ -897,9 +867,10 @@ async fn handle_websocket(
                             {
                                 Ok(Some(op)) => op,
                                 Ok(None) => {
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_LOAD_OPERATOR, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_OPERATOR,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -909,9 +880,10 @@ async fn handle_websocket(
                                 }
                                 Err(e) => {
                                     error!("Failed to load operator: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_LOAD_OPERATOR, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_OPERATOR,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -957,9 +929,10 @@ async fn handle_websocket(
                                     {
                                         Ok(Some(session)) => session,
                                         _ => {
-                                            let error_response = WsResponse::Error {
-                                                message: render_message(ids::INVALID_SESSION, &[]),
-                                            };
+                                            let error_response = ws_error_response(render_message(
+                                                ids::INVALID_SESSION,
+                                                &[],
+                                            ));
                                             let _ = sender
                                                 .send(Message::Text(
                                                     serde_json::to_string(&error_response)
@@ -974,19 +947,16 @@ async fn handle_websocket(
                                 let new_session = match t_koma_db::SessionRepository::create(
                                     ghost_db.pool(),
                                     &op_id,
-                                    None,
                                 )
                                 .await
                                 {
                                     Ok(session) => session,
                                     Err(e) => {
                                         error!("Failed to create session: {}", e);
-                                        let error_response = WsResponse::Error {
-                                            message: render_message(
-                                                ids::FAILED_CREATE_SESSION,
-                                                &[],
-                                            ),
-                                        };
+                                        let error_response = ws_error_response(render_message(
+                                            ids::FAILED_CREATE_SESSION,
+                                            &[],
+                                        ));
                                         let _ = sender
                                             .send(Message::Text(
                                                 serde_json::to_string(&error_response)
@@ -1000,29 +970,27 @@ async fn handle_websocket(
 
                                 let created = WsResponse::SessionCreated {
                                     session_id: new_session.id.clone(),
-                                    title: new_session.title.clone(),
                                 };
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&created).unwrap().into(),
                                     ))
                                     .await;
-
-                                let state_for_reflection = Arc::clone(&state);
-                                let ghost_name_for_reflection = ghost_name.clone();
-                                let operator_id_for_reflection = op_id.clone();
-                                let previous_session_id = previous_session.id.clone();
-                                let _previous_session_updated_at = previous_session.updated_at;
-                                tokio::spawn(async move {
-                                    crate::reflection::run_reflection_now(
-                                        &state_for_reflection,
-                                        &ghost_name_for_reflection,
-                                        &previous_session_id,
-                                        &operator_id_for_reflection,
-                                        None,
-                                    )
+                                let session_started = ws_gateway_response(
+                                    gateway_message::from_content(ids::SESSION_STARTED, None, &[]),
+                                );
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&session_started).unwrap().into(),
+                                    ))
                                     .await;
-                                });
+
+                                operator_flow::spawn_reflection_for_previous_session(
+                                    &state,
+                                    &ghost_name,
+                                    &op_id,
+                                    &previous_session.id,
+                                );
 
                                 target_session_id = new_session.id;
                                 content_for_chat = "hello".to_string();
@@ -1037,249 +1005,65 @@ async fn handle_websocket(
                                 })
                                 .await;
 
-                            let step_limit = parse_step_limit(content.trim());
-                            if content.trim().eq_ignore_ascii_case("approve")
-                                || content.trim().eq_ignore_ascii_case("deny")
-                                || step_limit.is_some()
+                            match operator_flow::run_tool_control_command(
+                                state.as_ref(),
+                                None,
+                                Some(&selected_model_alias),
+                                &ghost_name,
+                                &target_session_id,
+                                &op_id,
+                                content.trim(),
+                            )
+                            .await
                             {
-                                if step_limit.is_none() {
-                                    let decision = if content.trim().eq_ignore_ascii_case("approve")
-                                    {
-                                        ToolApprovalDecision::Approve
-                                    } else {
-                                        ToolApprovalDecision::Deny
-                                    };
-
-                                    match state
-                                        .handle_tool_approval(
-                                            &ghost_name,
-                                            &target_session_id,
-                                            &op_id,
-                                            decision,
-                                            Some(&selected_model_alias),
-                                        )
-                                        .await
-                                    {
-                                        Ok(Some(text)) => {
-                                            let ws_response = ws_text_response(text);
-                                            let response_json =
-                                                serde_json::to_string(&ws_response).unwrap();
-                                            let _ = sender
-                                                .send(Message::Text(response_json.into()))
-                                                .await;
-                                            continue;
-                                        }
-                                        Ok(None) => {}
-                                        Err(ChatError::ToolApprovalRequired(pending)) => {
-                                            state
-                                                .set_pending_tool_approval(
-                                                    &op_id,
-                                                    &ghost_name,
-                                                    &target_session_id,
-                                                    pending.clone(),
-                                                )
-                                                .await;
-                                            let message =
-                                                approval_required_message(&pending.reason);
-                                            let ws_response = ws_text_response(message);
-                                            let response_json =
-                                                serde_json::to_string(&ws_response).unwrap();
-                                            let _ = sender
-                                                .send(Message::Text(response_json.into()))
-                                                .await;
-                                            continue;
-                                        }
-                                        Err(ChatError::ToolLoopLimitReached(pending)) => {
-                                            state
-                                                .set_pending_tool_loop(
-                                                    &op_id,
-                                                    &ghost_name,
-                                                    &target_session_id,
-                                                    pending,
-                                                )
-                                                .await;
-                                            let ws_response =
-                                                ws_text_response(tool_loop_limit_reached_message(
-                                                    crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                                                    crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                                                ));
-                                            let response_json =
-                                                serde_json::to_string(&ws_response).unwrap();
-                                            let _ = sender
-                                                .send(Message::Text(response_json.into()))
-                                                .await;
-                                            continue;
-                                        }
-                                        Err(e) => {
-                                            error!("Provider API error: {}", e);
-                                            let error_response = WsResponse::Error {
-                                                message: format!("Chat error: {}", e),
-                                            };
-                                            let error_json =
-                                                serde_json::to_string(&error_response).unwrap();
-                                            let _ =
-                                                sender.send(Message::Text(error_json.into())).await;
-                                            continue;
-                                        }
+                                Ok(Some(control_messages)) => {
+                                    for message in control_messages {
+                                        let ws = ws_from_outbound(message);
+                                        let response_json = serde_json::to_string(&ws).unwrap();
+                                        let _ =
+                                            sender.send(Message::Text(response_json.into())).await;
                                     }
-                                }
-
-                                if content.trim().eq_ignore_ascii_case("deny")
-                                    && state
-                                        .clear_pending_tool_loop(
-                                            &op_id,
-                                            &ghost_name,
-                                            &target_session_id,
-                                        )
-                                        .await
-                                {
-                                    let ws_response = ws_text_response(render_message(
-                                        ids::TOOL_LOOP_DENIED,
-                                        &[],
-                                    ));
-                                    let response_json =
-                                        serde_json::to_string(&ws_response).unwrap();
-                                    let _ = sender.send(Message::Text(response_json.into())).await;
                                     continue;
                                 }
-
-                                match state
-                                    .handle_tool_loop_continue(
-                                        &ghost_name,
-                                        &target_session_id,
-                                        &op_id,
-                                        step_limit,
-                                        Some(&selected_model_alias),
-                                    )
-                                    .await
-                                {
-                                    Ok(Some(text)) => {
-                                        let ws_response = ws_text_response(text);
-                                        let response_json =
-                                            serde_json::to_string(&ws_response).unwrap();
-                                        let _ =
-                                            sender.send(Message::Text(response_json.into())).await;
-                                    }
-                                    Ok(None) => {
-                                        let message = if step_limit.is_some() {
-                                            render_message(ids::NO_PENDING_TOOL_LOOP, &[])
-                                        } else {
-                                            render_message(ids::NO_PENDING_APPROVAL, &[])
-                                        };
-                                        let ws_response = ws_text_response(message.to_string());
-                                        let response_json =
-                                            serde_json::to_string(&ws_response).unwrap();
-                                        let _ =
-                                            sender.send(Message::Text(response_json.into())).await;
-                                    }
-                                    Err(ChatError::ToolApprovalRequired(pending)) => {
-                                        state
-                                            .set_pending_tool_approval(
-                                                &op_id,
-                                                &ghost_name,
-                                                &target_session_id,
-                                                pending.clone(),
-                                            )
-                                            .await;
-                                        let message = approval_required_message(&pending.reason);
-                                        let ws_response = ws_text_response(message);
-                                        let response_json =
-                                            serde_json::to_string(&ws_response).unwrap();
-                                        let _ =
-                                            sender.send(Message::Text(response_json.into())).await;
-                                    }
-                                    Err(ChatError::ToolLoopLimitReached(pending)) => {
-                                        state
-                                            .set_pending_tool_loop(
-                                                &op_id,
-                                                &ghost_name,
-                                                &target_session_id,
-                                                pending,
-                                            )
-                                            .await;
-                                        let ws_response =
-                                            ws_text_response(tool_loop_limit_reached_message(
-                                                crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                                                crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                                            ));
-                                        let response_json =
-                                            serde_json::to_string(&ws_response).unwrap();
-                                        let _ =
-                                            sender.send(Message::Text(response_json.into())).await;
-                                    }
-                                    Err(e) => {
-                                        error!("Provider API error: {}", e);
-                                        let error_response = WsResponse::Error {
-                                            message: format!("Chat error: {}", e),
-                                        };
-                                        let error_json =
-                                            serde_json::to_string(&error_response).unwrap();
-                                        let _ = sender.send(Message::Text(error_json.into())).await;
-                                    }
+                                Ok(None) => {}
+                                Err(e) => {
+                                    error!("Provider API error: {}", e);
+                                    let error_response =
+                                        ws_error_response(format!("Chat error: {}", e));
+                                    let error_json =
+                                        serde_json::to_string(&error_response).unwrap();
+                                    let _ = sender.send(Message::Text(error_json.into())).await;
+                                    continue;
                                 }
-                                continue;
                             }
 
-                            match state
-                                .chat_with_model_alias(
-                                    &selected_model_alias,
-                                    &ghost_name,
-                                    &target_session_id,
-                                    &op_id,
-                                    &content_for_chat,
-                                )
-                                .await
+                            match operator_flow::run_chat_with_pending(
+                                state.as_ref(),
+                                None,
+                                Some(&selected_model_alias),
+                                &ghost_name,
+                                &target_session_id,
+                                &op_id,
+                                &content_for_chat,
+                            )
+                            .await
                             {
-                                Ok(text) => {
-                                    let ws_response = ws_text_response(text);
-
-                                    let response_json =
-                                        serde_json::to_string(&ws_response).unwrap();
-                                    if let Err(e) =
-                                        sender.send(Message::Text(response_json.into())).await
-                                    {
-                                        error!("Failed to send response: {}", e);
-                                        break;
+                                Ok(messages) => {
+                                    for message in messages {
+                                        let ws = ws_from_outbound(message);
+                                        let response_json = serde_json::to_string(&ws).unwrap();
+                                        if let Err(e) =
+                                            sender.send(Message::Text(response_json.into())).await
+                                        {
+                                            error!("Failed to send response: {}", e);
+                                            break;
+                                        }
                                     }
-                                }
-                                Err(ChatError::ToolApprovalRequired(pending)) => {
-                                    state
-                                        .set_pending_tool_approval(
-                                            &op_id,
-                                            &ghost_name,
-                                            &target_session_id,
-                                            pending.clone(),
-                                        )
-                                        .await;
-                                    let message = approval_required_message(&pending.reason);
-                                    let ws_response = ws_text_response(message);
-                                    let response_json =
-                                        serde_json::to_string(&ws_response).unwrap();
-                                    let _ = sender.send(Message::Text(response_json.into())).await;
-                                }
-                                Err(ChatError::ToolLoopLimitReached(pending)) => {
-                                    state
-                                        .set_pending_tool_loop(
-                                            &op_id,
-                                            &ghost_name,
-                                            &target_session_id,
-                                            pending,
-                                        )
-                                        .await;
-                                    let ws_response =
-                                        ws_text_response(tool_loop_limit_reached_message(
-                                            crate::session::DEFAULT_TOOL_LOOP_LIMIT,
-                                            crate::session::DEFAULT_TOOL_LOOP_EXTRA,
-                                        ));
-                                    let response_json =
-                                        serde_json::to_string(&ws_response).unwrap();
-                                    let _ = sender.send(Message::Text(response_json.into())).await;
                                 }
                                 Err(e) => {
                                     error!("Provider API error: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: format!("Chat error: {}", e),
-                                    };
+                                    let error_response =
+                                        ws_error_response(format!("Chat error: {}", e));
                                     let error_json =
                                         serde_json::to_string(&error_response).unwrap();
                                     let _ = sender.send(Message::Text(error_json.into())).await;
@@ -1290,7 +1074,7 @@ async fn handle_websocket(
                             if let Err(message) =
                                 ensure_operator_owns_ghost(&state, &op_id, &ghost_name).await
                             {
-                                let error_response = WsResponse::Error { message };
+                                let error_response = ws_error_response(message);
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&error_response).unwrap().into(),
@@ -1303,9 +1087,10 @@ async fn handle_websocket(
                                 Ok(db) => db,
                                 Err(e) => {
                                     error!("Failed to init ghost DB: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_INIT_GHOST_DB, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_INIT_GHOST_DB,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1351,7 +1136,6 @@ async fn handle_websocket(
 
                                         session_infos.push(t_koma_core::message::SessionInfo {
                                             id: s.id,
-                                            title: s.title,
                                             created_at: Utc
                                                 .timestamp_opt(s.created_at, 0)
                                                 .single()
@@ -1380,9 +1164,10 @@ async fn handle_websocket(
                                 }
                                 Err(e) => {
                                     error!("Failed to list sessions: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_LIST_SESSIONS, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LIST_SESSIONS,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1391,11 +1176,11 @@ async fn handle_websocket(
                                 }
                             }
                         }
-                        WsMessage::CreateSession { ghost_name, title } => {
+                        WsMessage::CreateSession { ghost_name } => {
                             if let Err(message) =
                                 ensure_operator_owns_ghost(&state, &op_id, &ghost_name).await
                             {
-                                let error_response = WsResponse::Error { message };
+                                let error_response = ws_error_response(message);
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&error_response).unwrap().into(),
@@ -1408,9 +1193,10 @@ async fn handle_websocket(
                                 Ok(db) => db,
                                 Err(e) => {
                                     error!("Failed to init ghost DB: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_INIT_GHOST_DB, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_INIT_GHOST_DB,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1420,29 +1206,36 @@ async fn handle_websocket(
                                 }
                             };
 
-                            match t_koma_db::SessionRepository::create(
-                                ghost_db.pool(),
-                                &op_id,
-                                title.as_deref(),
-                            )
-                            .await
+                            match t_koma_db::SessionRepository::create(ghost_db.pool(), &op_id)
+                                .await
                             {
                                 Ok(new_session) => {
                                     let response = WsResponse::SessionCreated {
-                                        session_id: new_session.id,
-                                        title: new_session.title,
+                                        session_id: new_session.id.clone(),
                                     };
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&response).unwrap().into(),
                                         ))
                                         .await;
+                                    let session_started =
+                                        ws_gateway_response(gateway_message::from_content(
+                                            ids::SESSION_STARTED,
+                                            None,
+                                            &[],
+                                        ));
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&session_started).unwrap().into(),
+                                        ))
+                                        .await;
                                 }
                                 Err(e) => {
                                     error!("Failed to create session: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_CREATE_SESSION, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_CREATE_SESSION,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1458,7 +1251,7 @@ async fn handle_websocket(
                             if let Err(message) =
                                 ensure_operator_owns_ghost(&state, &op_id, &ghost_name).await
                             {
-                                let error_response = WsResponse::Error { message };
+                                let error_response = ws_error_response(message);
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&error_response).unwrap().into(),
@@ -1471,9 +1264,10 @@ async fn handle_websocket(
                                 Ok(db) => db,
                                 Err(e) => {
                                     error!("Failed to init ghost DB: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_INIT_GHOST_DB, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_INIT_GHOST_DB,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1500,9 +1294,10 @@ async fn handle_websocket(
                                 }
                                 Err(e) => {
                                     error!("Failed to switch session: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_SWITCH_SESSION, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_SWITCH_SESSION,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1518,7 +1313,7 @@ async fn handle_websocket(
                             if let Err(message) =
                                 ensure_operator_owns_ghost(&state, &op_id, &ghost_name).await
                             {
-                                let error_response = WsResponse::Error { message };
+                                let error_response = ws_error_response(message);
                                 let _ = sender
                                     .send(Message::Text(
                                         serde_json::to_string(&error_response).unwrap().into(),
@@ -1531,9 +1326,10 @@ async fn handle_websocket(
                                 Ok(db) => db,
                                 Err(e) => {
                                     error!("Failed to init ghost DB: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_INIT_GHOST_DB, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_INIT_GHOST_DB,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1560,9 +1356,10 @@ async fn handle_websocket(
                                 }
                                 Err(e) => {
                                     error!("Failed to delete session: {}", e);
-                                    let error_response = WsResponse::Error {
-                                        message: render_message(ids::FAILED_DELETE_SESSION, &[]),
-                                    };
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_DELETE_SESSION,
+                                        &[],
+                                    ));
                                     let _ = sender
                                         .send(Message::Text(
                                             serde_json::to_string(&error_response).unwrap().into(),
@@ -1576,9 +1373,7 @@ async fn handle_websocket(
                 }
                 Err(e) => {
                     warn!("Invalid WebSocket message: {}", e);
-                    let error_response = WsResponse::Error {
-                        message: format!("Invalid message: {}", e),
-                    };
+                    let error_response = ws_error_response(format!("Invalid message: {}", e));
                     let error_json = serde_json::to_string(&error_response).unwrap();
                     let _ = sender.send(Message::Text(error_json.into())).await;
                 }

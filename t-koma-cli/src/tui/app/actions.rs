@@ -14,7 +14,7 @@ use crossterm::{
 use futures::StreamExt;
 use tempfile::NamedTempFile;
 
-use t_koma_core::{ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
+use t_koma_core::{GatewayMessageKind, ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
 use t_koma_db::{
     ContentBlock, Ghost, GhostDbPool, GhostRepository, Message, OperatorAccessLevel,
     OperatorRepository, OperatorStatus, Platform, SessionRepository,
@@ -296,7 +296,11 @@ impl TuiApp {
                     }
                     return Ok(discord_notified);
                 }
-                Ok(Some(WsResponse::Error { message })) => return Err(message),
+                Ok(Some(WsResponse::Response { message, .. }))
+                    if message.kind == GatewayMessageKind::Error =>
+                {
+                    return Err(message.text_fallback);
+                }
                 Ok(Some(_)) => {
                     // Ignore unrelated bootstrap/welcome responses on fresh WS connects.
                 }
@@ -676,8 +680,10 @@ impl TuiApp {
             Ok(Some(WsResponse::GatewayRestarting)) => {
                 self.status = "Gateway restarting...".to_string();
             }
-            Ok(Some(WsResponse::Error { message })) => {
-                self.status = format!("Restart failed: {}", message);
+            Ok(Some(WsResponse::Response { message, .. }))
+                if message.kind == GatewayMessageKind::Error =>
+            {
+                self.status = format!("Restart failed: {}", message.text_fallback);
             }
             _ => {
                 self.status = "Restart requested".to_string();

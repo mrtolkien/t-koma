@@ -132,9 +132,7 @@ mod tests {
         let db = create_test_ghost_pool("UsageGhost").await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1", Some("Test"))
-            .await
-            .unwrap();
+        let session = SessionRepository::create(pool, "op1").await.unwrap();
 
         let log1 = UsageLog::new(&session.id, None, "claude-sonnet-4-5", 1000, 200, 500, 100);
         UsageLogRepository::insert(pool, &log1).await.unwrap();
@@ -158,7 +156,7 @@ mod tests {
         let db = create_test_ghost_pool("UsageGhost2").await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1", None).await.unwrap();
+        let session = SessionRepository::create(pool, "op1").await.unwrap();
 
         let totals = UsageLogRepository::session_totals(pool, &session.id)
             .await
@@ -173,7 +171,7 @@ mod tests {
         let db = create_test_ghost_pool("UsageGhost3").await.unwrap();
         let pool = db.pool();
 
-        let session = SessionRepository::create(pool, "op1", None).await.unwrap();
+        let session = SessionRepository::create(pool, "op1").await.unwrap();
 
         let log = UsageLog::new(
             &session.id,

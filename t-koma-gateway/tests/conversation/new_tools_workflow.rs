@@ -125,13 +125,9 @@ async fn test_comprehensive_coding_workflow() {
     let ghost = env.ghost;
 
     // Create a session
-    let session = SessionRepository::create(
-        ghost_db.pool(),
-        &operator.id,
-        Some("New Tools Workflow Test"),
-    )
-    .await
-    .expect("Failed to create session");
+    let session = SessionRepository::create(ghost_db.pool(), &operator.id)
+        .await
+        .expect("Failed to create session");
 
     println!("Created session: {}", session.id);
 

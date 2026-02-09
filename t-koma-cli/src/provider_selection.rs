@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use t_koma_core::{message::ProviderType, ModelInfo, WsMessage, WsResponse};
+use t_koma_core::{GatewayMessageKind, ModelInfo, WsMessage, WsResponse, message::ProviderType};
 
 /// Provider and model selection result
 #[derive(Debug, Clone)]
@@ -264,9 +264,11 @@ async fn wait_for_models(
                     return Err(format!("Unexpected provider: {}", provider).into());
                 }
             }
-            Ok(Some(WsResponse::Error { message })) => {
-                error!("Gateway error fetching models: {}", message);
-                return Err(message.into());
+            Ok(Some(WsResponse::Response { message, .. }))
+                if message.kind == GatewayMessageKind::Error =>
+            {
+                error!("Gateway error fetching models: {}", message.text_fallback);
+                return Err(message.text_fallback.into());
             }
             Ok(Some(_)) => {
                 // Unexpected message type, continue waiting
@@ -290,8 +292,12 @@ async fn wait_for_provider_confirmation(
     loop {
         match timeout(Duration::from_secs(10), ws_rx.recv()).await {
             Ok(Some(WsResponse::ProviderSelected { .. })) => return Ok(()),
-            Ok(Some(WsResponse::Error { message })) => {
-                return Err(format!("Provider selection failed: {}", message).into());
+            Ok(Some(WsResponse::Response { message, .. }))
+                if message.kind == GatewayMessageKind::Error =>
+            {
+                return Err(
+                    format!("Provider selection failed: {}", message.text_fallback).into()
+                );
             }
             Ok(Some(_)) => {
                 // Unexpected message type, continue waiting

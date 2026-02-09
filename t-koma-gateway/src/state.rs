@@ -12,7 +12,8 @@ use tracing::info;
 use tracing::{error, warn};
 
 use crate::chat::compaction::CompactionConfig;
-use crate::content::{self, ids};
+use crate::content::ids;
+use crate::gateway_message;
 use crate::providers::provider::Provider;
 #[cfg(feature = "live-tests")]
 use crate::providers::provider::{ProviderResponse, extract_all_text};
@@ -59,6 +60,12 @@ pub struct HeartbeatOverride {
 pub enum RateLimitDecision {
     Allowed,
     Limited { retry_after: Duration },
+}
+
+#[derive(Debug, Clone)]
+pub struct ChatResult {
+    pub text: String,
+    pub compaction_happened: bool,
 }
 
 /// Log entry for broadcasting events to listeners
@@ -218,13 +225,7 @@ pub fn emit_global_log(entry: LogEntry) {
 }
 
 fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
-    match content::message_text(id, None, vars) {
-        Ok(text) => text,
-        Err(err) => {
-            error!("Message render failed for {}: {}", id, err);
-            format!("[missing message: {}]", id)
-        }
-    }
+    gateway_message::from_content(id, None, vars).text_fallback
 }
 
 /// Shared application state
@@ -506,18 +507,40 @@ impl AppState {
         operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
+        let result = self
+            .chat_detailed(ghost_name, session_id, operator_id, message)
+            .await?;
+        Ok(result.text)
+    }
+
+    /// Send a chat message and get the AI response plus metadata.
+    pub async fn chat_detailed(
+        &self,
+        ghost_name: &str,
+        session_id: &str,
+        operator_id: &str,
+        message: &str,
+    ) -> Result<ChatResult, ChatError> {
         let chat_key = Self::chat_key(operator_id, ghost_name, session_id);
         if self.is_chat_in_flight(&chat_key).await {
             if !Self::is_continue_message(message) {
                 self.set_ignored_message(&chat_key, message).await;
             }
-            return Ok(render_message(ids::CHAT_BUSY, &[]));
+            return Ok(ChatResult {
+                text: render_message(ids::CHAT_BUSY, &[]),
+                compaction_happened: false,
+            });
         }
 
         let message = if Self::is_continue_message(message) {
             match self.take_ignored_message(&chat_key).await {
                 Some(ignored) => ignored,
-                None => return Ok(render_message(ids::CHAT_CONTINUE_MISSING, &[])),
+                None => {
+                    return Ok(ChatResult {
+                        text: render_message(ids::CHAT_CONTINUE_MISSING, &[]),
+                        compaction_happened: false,
+                    });
+                }
             }
         } else {
             message.to_string()
@@ -532,6 +555,8 @@ impl AppState {
 
         let model = self.default_model();
         let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let pre_compaction_state =
+            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
         self.set_chat_in_flight(&chat_key).await;
         let response = self
             .session_chat
@@ -571,6 +596,8 @@ impl AppState {
             }
             Err(err) => return Err(err),
         };
+        let post_compaction_state =
+            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),
@@ -578,7 +605,18 @@ impl AppState {
         })
         .await;
 
-        Ok(text)
+        let compaction_happened = match (pre_compaction_state, post_compaction_state) {
+            (Some(before), Some(after)) => {
+                before.compaction_cursor_id != after.compaction_cursor_id
+                    || before.compaction_summary != after.compaction_summary
+            }
+            _ => false,
+        };
+
+        Ok(ChatResult {
+            text,
+            compaction_happened,
+        })
     }
 
     /// Send a chat message using a specific model alias
@@ -590,18 +628,47 @@ impl AppState {
         operator_id: &str,
         message: &str,
     ) -> Result<String, ChatError> {
+        let result = self
+            .chat_with_model_alias_detailed(
+                model_alias,
+                ghost_name,
+                session_id,
+                operator_id,
+                message,
+            )
+            .await?;
+        Ok(result.text)
+    }
+
+    /// Send a chat message using a specific model alias and return metadata.
+    pub async fn chat_with_model_alias_detailed(
+        &self,
+        model_alias: &str,
+        ghost_name: &str,
+        session_id: &str,
+        operator_id: &str,
+        message: &str,
+    ) -> Result<ChatResult, ChatError> {
         let chat_key = Self::chat_key(operator_id, ghost_name, session_id);
         if self.is_chat_in_flight(&chat_key).await {
             if !Self::is_continue_message(message) {
                 self.set_ignored_message(&chat_key, message).await;
             }
-            return Ok(render_message(ids::CHAT_BUSY, &[]));
+            return Ok(ChatResult {
+                text: render_message(ids::CHAT_BUSY, &[]),
+                compaction_happened: false,
+            });
         }
 
         let message = if Self::is_continue_message(message) {
             match self.take_ignored_message(&chat_key).await {
                 Some(ignored) => ignored,
-                None => return Ok(render_message(ids::CHAT_CONTINUE_MISSING, &[])),
+                None => {
+                    return Ok(ChatResult {
+                        text: render_message(ids::CHAT_CONTINUE_MISSING, &[]),
+                        compaction_happened: false,
+                    });
+                }
             }
         } else {
             message.to_string()
@@ -620,6 +687,8 @@ impl AppState {
             .unwrap_or_else(|| self.default_model());
 
         let ghost_db = self.get_or_init_ghost_db(ghost_name).await?;
+        let pre_compaction_state =
+            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
         self.set_chat_in_flight(&chat_key).await;
         let response = self
             .session_chat
@@ -660,6 +729,8 @@ impl AppState {
             }
             Err(err) => return Err(err),
         };
+        let post_compaction_state =
+            t_koma_db::SessionRepository::get_by_id(ghost_db.pool(), session_id).await?;
 
         self.log(LogEntry::GhostMessage {
             ghost_name: ghost_name.to_string(),
@@ -667,7 +738,18 @@ impl AppState {
         })
         .await;
 
-        Ok(text)
+        let compaction_happened = match (pre_compaction_state, post_compaction_state) {
+            (Some(before), Some(after)) => {
+                before.compaction_cursor_id != after.compaction_cursor_id
+                    || before.compaction_summary != after.compaction_summary
+            }
+            _ => false,
+        };
+
+        Ok(ChatResult {
+            text,
+            compaction_happened,
+        })
     }
 
     /// Get or initialize a GHOST database pool by name
