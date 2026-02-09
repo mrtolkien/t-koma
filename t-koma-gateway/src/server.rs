@@ -1006,6 +1006,7 @@ async fn handle_websocket(
                                 operator_flow::spawn_reflection_for_previous_session(
                                     &state,
                                     &ghost_name,
+                                    &ghost.id,
                                     &op_id,
                                     &previous_session.id,
                                 );

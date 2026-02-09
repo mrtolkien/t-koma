@@ -257,18 +257,20 @@ pub async fn run_tool_control_command(
 pub fn spawn_reflection_for_previous_session(
     state: &Arc<AppState>,
     ghost_name: &str,
+    ghost_id: &str,
     operator_id: &str,
     previous_session_id: &str,
 ) {
     let state_for_reflection = Arc::clone(state);
     let ghost_name_for_reflection = ghost_name.to_string();
+    let ghost_id_for_reflection = ghost_id.to_string();
     let operator_id_for_reflection = operator_id.to_string();
     let previous_session_id = previous_session_id.to_string();
     tokio::spawn(async move {
         crate::reflection::run_reflection_now(
             &state_for_reflection,
             &ghost_name_for_reflection,
-            &operator_id_for_reflection,
+            &ghost_id_for_reflection,
             &previous_session_id,
             &operator_id_for_reflection,
             None,

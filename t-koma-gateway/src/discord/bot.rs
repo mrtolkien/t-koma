@@ -1045,6 +1045,7 @@ impl Bot {
             ctx,
             msg.channel_id,
             ghost_name,
+            ghost_id,
             operator_id,
             operator_external_id,
             previous_session_id,
@@ -1064,6 +1065,7 @@ impl Bot {
         ctx: &Context,
         channel_id: serenity::model::id::ChannelId,
         ghost_name: &str,
+        ghost_id: &str,
         operator_id: &str,
         operator_external_id: &str,
         previous_session_id: &str,
@@ -1072,6 +1074,7 @@ impl Bot {
         operator_flow::spawn_reflection_for_previous_session(
             &self.state,
             ghost_name,
+            ghost_id,
             operator_id,
             previous_session_id,
         );
