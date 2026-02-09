@@ -389,13 +389,6 @@ impl TuiApp {
                     Some(PromptKind::GateSearch) => {
                         self.gate_search = if input.is_empty() { None } else { Some(input) };
                     }
-                    Some(PromptKind::SetOperatorAccessLevel) => {
-                        if let Some(operator_id) = target_operator_id {
-                            self.set_operator_access_level(&operator_id, &input).await;
-                        } else {
-                            self.status = "No operator selected".to_string();
-                        }
-                    }
                     Some(PromptKind::SetOperatorRateLimits) => {
                         if let Some(operator_id) = target_operator_id {
                             self.set_operator_rate_limits(&operator_id, &input).await;

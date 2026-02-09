@@ -16,7 +16,6 @@ pub(super) enum PromptKind {
     DeleteGhostConfirmOne,
     DeleteGhostConfirmTwo,
     GateSearch,
-    SetOperatorAccessLevel,
     SetOperatorRateLimits,
     KnowledgeSearch,
 }
