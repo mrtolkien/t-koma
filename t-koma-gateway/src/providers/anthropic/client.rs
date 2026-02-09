@@ -235,13 +235,25 @@ impl AnthropicClient {
             });
         }
 
-        let messages_response: MessagesResponse = response.json().await?;
+        let response_text = response.text().await?;
 
         if let Some(dump) = dump
-            && let Ok(val) = serde_json::to_value(&messages_response)
+            && let Ok(val) = serde_json::from_str::<Value>(&response_text)
         {
             dump.response(&val).await;
         }
+
+        let messages_response: MessagesResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                let preview = if response_text.len() > 500 {
+                    &response_text[..500]
+                } else {
+                    &response_text
+                };
+                AnthropicError::ApiError {
+                    message: format!("Failed to parse response: {e}\nBody preview: {preview}"),
+                }
+            })?;
 
         Ok(messages_response)
     }
