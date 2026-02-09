@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use sqlx::SqlitePool;
+use tracing::warn;
 
 use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
@@ -223,6 +224,20 @@ pub(crate) async fn dense_search(
     ghost_name: &str,
     archetype: Option<&str>,
 ) -> KnowledgeResult<Vec<(i64, f32)>> {
+    // Guard: chunk_vec may not exist on fresh installs without embeddings configured.
+    let table_exists: Option<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chunk_vec'",
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if table_exists.is_none() {
+        warn!(
+            "chunk_vec table not found — dense search unavailable (no embedding dimension configured)"
+        );
+        return Ok(Vec::new());
+    }
+
     let embeddings = embedder.embed_batch(&[query.to_string()]).await?;
     if embeddings.is_empty() {
         return Ok(Vec::new());
