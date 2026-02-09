@@ -16,7 +16,7 @@ use tempfile::NamedTempFile;
 
 use t_koma_core::{GatewayMessageKind, ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
 use t_koma_db::{
-    ContentBlock, Ghost, GhostRepository, JobLogRepository, Message, OperatorAccessLevel,
+    ContentBlock, Ghost, GhostRepository, JobLog, JobLogRepository, Message, OperatorAccessLevel,
     OperatorRepository, OperatorStatus, Platform, SessionRepository, ghosts::ghost_workspace_path,
 };
 
@@ -779,6 +779,7 @@ impl TuiApp {
 
         match JobLogRepository::get(db.pool(), &job_id).await {
             Ok(Some(log)) => {
+                self.job_detail_scroll = last_entry_line_offset(&log);
                 self.job_view.detail = Some(log);
                 self.content_view = ContentView::JobDetail {
                     job_id: job_id.clone(),
@@ -835,8 +836,8 @@ impl TuiApp {
 
         match SessionRepository::get_messages(db.pool(), &session_id).await {
             Ok(messages) => {
+                self.session_view.scroll = last_message_line_offset(&messages);
                 self.session_view.messages = messages;
-                self.session_view.scroll = 0;
                 self.content_view = ContentView::SessionMessages {
                     ghost_name,
                     session_id,
@@ -956,6 +957,41 @@ impl TuiApp {
                 Err(_) => return Err("Timed out waiting for gateway response".to_string()),
             }
         }
+    }
+}
+
+fn last_entry_line_offset(job: &JobLog) -> u16 {
+    let mut offset: u16 = 3; // header lines: title, status, blank
+    let mut last_start = offset;
+    for entry in &job.transcript {
+        last_start = offset;
+        offset += 1; // role header
+        for block in &entry.content {
+            offset += content_block_line_count(block);
+        }
+        offset += 1; // blank separator
+    }
+    last_start
+}
+
+fn last_message_line_offset(messages: &[Message]) -> u16 {
+    let mut offset: u16 = 0;
+    let mut last_start: u16 = 0;
+    for msg in messages {
+        last_start = offset;
+        offset += 1; // role header
+        for block in &msg.content {
+            offset += content_block_line_count(block);
+        }
+        offset += 1; // blank separator
+    }
+    last_start
+}
+
+fn content_block_line_count(block: &ContentBlock) -> u16 {
+    match block {
+        ContentBlock::Text { text } => text.lines().count().max(1) as u16,
+        ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. } => 1,
     }
 }
 
