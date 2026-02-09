@@ -1,6 +1,7 @@
 mod bot;
 pub(crate) mod components_v2;
 mod interactions;
+mod markdown;
 mod send;
 
 use std::sync::Arc;
