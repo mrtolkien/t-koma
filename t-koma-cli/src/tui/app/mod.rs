@@ -49,6 +49,7 @@ pub struct TuiApp {
     content_view: ContentView,
 
     job_view: JobViewState,
+    job_detail_scroll: u16,
     session_view: SessionViewState,
     knowledge_view: KnowledgeViewState,
 
@@ -98,6 +99,7 @@ impl TuiApp {
             content_view: ContentView::default(),
 
             job_view: JobViewState::default(),
+            job_detail_scroll: 0,
             session_view: SessionViewState::default(),
             knowledge_view: KnowledgeViewState::default(),
 

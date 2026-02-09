@@ -46,10 +46,50 @@ impl TuiApp {
     }
 
     fn pop_content_view(&mut self) {
-        self.content_view = ContentView::List;
+        let parent = match std::mem::take(&mut self.content_view) {
+            ContentView::SessionMessages { ghost_name, .. } => {
+                let ghost_id = self
+                    .ghosts
+                    .iter()
+                    .find(|g| g.ghost.name == ghost_name)
+                    .map(|g| g.ghost.id.clone())
+                    .unwrap_or_default();
+                ContentView::GhostSessions {
+                    ghost_id,
+                    ghost_name,
+                }
+            }
+            _ => ContentView::List,
+        };
+        self.content_view = parent;
         self.content_idx = 0;
         self.session_view.scroll = 0;
         self.knowledge_view.scroll = 0;
+        self.job_detail_scroll = 0;
+    }
+
+    fn scroll_detail_up(&mut self) {
+        match &self.content_view {
+            ContentView::JobDetail { .. } => {
+                self.job_detail_scroll = self.job_detail_scroll.saturating_sub(1);
+            }
+            ContentView::KnowledgeDetail { .. } => {
+                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    fn scroll_detail_down(&mut self) {
+        match &self.content_view {
+            ContentView::JobDetail { .. } => {
+                self.job_detail_scroll = self.job_detail_scroll.saturating_add(1);
+            }
+            ContentView::KnowledgeDetail { .. } => {
+                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_add(1);
+            }
+            _ => {}
+        }
     }
 
     async fn handle_modal_key(&mut self, key: KeyEvent) {
@@ -96,9 +136,22 @@ impl TuiApp {
                     self.sync_selection().await;
                 }
             }
-            FocusPane::Content => match self.selected_category() {
-                Category::Config => self.config_scroll = self.config_scroll.saturating_sub(1),
-                Category::Gate => self.gate_scroll = self.gate_scroll.saturating_sub(1),
+            FocusPane::Content => match &self.content_view {
+                ContentView::List => match self.selected_category() {
+                    Category::Config => self.config_scroll = self.config_scroll.saturating_sub(1),
+                    Category::Gate => self.gate_scroll = self.gate_scroll.saturating_sub(1),
+                    _ => {
+                        if self.content_idx > 0 {
+                            self.content_idx -= 1;
+                        }
+                    }
+                },
+                ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
+                    self.scroll_detail_up();
+                }
+                ContentView::SessionMessages { .. } => {
+                    self.session_view.scroll = self.session_view.scroll.saturating_sub(1);
+                }
                 _ => {
                     if self.content_idx > 0 {
                         self.content_idx -= 1;
@@ -126,28 +179,41 @@ impl TuiApp {
                     self.sync_selection().await;
                 }
             }
-            FocusPane::Content => match self.selected_category() {
-                Category::Config => self.config_scroll = self.config_scroll.saturating_add(1),
-                Category::Gate => self.gate_scroll = self.gate_scroll.saturating_add(1),
-                Category::Operators => {
-                    if self.content_idx + 1 < self.operators.len() {
+            FocusPane::Content => match &self.content_view {
+                ContentView::List => match self.selected_category() {
+                    Category::Config => self.config_scroll = self.config_scroll.saturating_add(1),
+                    Category::Gate => self.gate_scroll = self.gate_scroll.saturating_add(1),
+                    Category::Operators => {
+                        if self.content_idx + 1 < self.operators.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                    Category::Ghosts => {
+                        if self.content_idx + 1 < self.ghosts.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                    Category::Jobs => {
+                        if self.content_idx + 1 < self.job_view.summaries.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                    Category::Knowledge => {
+                        if self.content_idx + 1 < self.knowledge_view.notes.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                },
+                ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
+                    self.scroll_detail_down();
+                }
+                ContentView::GhostSessions { .. } => {
+                    if self.content_idx + 1 < self.session_view.sessions.len() {
                         self.content_idx += 1;
                     }
                 }
-                Category::Ghosts => {
-                    if self.content_idx + 1 < self.ghosts.len() {
-                        self.content_idx += 1;
-                    }
-                }
-                Category::Jobs => {
-                    if self.content_idx + 1 < self.job_view.summaries.len() {
-                        self.content_idx += 1;
-                    }
-                }
-                Category::Knowledge => {
-                    if self.content_idx + 1 < self.knowledge_view.notes.len() {
-                        self.content_idx += 1;
-                    }
+                ContentView::SessionMessages { .. } => {
+                    self.session_view.scroll = self.session_view.scroll.saturating_add(1);
                 }
             },
         }
@@ -168,6 +234,15 @@ impl TuiApp {
     }
 
     async fn activate_content(&mut self) {
+        match &self.content_view {
+            ContentView::GhostSessions { .. } => {
+                self.drill_into_session_messages().await;
+                return;
+            }
+            ContentView::List => {}
+            _ => return,
+        }
+
         match self.selected_category() {
             Category::Operators if self.operator_view == super::state::OperatorView::Pending => {
                 self.approve_selected_operator().await;

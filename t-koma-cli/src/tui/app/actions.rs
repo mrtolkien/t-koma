@@ -818,6 +818,34 @@ impl TuiApp {
         }
     }
 
+    pub(super) async fn drill_into_session_messages(&mut self) {
+        let Some(sess) = self.session_view.sessions.get(self.content_idx) else {
+            return;
+        };
+        let session_id = sess.id.clone();
+        let ghost_name = match &self.content_view {
+            ContentView::GhostSessions { ghost_name, .. } => ghost_name.clone(),
+            _ => "?".to_string(),
+        };
+
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        match SessionRepository::get_messages(db.pool(), &session_id).await {
+            Ok(messages) => {
+                self.session_view.messages = messages;
+                self.session_view.scroll = 0;
+                self.content_view = ContentView::SessionMessages {
+                    ghost_name,
+                    session_id,
+                };
+            }
+            Err(e) => self.status = format!("Messages fetch failed: {}", e),
+        }
+    }
+
     // ── Knowledge actions ────────────────────────────────────────────
 
     pub(super) async fn refresh_knowledge_recent(&mut self) {
