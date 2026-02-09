@@ -585,7 +585,7 @@ impl SessionChat {
         transcript: &mut Vec<TranscriptEntry>,
         max_iterations: usize,
     ) -> Result<String, ChatError> {
-        let tools = self.tool_manager.get_tools();
+        let tools = self.tool_manager.get_all_tools();
 
         // Build initial API messages: session history + transcript so far
         let mut api_messages: Vec<ChatMessage> = session_history.to_vec();
@@ -723,7 +723,7 @@ impl SessionChat {
         max_iterations: usize,
         tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
-        let tools = self.tool_manager.get_tools();
+        let tools = self.tool_manager.get_chat_tools();
         let mut tool_call_log: Vec<ToolCallSummary> = Vec::new();
         let mut prev_tool_count: usize = 0;
 
@@ -1228,7 +1228,7 @@ your reply — do not respond without saving first."
         }
 
         // Run compaction if context budget is exceeded
-        let tools = self.tool_manager.get_tools();
+        let tools = self.tool_manager.get_all_tools();
         let tool_refs: Vec<&dyn crate::tools::Tool> = tools.to_vec();
 
         if let Some(result) = compact_if_needed(
