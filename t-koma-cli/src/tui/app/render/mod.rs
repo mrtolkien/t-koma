@@ -1,5 +1,7 @@
 mod content;
+mod footer;
 mod header;
+mod modal;
 mod prompt;
 mod sidebar;
 
@@ -26,7 +28,7 @@ impl TuiApp {
         let inner_area = outer.inner(frame.area());
         frame.render_widget(outer, frame.area());
 
-        let (header, main) = main_layout(inner_area);
+        let (header, main, footer) = main_layout(inner_area);
         self.draw_header(frame, header);
 
         let (categories_area, right_area) = sidebar_layout(main);
@@ -40,8 +42,14 @@ impl TuiApp {
             self.draw_content(frame, content_area);
         }
 
+        self.draw_footer(frame, footer);
+
         if let Some(kind) = self.prompt.kind {
             self.draw_prompt_overlay(frame, kind);
+        }
+
+        if self.modal.is_some() {
+            self.draw_modal(frame);
         }
     }
 }

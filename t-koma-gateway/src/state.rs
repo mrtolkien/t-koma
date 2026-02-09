@@ -420,6 +420,12 @@ impl AppState {
         guard.get_due(kind, key)
     }
 
+    /// List all scheduler entries (for admin/TUI display).
+    pub async fn scheduler_state(&self) -> Vec<(JobKind, String, i64)> {
+        let guard = self.scheduler.read().await;
+        guard.list_all()
+    }
+
     /// Start the heartbeat runner if it isn't already running.
     pub async fn start_heartbeat_runner(
         self: &Arc<Self>,

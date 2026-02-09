@@ -288,6 +288,26 @@ pub enum WsMessage {
     RestartGateway,
     /// Approve an operator (CLI/admin flow handled by gateway)
     ApproveOperator { operator_id: String },
+    /// Search knowledge entries via gateway
+    SearchKnowledge {
+        ghost_name: Option<String>,
+        query: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_results: Option<usize>,
+    },
+    /// List recent knowledge notes
+    ListRecentNotes {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        limit: Option<usize>,
+    },
+    /// Get a full knowledge entry by ID
+    GetKnowledgeEntry {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_chars: Option<usize>,
+    },
+    /// Get current scheduler state
+    GetSchedulerState,
     /// Ping to keep connection alive
     Ping,
 }
@@ -333,8 +353,41 @@ pub enum WsResponse {
         operator_id: String,
         discord_notified: bool,
     },
+    /// Knowledge search results
+    KnowledgeSearchResults { results: Vec<KnowledgeResultInfo> },
+    /// Recent notes listing
+    RecentNotes { notes: Vec<KnowledgeResultInfo> },
+    /// Full knowledge entry
+    KnowledgeEntry {
+        id: String,
+        title: String,
+        entry_type: String,
+        body: String,
+    },
+    /// Current scheduler state
+    SchedulerState { entries: Vec<SchedulerEntryInfo> },
     /// Pong response to ping
     Pong,
+}
+
+/// Lightweight DTO for knowledge search results sent over WebSocket.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeResultInfo {
+    pub id: String,
+    pub title: String,
+    pub entry_type: String,
+    pub scope: String,
+    pub snippet: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Scheduler entry info for TUI display.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedulerEntryInfo {
+    pub kind: String,
+    pub key: String,
+    pub next_due: i64,
 }
 
 /// Simple UUID generation helper

@@ -1,11 +1,15 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-pub fn main_layout(area: Rect) -> (Rect, Rect) {
+pub fn main_layout(area: Rect) -> (Rect, Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(10)])
+        .constraints([
+            Constraint::Length(4),
+            Constraint::Min(10),
+            Constraint::Length(1),
+        ])
         .split(area);
-    (chunks[0], chunks[1])
+    (chunks[0], chunks[1], chunks[2])
 }
 
 pub fn sidebar_layout(area: Rect) -> (Rect, Rect) {

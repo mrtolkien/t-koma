@@ -19,7 +19,10 @@ use t_koma_db::{KomaDbPool, Operator};
 
 use crate::tui::state::{Category, FocusPane, GateFilter};
 
-use self::state::{GateEvent, GhostRow, Metrics, OperatorView, PromptState};
+use self::state::{
+    ContentView, GateEvent, GhostRow, JobViewState, KnowledgeViewState, Metrics, OperatorView,
+    PromptState, SelectionModal, SessionViewState,
+};
 
 pub struct TuiApp {
     focus: FocusPane,
@@ -42,6 +45,13 @@ pub struct TuiApp {
     config_scroll: u16,
 
     prompt: PromptState,
+    modal: Option<SelectionModal>,
+    content_view: ContentView,
+
+    job_view: JobViewState,
+    job_detail_scroll: u16,
+    session_view: SessionViewState,
+    knowledge_view: KnowledgeViewState,
 
     gate_connected: bool,
     gate_paused: bool,
@@ -85,6 +95,13 @@ impl TuiApp {
             config_scroll: 0,
 
             prompt: PromptState::default(),
+            modal: None,
+            content_view: ContentView::default(),
+
+            job_view: JobViewState::default(),
+            job_detail_scroll: 0,
+            session_view: SessionViewState::default(),
+            knowledge_view: KnowledgeViewState::default(),
 
             gate_connected: false,
             gate_paused: false,
@@ -148,10 +165,21 @@ impl TuiApp {
             ],
             Category::Ghosts => {
                 vec![
+                    "Sessions".to_string(),
                     "List All".to_string(),
                     "New Ghost".to_string(),
                     "Delete".to_string(),
                 ]
+            }
+            Category::Jobs => {
+                let mut opts = vec!["All Recent".to_string()];
+                for g in &self.ghosts {
+                    opts.push(format!("Ghost: {}", g.ghost.name));
+                }
+                opts
+            }
+            Category::Knowledge => {
+                vec!["Recent Notes".to_string(), "Search".to_string()]
             }
         }
     }
