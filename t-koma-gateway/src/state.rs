@@ -424,7 +424,11 @@ impl AppState {
     }
 
     /// Start the heartbeat runner if it isn't already running.
-    pub async fn start_heartbeat_runner(self: &Arc<Self>, heartbeat_model_alias: Option<String>) {
+    pub async fn start_heartbeat_runner(
+        self: &Arc<Self>,
+        heartbeat_model_alias: Option<String>,
+        timing: t_koma_core::HeartbeatTimingSettings,
+    ) {
         let mut guard = self.heartbeat_runner.write().await;
         if let Some(handle) = guard.as_ref()
             && !handle.is_finished()
@@ -432,8 +436,11 @@ impl AppState {
             return;
         }
 
-        let handle =
-            crate::heartbeat::start_heartbeat_runner(Arc::clone(self), heartbeat_model_alias);
+        let handle = crate::heartbeat::start_heartbeat_runner(
+            Arc::clone(self),
+            heartbeat_model_alias,
+            timing,
+        );
         *guard = Some(handle);
     }
 

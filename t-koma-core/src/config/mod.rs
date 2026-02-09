@@ -42,8 +42,8 @@ use crate::message::ProviderType;
 pub use knowledge::{KnowledgeSettings, SearchDefaults};
 pub use secrets::{Secrets, SecretsError};
 pub use settings::{
-    GatewaySettings, KnowledgeSearchSettings, KnowledgeToolsSettings, ModelConfig,
-    OpenRouterSettings, Settings, SettingsError,
+    GatewaySettings, HeartbeatTimingSettings, KnowledgeSearchSettings, KnowledgeToolsSettings,
+    ModelConfig, OpenRouterSettings, ReflectionTimingSettings, Settings, SettingsError,
 };
 
 #[cfg(test)]

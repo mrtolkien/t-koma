@@ -15,8 +15,8 @@ use crate::scheduler::JobKind;
 use crate::state::{AppState, LogEntry};
 use t_koma_db::{JobKind as DbJobKind, JobLog, JobLogRepository};
 
-const REFLECTION_COOLDOWN_SECS: i64 = 30 * 60; // 30 minutes
-const REFLECTION_IDLE_ACTIVITY_SECS: i64 = 30 * 60; // 30 minutes since last session activity
+/// Default reflection idle minutes (overridden by config).
+const DEFAULT_REFLECTION_IDLE_MINUTES: i64 = 4;
 
 /// Check whether reflection should run for a ghost and, if so, execute it.
 ///
@@ -32,6 +32,7 @@ pub async fn maybe_run_reflection(
     session_updated_at: i64,
     operator_id: &str,
     heartbeat_model_alias: Option<&str>,
+    idle_minutes: Option<i64>,
 ) {
     run_reflection(
         state,
@@ -42,6 +43,7 @@ pub async fn maybe_run_reflection(
         heartbeat_model_alias,
         true,
         true,
+        idle_minutes.unwrap_or(DEFAULT_REFLECTION_IDLE_MINUTES),
     )
     .await;
 }
@@ -66,6 +68,7 @@ pub async fn run_reflection_now(
         heartbeat_model_alias,
         false,
         false,
+        0, // idle_minutes irrelevant when not enforced
     )
     .await;
 }
@@ -80,12 +83,14 @@ async fn run_reflection(
     heartbeat_model_alias: Option<&str>,
     enforce_idle_gate: bool,
     enforce_cooldown_gate: bool,
+    idle_minutes: i64,
 ) {
     let scheduler_key = format!("reflection:{ghost_name}");
     let now_ts = Utc::now().timestamp();
+    let idle_secs = idle_minutes * 60;
 
     // Avoid reflection right after active chat messages.
-    if enforce_idle_gate && now_ts - session_updated_at < REFLECTION_IDLE_ACTIVITY_SECS {
+    if enforce_idle_gate && now_ts - session_updated_at < idle_secs {
         return;
     }
 
@@ -149,8 +154,8 @@ async fn run_reflection(
 
     state.clear_chat_in_flight(&chat_key).await;
 
-    // Update scheduler regardless of outcome
-    let next_due = Utc::now().timestamp() + REFLECTION_COOLDOWN_SECS;
+    // Update scheduler regardless of outcome — use idle_secs as cooldown
+    let next_due = Utc::now().timestamp() + idle_secs;
     state
         .scheduler_set(JobKind::Reflection, &scheduler_key, Some(next_due))
         .await;

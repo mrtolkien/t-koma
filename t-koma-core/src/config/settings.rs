@@ -126,6 +126,14 @@ pub struct Settings {
     /// Context compaction settings
     #[serde(default)]
     pub compaction: CompactionSettings,
+
+    /// Heartbeat timing settings
+    #[serde(default)]
+    pub heartbeat_timing: HeartbeatTimingSettings,
+
+    /// Reflection timing settings
+    #[serde(default)]
+    pub reflection: ReflectionTimingSettings,
 }
 
 /// Model configuration entry
@@ -294,6 +302,62 @@ impl Default for CompactionSettings {
             mask_preview_chars: default_compaction_mask_preview_chars(),
         }
     }
+}
+
+/// Heartbeat timing configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HeartbeatTimingSettings {
+    /// Minutes of session inactivity before a heartbeat triggers (default: 4).
+    #[serde(default = "default_heartbeat_idle_minutes")]
+    pub idle_minutes: u64,
+    /// Seconds between heartbeat polling checks (default: 60).
+    #[serde(default = "default_heartbeat_check_seconds")]
+    pub check_seconds: u64,
+    /// Minutes to reschedule after a HEARTBEAT_CONTINUE response (default: 30).
+    #[serde(default = "default_heartbeat_continue_minutes")]
+    pub continue_minutes: u64,
+}
+
+impl Default for HeartbeatTimingSettings {
+    fn default() -> Self {
+        Self {
+            idle_minutes: default_heartbeat_idle_minutes(),
+            check_seconds: default_heartbeat_check_seconds(),
+            continue_minutes: default_heartbeat_continue_minutes(),
+        }
+    }
+}
+
+fn default_heartbeat_idle_minutes() -> u64 {
+    4
+}
+
+fn default_heartbeat_check_seconds() -> u64 {
+    60
+}
+
+fn default_heartbeat_continue_minutes() -> u64 {
+    30
+}
+
+/// Reflection timing configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReflectionTimingSettings {
+    /// Minutes of session inactivity before reflection triggers (default: 4).
+    #[serde(default = "default_reflection_idle_minutes")]
+    pub idle_minutes: u64,
+}
+
+impl Default for ReflectionTimingSettings {
+    fn default() -> Self {
+        Self {
+            idle_minutes: default_reflection_idle_minutes(),
+        }
+    }
+}
+
+fn default_reflection_idle_minutes() -> u64 {
+    4
 }
 
 fn default_compaction_threshold() -> f32 {

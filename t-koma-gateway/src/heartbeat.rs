@@ -16,8 +16,6 @@ use t_koma_db::{
 
 const HEARTBEAT_TOKEN: &str = "HEARTBEAT_OK";
 const HEARTBEAT_CONTINUE_TOKEN: &str = "HEARTBEAT_CONTINUE";
-const HEARTBEAT_IDLE_MINUTES: i64 = 15;
-const HEARTBEAT_CHECK_SECONDS: u64 = 60;
 const DEFAULT_HEARTBEAT_ACK_MAX_CHARS: usize = 300;
 
 struct StripResult {
@@ -173,6 +171,7 @@ pub fn next_heartbeat_due_for_session(
     session_updated_at: i64,
     had_ok_heartbeat: bool,
     override_entry: Option<HeartbeatOverride>,
+    idle_minutes: i64,
 ) -> Option<i64> {
     if let Some(override_entry) = override_entry {
         return Some(override_entry.next_due);
@@ -180,7 +179,7 @@ pub fn next_heartbeat_due_for_session(
     if had_ok_heartbeat {
         return None;
     }
-    Some(session_updated_at + HEARTBEAT_IDLE_MINUTES * 60)
+    Some(session_updated_at + idle_minutes * 60)
 }
 
 fn is_heartbeat_content_effectively_empty(content: &str) -> bool {
@@ -251,8 +250,13 @@ async fn run_heartbeat_for_session(
         .await
 }
 
-pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Option<String>) {
-    let threshold = Utc::now() - ChronoDuration::minutes(HEARTBEAT_IDLE_MINUTES);
+pub async fn run_heartbeat_tick(
+    state: Arc<AppState>,
+    heartbeat_model_alias: Option<String>,
+    idle_minutes: i64,
+    continue_minutes: i64,
+) {
+    let threshold = Utc::now() - ChronoDuration::minutes(idle_minutes);
     let threshold_ts = threshold.timestamp();
     let now_ts = Utc::now().timestamp();
 
@@ -314,6 +318,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                 session.updated_at,
                 had_ok_heartbeat,
                 override_entry,
+                idle_minutes,
             );
             state.set_heartbeat_due(&chat_key, next_due).await;
             let model_alias = heartbeat_model_alias.as_deref();
@@ -328,6 +333,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     session.updated_at,
                     &session.operator_id,
                     model_alias,
+                    None, // uses default reflection idle_minutes
                 )
                 .await;
                 continue;
@@ -341,6 +347,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     session.updated_at,
                     &session.operator_id,
                     model_alias,
+                    None, // uses default reflection idle_minutes
                 )
                 .await;
                 continue;
@@ -354,6 +361,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     session.updated_at,
                     &session.operator_id,
                     model_alias,
+                    None, // uses default reflection idle_minutes
                 )
                 .await;
                 continue;
@@ -367,6 +375,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                     session.updated_at,
                     &session.operator_id,
                     model_alias,
+                    None, // uses default reflection idle_minutes
                 )
                 .await;
                 continue;
@@ -403,7 +412,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
 
                     if status == "continue" {
                         let last_seen_updated_at = Utc::now().timestamp();
-                        let next_due = last_seen_updated_at + 30 * 60;
+                        let next_due = last_seen_updated_at + continue_minutes * 60;
                         state
                             .set_heartbeat_override(&chat_key, next_due, last_seen_updated_at)
                             .await;
@@ -450,6 +459,7 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
                         session.updated_at,
                         &session.operator_id,
                         model_alias,
+                        None,
                     )
                     .await;
                 }
@@ -475,22 +485,33 @@ pub async fn run_heartbeat_tick(state: Arc<AppState>, heartbeat_model_alias: Opt
 pub fn start_heartbeat_runner(
     state: Arc<AppState>,
     heartbeat_model_alias: Option<String>,
+    timing: t_koma_core::HeartbeatTimingSettings,
 ) -> tokio::task::JoinHandle<()> {
+    let check_seconds = timing.check_seconds;
+    let idle_minutes = timing.idle_minutes as i64;
+    let continue_minutes = timing.continue_minutes as i64;
+
     let mut interval = interval_at(
-        Instant::now() + Duration::from_secs(HEARTBEAT_CHECK_SECONDS),
-        Duration::from_secs(HEARTBEAT_CHECK_SECONDS),
+        Instant::now() + Duration::from_secs(check_seconds),
+        Duration::from_secs(check_seconds),
     );
 
     let handle = tokio::spawn(async move {
         loop {
             interval.tick().await;
-            run_heartbeat_tick(Arc::clone(&state), heartbeat_model_alias.clone()).await;
+            run_heartbeat_tick(
+                Arc::clone(&state),
+                heartbeat_model_alias.clone(),
+                idle_minutes,
+                continue_minutes,
+            )
+            .await;
         }
     });
 
     info!(
         "heartbeat runner started (idle_minutes={}, check_seconds={})",
-        HEARTBEAT_IDLE_MINUTES, HEARTBEAT_CHECK_SECONDS
+        timing.idle_minutes, check_seconds
     );
     handle
 }
@@ -533,13 +554,14 @@ mod tests {
     #[test]
     fn next_due_no_override_no_previous_heartbeat() {
         let updated_at = 1000;
-        let due = next_heartbeat_due_for_session(updated_at, false, None);
-        assert_eq!(due, Some(updated_at + HEARTBEAT_IDLE_MINUTES * 60));
+        let idle_minutes = 4;
+        let due = next_heartbeat_due_for_session(updated_at, false, None, idle_minutes);
+        assert_eq!(due, Some(updated_at + idle_minutes * 60));
     }
 
     #[test]
     fn next_due_had_ok_heartbeat() {
-        let due = next_heartbeat_due_for_session(1000, true, None);
+        let due = next_heartbeat_due_for_session(1000, true, None, 4);
         assert_eq!(due, None);
     }
 
@@ -549,7 +571,7 @@ mod tests {
             next_due: 9999,
             last_seen_updated_at: 500,
         };
-        let due = next_heartbeat_due_for_session(1000, false, Some(entry));
+        let due = next_heartbeat_due_for_session(1000, false, Some(entry), 4);
         assert_eq!(due, Some(9999));
     }
 
