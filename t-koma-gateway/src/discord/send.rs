@@ -508,12 +508,8 @@ pub async fn send_approved_operator_ghost_prompt_dm(
         .await
         .map_err(|e| e.to_string())?;
 
-    let text = super::render_message(ids::GHOST_NAME_PROMPT, &[]);
+    let text = super::render_message("operator-approved-dm", &[]);
     send_gateway_v2(&http, dm.id, &text, None, Some(GATEWAY_EMBED_COLOR))
-        .await
-        .map_err(|e| e.to_string())?;
-
-    t_koma_db::OperatorRepository::mark_welcomed(state.koma_db.pool(), operator_id)
         .await
         .map_err(|e| e.to_string())?;
 

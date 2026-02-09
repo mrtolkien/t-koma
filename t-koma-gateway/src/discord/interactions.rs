@@ -414,6 +414,7 @@ impl Bot {
             ctx,
             command.channel_id,
             &ghost_name,
+            &ghost.id,
             &operator_id,
             &external_id,
             &current_session.id,
