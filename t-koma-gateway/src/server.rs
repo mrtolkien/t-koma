@@ -62,6 +62,19 @@ fn ws_from_outbound(message: OutboundMessage) -> t_koma_core::WsResponse {
     match message {
         OutboundMessage::AssistantText(text) => ws_text_response(text),
         OutboundMessage::Gateway(message) => ws_gateway_response(*message),
+        OutboundMessage::ToolCalls(calls) => {
+            let lines: Vec<String> = calls
+                .iter()
+                .map(|c| {
+                    let arrow = if c.is_error { "⚠" } else { "→" };
+                    format!(
+                        "  {}({}) {} {}",
+                        c.name, c.input_preview, arrow, c.output_preview
+                    )
+                })
+                .collect();
+            ws_text_response(lines.join("\n"))
+        }
     }
 }
 

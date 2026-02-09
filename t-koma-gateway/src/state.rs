@@ -62,10 +62,20 @@ pub enum RateLimitDecision {
     Limited { retry_after: Duration },
 }
 
+/// Summary of a single tool call for operator visibility.
+#[derive(Debug, Clone)]
+pub struct ToolCallSummary {
+    pub name: String,
+    pub input_preview: String,
+    pub output_preview: String,
+    pub is_error: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatResult {
     pub text: String,
     pub compaction_happened: bool,
+    pub tool_calls: Vec<ToolCallSummary>,
 }
 
 /// Log entry for broadcasting events to listeners
@@ -281,6 +291,8 @@ pub struct AppState {
     scheduler: RwLock<SchedulerState>,
     /// Discord bot token (optional, used by server-side Discord notifications)
     discord_bot_token: RwLock<Option<String>>,
+    /// Operators with verbose tool call visibility enabled
+    verbose_operators: RwLock<HashSet<String>>,
 }
 
 /// Model entry tracked by the gateway
@@ -333,7 +345,24 @@ impl AppState {
             heartbeat_overrides: RwLock::new(HashMap::new()),
             scheduler: RwLock::new(SchedulerState::new()),
             discord_bot_token: RwLock::new(None),
+            verbose_operators: RwLock::new(HashSet::new()),
         }
+    }
+
+    /// Toggle verbose tool call visibility for an operator.
+    pub async fn set_verbose(&self, operator_id: &str, enabled: bool) {
+        let mut guard = self.verbose_operators.write().await;
+        if enabled {
+            guard.insert(operator_id.to_string());
+        } else {
+            guard.remove(operator_id);
+        }
+    }
+
+    /// Check if an operator has verbose tool call visibility.
+    pub async fn is_verbose(&self, operator_id: &str) -> bool {
+        let guard = self.verbose_operators.read().await;
+        guard.contains(operator_id)
     }
 
     pub async fn set_discord_bot_token(&self, token: Option<String>) {
@@ -529,6 +558,7 @@ impl AppState {
             return Ok(ChatResult {
                 text: render_message(ids::CHAT_BUSY, &[]),
                 compaction_happened: false,
+                tool_calls: Vec::new(),
             });
         }
 
@@ -539,6 +569,7 @@ impl AppState {
                     return Ok(ChatResult {
                         text: render_message(ids::CHAT_CONTINUE_MISSING, &[]),
                         compaction_happened: false,
+                        tool_calls: Vec::new(),
                     });
                 }
             }
@@ -574,8 +605,8 @@ impl AppState {
             .await;
         self.clear_chat_in_flight(&chat_key).await;
 
-        let text = match response {
-            Ok(text) => text,
+        let (text, tool_calls) = match response {
+            Ok(pair) => pair,
             Err(ChatError::EmptyResponse) => {
                 let message_preview = if message.len() > 240 {
                     format!("{}...", &message[..240])
@@ -616,6 +647,7 @@ impl AppState {
         Ok(ChatResult {
             text,
             compaction_happened,
+            tool_calls,
         })
     }
 
@@ -657,6 +689,7 @@ impl AppState {
             return Ok(ChatResult {
                 text: render_message(ids::CHAT_BUSY, &[]),
                 compaction_happened: false,
+                tool_calls: Vec::new(),
             });
         }
 
@@ -667,6 +700,7 @@ impl AppState {
                     return Ok(ChatResult {
                         text: render_message(ids::CHAT_CONTINUE_MISSING, &[]),
                         compaction_happened: false,
+                        tool_calls: Vec::new(),
                     });
                 }
             }
@@ -706,8 +740,8 @@ impl AppState {
             .await;
         self.clear_chat_in_flight(&chat_key).await;
 
-        let text = match response {
-            Ok(text) => text,
+        let (text, tool_calls) = match response {
+            Ok(pair) => pair,
             Err(ChatError::EmptyResponse) => {
                 let message_preview = if message.len() > 240 {
                     format!("{}...", &message[..240])
@@ -749,6 +783,7 @@ impl AppState {
         Ok(ChatResult {
             text,
             compaction_happened,
+            tool_calls,
         })
     }
 
