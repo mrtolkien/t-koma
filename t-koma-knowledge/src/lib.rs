@@ -17,6 +17,7 @@ pub mod watcher;
 
 pub use embeddings::EmbeddingClient;
 pub use engine::KnowledgeEngine;
+pub use engine::RecentRefSummary;
 pub use errors::KnowledgeError;
 pub use models::{
     CollectionSummary, DiaryQuery, DiarySearchResult, KnowledgeGetQuery, KnowledgeScope,

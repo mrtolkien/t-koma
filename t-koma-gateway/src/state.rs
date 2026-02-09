@@ -444,6 +444,11 @@ impl AppState {
         *guard = Some(handle);
     }
 
+    /// Access the knowledge engine.
+    pub fn knowledge_engine(&self) -> &t_koma_knowledge::KnowledgeEngine {
+        &self.knowledge_engine
+    }
+
     /// Access the knowledge settings (from the engine).
     pub fn knowledge_settings(&self) -> &t_koma_knowledge::KnowledgeSettings {
         self.knowledge_engine.settings()

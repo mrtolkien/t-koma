@@ -523,6 +523,46 @@ pub(crate) async fn reference_get(
     }
 }
 
+/// Summary of a recently saved reference file.
+#[derive(Debug, Clone)]
+pub struct RecentRefSummary {
+    pub topic_title: String,
+    pub path: String,
+    pub source_url: Option<String>,
+    pub fetched_at: String,
+}
+
+/// Get reference files saved since a given RFC3339 timestamp.
+pub(crate) async fn recent_reference_files(
+    engine: &KnowledgeEngine,
+    since_rfc3339: &str,
+) -> KnowledgeResult<Vec<RecentRefSummary>> {
+    let pool = engine.pool();
+
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, String)>(
+        "SELECT n.title, rf.path, rf.source_url, rf.fetched_at
+         FROM reference_files rf
+         JOIN notes n ON n.id = rf.topic_id
+         WHERE rf.fetched_at > ?
+         ORDER BY rf.fetched_at DESC",
+    )
+    .bind(since_rfc3339)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(topic_title, path, source_url, fetched_at)| RecentRefSummary {
+                topic_title,
+                path,
+                source_url,
+                fetched_at,
+            },
+        )
+        .collect())
+}
+
 /// Resolve a topic name to its topic_id by searching.
 async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> KnowledgeResult<String> {
     let pool = engine.pool();
