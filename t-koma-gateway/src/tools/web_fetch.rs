@@ -57,7 +57,7 @@ impl Tool for WebFetchTool {
         Self::schema()
     }
 
-    async fn execute(&self, args: Value, _context: &mut ToolContext) -> Result<String, String> {
+    async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: WebFetchInput = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         t_koma_core::load_dotenv();
@@ -95,6 +95,8 @@ impl Tool for WebFetchTool {
 
         let response = service.fetch(request).await.map_err(Self::format_error)?;
 
-        serde_json::to_string(&response).map_err(|e| e.to_string())
+        let serialized = serde_json::to_string(&response).map_err(|e| e.to_string())?;
+        let ref_id = context.cache_tool_result("web_fetch", &serialized);
+        Ok(format!("[Result #{}] {}", ref_id, serialized))
     }
 }

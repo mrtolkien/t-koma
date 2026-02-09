@@ -81,6 +81,14 @@ impl ApprovalReason {
     }
 }
 
+/// A cached tool result that can be referenced by ID via `content_ref`.
+#[derive(Debug, Clone)]
+pub struct CachedToolResult {
+    pub id: usize,
+    pub tool_name: String,
+    pub content: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolContext {
     ghost_name: String,
@@ -92,6 +100,7 @@ pub struct ToolContext {
     approved_actions: Vec<String>,
     dirty: bool,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
+    tool_result_cache: Vec<CachedToolResult>,
 }
 
 pub const APPROVAL_REQUIRED_PREFIX: &str = "APPROVAL_REQUIRED:";
@@ -113,6 +122,7 @@ impl ToolContext {
             approved_actions: Vec::new(),
             dirty: false,
             knowledge_engine: None,
+            tool_result_cache: Vec::new(),
         }
     }
 
@@ -203,6 +213,25 @@ impl ToolContext {
         self.dirty = false;
     }
 
+    /// Cache a tool result and return its ID (1-based).
+    pub fn cache_tool_result(&mut self, tool_name: &str, content: &str) -> usize {
+        let id = self.tool_result_cache.len() + 1;
+        self.tool_result_cache.push(CachedToolResult {
+            id,
+            tool_name: tool_name.to_string(),
+            content: content.to_string(),
+        });
+        id
+    }
+
+    /// Resolve a content_ref ID to the cached content string.
+    pub fn resolve_content_ref(&self, id: usize) -> Option<&str> {
+        self.tool_result_cache
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.content.as_str())
+    }
+
     pub fn new_for_tests(root: &Path) -> Self {
         Self {
             ghost_name: "test-ghost".to_string(),
@@ -214,6 +243,7 @@ impl ToolContext {
             approved_actions: Vec::new(),
             dirty: false,
             knowledge_engine: None,
+            tool_result_cache: Vec::new(),
         }
     }
 }
