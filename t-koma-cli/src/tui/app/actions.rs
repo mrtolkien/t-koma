@@ -16,15 +16,18 @@ use tempfile::NamedTempFile;
 
 use t_koma_core::{GatewayMessageKind, ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
 use t_koma_db::{
-    ContentBlock, Ghost, GhostRepository, Message, OperatorAccessLevel, OperatorRepository,
-    OperatorStatus, Platform, SessionRepository, ghosts::ghost_workspace_path,
+    ContentBlock, Ghost, GhostRepository, JobLogRepository, Message, OperatorAccessLevel,
+    OperatorRepository, OperatorStatus, Platform, SessionRepository, ghosts::ghost_workspace_path,
 };
 
 use crate::client::WsClient;
 
 use super::{
     TuiApp,
-    state::{GhostRow, Metrics, OperatorView},
+    state::{
+        ContentView, GhostRow, Metrics, OperatorView, SelectionAction, SelectionItem,
+        SelectionModal,
+    },
     util::{load_disk_config, shell_quote, ws_url_for_cli},
 };
 
@@ -692,4 +695,245 @@ impl TuiApp {
             }
         }
     }
+
+    // ── Modal actions ────────────────────────────────────────────────
+
+    pub(super) fn open_access_level_modal(
+        &mut self,
+        operator_id: String,
+        operator_name: String,
+        current: OperatorAccessLevel,
+    ) {
+        let selected = match current {
+            OperatorAccessLevel::PuppetMaster => 0,
+            OperatorAccessLevel::Standard => 1,
+        };
+        self.modal = Some(SelectionModal {
+            title: format!("Access Level for {}", operator_name),
+            items: vec![
+                SelectionItem {
+                    label: "Puppet Master".to_string(),
+                    value: "puppet_master".to_string(),
+                },
+                SelectionItem {
+                    label: "Standard".to_string(),
+                    value: "standard".to_string(),
+                },
+            ],
+            selected_idx: selected,
+            on_select: SelectionAction::SetAccessLevel,
+            context: Some(operator_id),
+        });
+    }
+
+    pub(super) async fn handle_modal_selection(&mut self, modal: SelectionModal) {
+        let Some(selected) = modal.items.get(modal.selected_idx) else {
+            return;
+        };
+
+        match modal.on_select {
+            SelectionAction::SetAccessLevel => {
+                let Some(operator_id) = modal.context else {
+                    return;
+                };
+                self.set_operator_access_level(&operator_id, &selected.value)
+                    .await;
+            }
+        }
+    }
+
+    // ── Job viewer actions ───────────────────────────────────────────
+
+    pub(super) async fn refresh_jobs(&mut self, ghost_id: Option<&str>) {
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        let result = match ghost_id {
+            Some(gid) => JobLogRepository::list_for_ghost(db.pool(), gid, 200).await,
+            None => JobLogRepository::list_recent(db.pool(), 200).await,
+        };
+
+        match result {
+            Ok(summaries) => {
+                self.job_view.summaries = summaries;
+                self.job_view.detail = None;
+                self.content_view = ContentView::List;
+                self.content_idx = 0;
+                self.status = format!("{} job logs loaded", self.job_view.summaries.len());
+            }
+            Err(e) => self.status = format!("Job list failed: {}", e),
+        }
+    }
+
+    pub(super) async fn drill_into_job(&mut self) {
+        let Some(job) = self.job_view.summaries.get(self.content_idx) else {
+            return;
+        };
+        let job_id = job.id.clone();
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        match JobLogRepository::get(db.pool(), &job_id).await {
+            Ok(Some(log)) => {
+                self.job_view.detail = Some(log);
+                self.content_view = ContentView::JobDetail {
+                    job_id: job_id.clone(),
+                };
+                self.content_idx = 0;
+            }
+            Ok(None) => self.status = "Job log not found".to_string(),
+            Err(e) => self.status = format!("Job fetch failed: {}", e),
+        }
+    }
+
+    // ── Session viewer actions ───────────────────────────────────────
+
+    pub(super) async fn drill_into_ghost_sessions(&mut self) {
+        let Some(ghost_row) = self.ghosts.get(self.content_idx) else {
+            self.status = "No ghost selected".to_string();
+            return;
+        };
+        let ghost_id = ghost_row.ghost.id.clone();
+        let ghost_name = ghost_row.ghost.name.clone();
+
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        match SessionRepository::list_for_ghost(db.pool(), &ghost_id).await {
+            Ok(sessions) => {
+                self.session_view.sessions = sessions;
+                self.content_view = ContentView::GhostSessions {
+                    ghost_id,
+                    ghost_name,
+                };
+                self.content_idx = 0;
+            }
+            Err(e) => self.status = format!("Session list failed: {}", e),
+        }
+    }
+
+    // ── Knowledge actions ────────────────────────────────────────────
+
+    pub(super) async fn refresh_knowledge_recent(&mut self) {
+        match self
+            .ws_query(WsMessage::ListRecentNotes { limit: Some(50) })
+            .await
+        {
+            Ok(WsResponse::RecentNotes { notes }) => {
+                self.knowledge_view.notes = notes;
+                self.knowledge_view.detail_title = None;
+                self.knowledge_view.detail_body = None;
+                self.content_idx = 0;
+                self.status = format!("{} notes loaded", self.knowledge_view.notes.len());
+            }
+            Ok(WsResponse::Response { message, .. })
+                if message.kind == GatewayMessageKind::Error =>
+            {
+                self.status = format!("Knowledge: {}", message.text_fallback);
+            }
+            Ok(_) => self.status = "Unexpected knowledge response".to_string(),
+            Err(e) => self.status = format!("Knowledge: {}", e),
+        }
+    }
+
+    pub(super) async fn search_knowledge(&mut self, query: &str) {
+        if query.is_empty() {
+            self.refresh_knowledge_recent().await;
+            return;
+        }
+
+        match self
+            .ws_query(WsMessage::SearchKnowledge {
+                ghost_name: None,
+                query: query.to_string(),
+                max_results: Some(30),
+            })
+            .await
+        {
+            Ok(WsResponse::KnowledgeSearchResults { results }) => {
+                self.knowledge_view.notes = results;
+                self.content_idx = 0;
+                self.status = format!("{} search results", self.knowledge_view.notes.len());
+            }
+            Ok(WsResponse::Response { message, .. })
+                if message.kind == GatewayMessageKind::Error =>
+            {
+                self.status = format!("Search: {}", message.text_fallback);
+            }
+            Ok(_) => self.status = "Unexpected search response".to_string(),
+            Err(e) => self.status = format!("Search: {}", e),
+        }
+    }
+
+    pub(super) async fn drill_into_knowledge_entry(&mut self) {
+        let Some(note) = self.knowledge_view.notes.get(self.content_idx) else {
+            return;
+        };
+        let note_id = note.id.clone();
+
+        match self
+            .ws_query(WsMessage::GetKnowledgeEntry {
+                id: note_id.clone(),
+                max_chars: None,
+            })
+            .await
+        {
+            Ok(WsResponse::KnowledgeEntry { title, body, .. }) => {
+                self.knowledge_view.detail_title = Some(title);
+                self.knowledge_view.detail_body = Some(body);
+                self.knowledge_view.scroll = 0;
+                self.content_view = ContentView::KnowledgeDetail { note_id };
+            }
+            Ok(WsResponse::Response { message, .. })
+                if message.kind == GatewayMessageKind::Error =>
+            {
+                self.status = format!("Knowledge: {}", message.text_fallback);
+            }
+            Ok(_) => self.status = "Unexpected knowledge response".to_string(),
+            Err(e) => self.status = format!("Knowledge: {}", e),
+        }
+    }
+
+    // ── WS query helper ──────────────────────────────────────────────
+
+    async fn ws_query(&self, message: WsMessage) -> Result<WsResponse, String> {
+        let ws_url = ws_url_for_cli(&self.settings.ws_url());
+        let (tx, mut rx) = WsClient::connect(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        tx.send(message)
+            .map_err(|_| "Failed to send WS message".to_string())?;
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return Err("Timed out waiting for gateway response".to_string());
+            }
+            let remaining = deadline.saturating_duration_since(now);
+            match tokio::time::timeout(remaining, rx.next()).await {
+                Ok(Some(resp)) => {
+                    if is_substantive_response(&resp) {
+                        return Ok(resp);
+                    }
+                }
+                Ok(None) => return Err("Gateway closed connection".to_string()),
+                Err(_) => return Err("Timed out waiting for gateway response".to_string()),
+            }
+        }
+    }
+}
+
+fn is_substantive_response(resp: &WsResponse) -> bool {
+    !matches!(
+        resp,
+        WsResponse::Pong | WsResponse::GhostList { .. } | WsResponse::GhostSelected { .. }
+    )
 }

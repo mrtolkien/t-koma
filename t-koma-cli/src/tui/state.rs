@@ -31,14 +31,18 @@ pub enum Category {
     Config,
     Operators,
     Ghosts,
+    Jobs,
+    Knowledge,
 }
 
 impl Category {
-    pub const ALL: [Category; 4] = [
+    pub const ALL: [Category; 6] = [
         Category::Gate,
         Category::Config,
         Category::Operators,
         Category::Ghosts,
+        Category::Jobs,
+        Category::Knowledge,
     ];
 
     pub fn label(self) -> &'static str {
@@ -47,6 +51,8 @@ impl Category {
             Self::Config => "󱁿 Config",
             Self::Operators => "󰀄 Operators",
             Self::Ghosts => "󰊠 Ghosts",
+            Self::Jobs => "󰜎 Jobs",
+            Self::Knowledge => "󰘦 Knowledge",
         }
     }
 
@@ -86,5 +92,7 @@ mod tests {
     fn test_category_flags() {
         assert!(!Category::Gate.has_options());
         assert!(Category::Config.has_options());
+        assert!(Category::Jobs.has_options());
+        assert!(Category::Knowledge.has_options());
     }
 }
