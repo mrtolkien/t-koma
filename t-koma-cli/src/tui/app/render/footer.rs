@@ -56,6 +56,19 @@ impl TuiApp {
             hints.push(("Esc", "Back"));
         }
 
+        let scrollable_content = self.focus == FocusPane::Content
+            && matches!(
+                (&self.content_view, self.selected_category()),
+                (ContentView::JobDetail { .. }, _)
+                    | (ContentView::KnowledgeDetail { .. }, _)
+                    | (ContentView::SessionMessages { .. }, _)
+                    | (ContentView::List, Category::Config)
+                    | (ContentView::List, Category::Gate)
+            );
+        if scrollable_content {
+            hints.push(("u/d", "Page"));
+        }
+
         match self.selected_category() {
             Category::Gate => {
                 hints.push(("r", "Restart"));
