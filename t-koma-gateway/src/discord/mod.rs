@@ -1,4 +1,5 @@
 mod bot;
+pub(crate) mod components_v2;
 mod interactions;
 mod send;
 
