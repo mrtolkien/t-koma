@@ -108,6 +108,9 @@ Skill directory: {:?}
         }
     );
 
+    // Unpack the tuple (response, raw_json)
+    let (response, _raw_json) = response;
+
     // Check if the model used the load_skill tool
     let has_load_skill = response.content.iter().any(|b| matches!(b,
         t_koma_gateway::providers::anthropic::ContentBlock::ToolUse { name, .. } if name == "load_skill"
@@ -192,7 +195,7 @@ Skill directory: {:?}
     ));
 
     // Get final response from the model
-    let final_response = client
+    let (final_response, _final_raw) = client
         .send_conversation(
             Some(vec![t_koma_gateway::prompt::render::SystemBlock::new(
                 &system_prompt_text,

@@ -117,6 +117,7 @@ pub struct Operator {
     pub rate_limit_5m_max: Option<i64>,
     pub rate_limit_1h_max: Option<i64>,
     pub allow_workspace_escape: bool,
+    pub verbose: bool,
     pub created_at: i64,
     pub updated_at: i64,
     pub approved_at: Option<i64>,
@@ -148,8 +149,8 @@ impl OperatorRepository {
         };
 
         sqlx::query(
-            "INSERT INTO operators (id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, welcomed)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)",
+            "INSERT INTO operators (id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, verbose, created_at, updated_at, welcomed)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0)",
         )
         .bind(&id)
         .bind(name)
@@ -200,8 +201,8 @@ impl OperatorRepository {
         };
 
         sqlx::query(
-            "INSERT INTO operators (id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, welcomed)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)",
+            "INSERT INTO operators (id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, verbose, created_at, updated_at, welcomed)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0)",
         )
         .bind(id)
         .bind(name)
@@ -227,7 +228,7 @@ impl OperatorRepository {
     /// Get operator by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Operator>> {
         let row = sqlx::query_as::<_, OperatorRow>(
-            "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
+            "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, verbose, created_at, updated_at, approved_at, denied_at, welcomed
              FROM operators
              WHERE id = ?",
         )
@@ -359,7 +360,7 @@ impl OperatorRepository {
         let rows = match platform {
             Some(platform) => {
                 sqlx::query_as::<_, OperatorRow>(
-                    "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
+                    "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, verbose, created_at, updated_at, approved_at, denied_at, welcomed
                      FROM operators
                      WHERE status = ? AND platform = ?
                      ORDER BY created_at ASC",
@@ -371,7 +372,7 @@ impl OperatorRepository {
             }
             None => {
                 sqlx::query_as::<_, OperatorRow>(
-                    "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
+                    "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, verbose, created_at, updated_at, approved_at, denied_at, welcomed
                      FROM operators
                      WHERE status = ?
                      ORDER BY created_at ASC",
@@ -388,7 +389,7 @@ impl OperatorRepository {
     /// List all operators
     pub async fn list_all(pool: &SqlitePool) -> DbResult<Vec<Operator>> {
         let rows = sqlx::query_as::<_, OperatorRow>(
-            "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, created_at, updated_at, approved_at, denied_at, welcomed
+            "SELECT id, name, platform, status, access_level, rate_limit_5m_max, rate_limit_1h_max, allow_workspace_escape, verbose, created_at, updated_at, approved_at, denied_at, welcomed
              FROM operators
              ORDER BY created_at ASC",
         )
@@ -484,6 +485,25 @@ impl OperatorRepository {
             .ok_or_else(|| DbError::OperatorNotFound(id.to_string()))
     }
 
+    pub async fn set_verbose(pool: &SqlitePool, id: &str, verbose: bool) -> DbResult<Operator> {
+        let now = Utc::now().timestamp();
+        let val = if verbose { 1 } else { 0 };
+        sqlx::query(
+            "UPDATE operators
+             SET verbose = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(val)
+        .bind(now)
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        Self::get_by_id(pool, id)
+            .await?
+            .ok_or_else(|| DbError::OperatorNotFound(id.to_string()))
+    }
+
     /// Auto-prune pending operators older than the specified hours
     pub async fn prune_pending(pool: &SqlitePool, hours: i64) -> DbResult<i64> {
         let cutoff = Utc::now().timestamp() - (hours * 3600);
@@ -545,6 +565,7 @@ struct OperatorRow {
     rate_limit_5m_max: Option<i64>,
     rate_limit_1h_max: Option<i64>,
     allow_workspace_escape: i64,
+    verbose: i64,
     created_at: i64,
     updated_at: i64,
     approved_at: Option<i64>,
@@ -566,6 +587,7 @@ impl From<OperatorRow> for Operator {
             rate_limit_5m_max: row.rate_limit_5m_max,
             rate_limit_1h_max: row.rate_limit_1h_max,
             allow_workspace_escape: row.allow_workspace_escape != 0,
+            verbose: row.verbose != 0,
             created_at: row.created_at,
             updated_at: row.updated_at,
             approved_at: row.approved_at,

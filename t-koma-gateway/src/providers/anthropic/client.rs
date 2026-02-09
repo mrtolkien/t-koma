@@ -148,6 +148,7 @@ impl AnthropicClient {
     ) -> Result<MessagesResponse, AnthropicError> {
         self.send_conversation(None, vec![], vec![], Some(content.as_ref()), None, None)
             .await
+            .map(|(resp, _)| resp)
     }
 
     /// Send a single-turn message with tool definitions.
@@ -158,6 +159,7 @@ impl AnthropicClient {
     ) -> Result<MessagesResponse, AnthropicError> {
         self.send_conversation(None, vec![], tools, Some(content.as_ref()), None, None)
             .await
+            .map(|(resp, _)| resp)
     }
 
     /// Send a conversation with full history and prompt caching
@@ -169,6 +171,8 @@ impl AnthropicClient {
     /// * `new_message` - Optional new user message to add
     /// * `message_limit` - Optional limit on history messages to include
     /// * `_tool_choice` - Placeholder for future forced tool selection
+    ///
+    /// Returns the parsed response along with the raw JSON string.
     pub async fn send_conversation(
         &self,
         system: Option<Vec<SystemBlock>>,
@@ -177,7 +181,7 @@ impl AnthropicClient {
         new_message: Option<&str>,
         message_limit: Option<usize>,
         _tool_choice: Option<String>,
-    ) -> Result<MessagesResponse, AnthropicError> {
+    ) -> Result<(MessagesResponse, String), AnthropicError> {
         let url = format!("{}/messages", self.base_url);
 
         // Build messages: neutral history -> Anthropic API payload.
@@ -255,7 +259,7 @@ impl AnthropicClient {
                 }
             })?;
 
-        Ok(messages_response)
+        Ok((messages_response, response_text))
     }
 
     /// Extract text content from a response
@@ -306,7 +310,7 @@ impl AnthropicClient {
     }
 
     /// Convert MessagesResponse to ProviderResponse
-    fn to_provider_response(&self, response: MessagesResponse) -> ProviderResponse {
+    fn to_provider_response(&self, response: MessagesResponse, raw_json: &str) -> ProviderResponse {
         let content = response
             .content
             .into_iter()
@@ -329,6 +333,7 @@ impl AnthropicClient {
                 cache_creation_tokens: Some(u.cache_creation_tokens),
             }),
             stop_reason: response.stop_reason,
+            raw_json: Some(raw_json.to_string()),
         }
     }
 }
@@ -352,7 +357,7 @@ impl Provider for AnthropicClient {
         message_limit: Option<usize>,
         _tool_choice: Option<String>,
     ) -> Result<ProviderResponse, ProviderError> {
-        let response = self
+        let (response, raw_json) = self
             .send_conversation(
                 system,
                 history,
@@ -362,7 +367,7 @@ impl Provider for AnthropicClient {
                 _tool_choice,
             )
             .await?;
-        Ok(self.to_provider_response(response))
+        Ok(self.to_provider_response(response, &raw_json))
     }
 
     fn clone_box(&self) -> Box<dyn Provider> {

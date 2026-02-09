@@ -288,7 +288,11 @@ impl OpenAiCompatibleClient {
     }
 
     /// Convert OpenAI response to provider response
-    fn convert_response(&self, response: ChatCompletionsResponse) -> ProviderResponse {
+    fn convert_response(
+        &self,
+        response: ChatCompletionsResponse,
+        raw_json: &str,
+    ) -> ProviderResponse {
         let stop_reason = response
             .choices
             .first()
@@ -333,6 +337,7 @@ impl OpenAiCompatibleClient {
                 cache_creation_tokens: None,
             }),
             stop_reason,
+            raw_json: Some(raw_json.to_string()),
         }
     }
 }
@@ -430,7 +435,7 @@ impl Provider for OpenAiCompatibleClient {
                     "Failed to parse OpenAI-compatible response: {e}\nBody preview: {preview}"
                 ))
             })?;
-        Ok(self.convert_response(completions_response))
+        Ok(self.convert_response(completions_response, &response_text))
     }
 
     fn clone_box(&self) -> Box<dyn Provider> {
