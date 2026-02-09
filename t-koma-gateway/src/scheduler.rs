@@ -39,4 +39,12 @@ impl SchedulerState {
     pub fn clear(&mut self, kind: JobKind, key: &str) {
         self.schedules.remove(&(kind, key.to_string()));
     }
+
+    /// List all scheduled entries (for admin/TUI display).
+    pub fn list_all(&self) -> Vec<(JobKind, String, i64)> {
+        self.schedules
+            .iter()
+            .map(|((kind, key), schedule)| (*kind, key.clone(), schedule.next_due))
+            .collect()
+    }
 }
