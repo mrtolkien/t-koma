@@ -9,7 +9,6 @@ use tracing::error;
 use crate::state::PendingGatewayAction;
 
 use super::bot::{Bot, handle_interface_choice, run_action_intent};
-use super::send::{send_gateway_embed, send_outbound_messages};
 
 /// Extend `Bot` with the `interaction_create` handler via a partial EventHandler.
 ///
@@ -337,13 +336,6 @@ impl Bot {
                 }
             };
 
-        crate::operator_flow::spawn_reflection_for_previous_session(
-            &self.state,
-            &ghost_name,
-            &operator_id,
-            &current_session.id,
-        );
-
         // Acknowledge immediately — the ghost response may take a while
         let _ = command
             .create_response(
@@ -356,41 +348,16 @@ impl Bot {
             )
             .await;
 
-        match crate::operator_flow::run_chat_with_pending(
-            self.state.as_ref(),
-            Some("discord"),
-            None,
+        self.start_new_session_core(
+            ctx,
+            command.channel_id,
             &ghost_name,
-            &new_session.id,
             &operator_id,
-            "hello",
+            &external_id,
+            &current_session.id,
+            &new_session.id,
         )
-        .await
-        {
-            Ok(messages) => {
-                send_outbound_messages(
-                    self.state.as_ref(),
-                    ctx,
-                    command.channel_id,
-                    &external_id,
-                    &operator_id,
-                    &ghost_name,
-                    &new_session.id,
-                    messages,
-                )
-                .await;
-            }
-            Err(e) => {
-                error!("[session:{}] Chat error: {}", new_session.id, e);
-                let _ = send_gateway_embed(
-                    ctx,
-                    command.channel_id,
-                    &super::render_message("error-processing-request", &[]),
-                    None,
-                )
-                .await;
-            }
-        }
+        .await;
     }
 
     /// Look up the operator ID from a Discord user's external ID.

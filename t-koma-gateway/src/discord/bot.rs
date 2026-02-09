@@ -901,6 +901,36 @@ impl Bot {
                     return;
                 }
             };
+
+        let typing = msg.channel_id.start_typing(&ctx.http);
+        self.start_new_session_core(
+            ctx,
+            msg.channel_id,
+            ghost_name,
+            operator_id,
+            operator_external_id,
+            previous_session_id,
+            &new_session.id,
+        )
+        .await;
+        drop(typing);
+    }
+
+    /// Shared new-session logic: spawn reflection on the previous session,
+    /// bootstrap the new session with "hello", and send outbound messages.
+    ///
+    /// Used by both the text `new` command and the `/new` slash command.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn start_new_session_core(
+        &self,
+        ctx: &Context,
+        channel_id: serenity::model::id::ChannelId,
+        ghost_name: &str,
+        operator_id: &str,
+        operator_external_id: &str,
+        previous_session_id: &str,
+        new_session_id: &str,
+    ) {
         operator_flow::spawn_reflection_for_previous_session(
             &self.state,
             ghost_name,
@@ -908,13 +938,12 @@ impl Bot {
             previous_session_id,
         );
 
-        let typing = msg.channel_id.start_typing(&ctx.http);
         match operator_flow::run_chat_with_pending(
             self.state.as_ref(),
             Some("discord"),
             None,
             ghost_name,
-            &new_session.id,
+            new_session_id,
             operator_id,
             "hello",
         )
@@ -924,27 +953,26 @@ impl Bot {
                 send_outbound_messages(
                     self.state.as_ref(),
                     ctx,
-                    msg.channel_id,
+                    channel_id,
                     operator_external_id,
                     operator_id,
                     ghost_name,
-                    &new_session.id,
+                    new_session_id,
                     messages,
                 )
                 .await;
             }
             Err(e) => {
-                error!("[session:{}] Chat error: {}", new_session.id, e);
+                error!("[session:{}] Chat error: {}", new_session_id, e);
                 let _ = send_gateway_embed(
                     ctx,
-                    msg.channel_id,
+                    channel_id,
                     &super::render_message("error-processing-request", &[]),
                     None,
                 )
                 .await;
             }
         }
-        drop(typing);
     }
 }
 
