@@ -2,7 +2,7 @@ use serenity::builder::{CreateActionRow, CreateAttachment, CreateEmbed, CreateMe
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
-use tracing::warn;
+use tracing::{error, warn};
 
 use crate::content::ids;
 use crate::operator_flow::OutboundMessage;
@@ -36,6 +36,10 @@ pub async fn send_assistant_v2(
     } = markdown::markdown_to_v2_components(content);
 
     if components.is_empty() {
+        warn!(
+            "Ghost response produced no v2 components (content length: {})",
+            content.len()
+        );
         return Ok(());
     }
 
@@ -439,10 +443,15 @@ pub async fn send_outbound_messages(
     for message in messages {
         match message {
             OutboundMessage::AssistantText(text) => {
-                let _ = send_assistant_v2(&ctx.http, channel_id, &text).await;
+                if let Err(e) = send_assistant_v2(&ctx.http, channel_id, &text).await {
+                    error!(
+                        "[ghost:{}] Failed to send assistant message to Discord: {}",
+                        ghost_name, e
+                    );
+                }
             }
             OutboundMessage::Gateway(msg) => {
-                let _ = send_discord_gateway_message(
+                if let Err(e) = send_discord_gateway_message(
                     state,
                     ctx,
                     channel_id,
@@ -452,10 +461,21 @@ pub async fn send_outbound_messages(
                     session_id,
                     *msg,
                 )
-                .await;
+                .await
+                {
+                    error!(
+                        "[ghost:{}] Failed to send gateway message to Discord: {}",
+                        ghost_name, e
+                    );
+                }
             }
             OutboundMessage::ToolCalls(calls) => {
-                let _ = send_tool_calls_v2(&ctx.http, channel_id, &calls).await;
+                if let Err(e) = send_tool_calls_v2(&ctx.http, channel_id, &calls).await {
+                    error!(
+                        "[ghost:{}] Failed to send tool calls to Discord: {}",
+                        ghost_name, e
+                    );
+                }
             }
         }
     }
