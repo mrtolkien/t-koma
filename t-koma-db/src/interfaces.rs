@@ -127,12 +127,12 @@ impl From<InterfaceRow> for Interface {
 mod tests {
     use super::*;
     use crate::{
-        OperatorAccessLevel, OperatorRepository, Platform, test_helpers::create_test_koma_pool,
+        OperatorAccessLevel, OperatorRepository, Platform, test_helpers::create_test_pool,
     };
 
     #[tokio::test]
     async fn test_create_interface() {
-        let db = create_test_koma_pool().await.unwrap();
+        let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
         let operator = OperatorRepository::create_new(

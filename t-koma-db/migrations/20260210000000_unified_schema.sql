@@ -1,4 +1,4 @@
--- T-KOMA (ティーコマ) unified database schema
+-- T-KOMA unified database schema
 -- Single database for gateway and all ghost data
 
 -- ============================================================================

@@ -268,6 +268,7 @@ pub fn spawn_reflection_for_previous_session(
         crate::reflection::run_reflection_now(
             &state_for_reflection,
             &ghost_name_for_reflection,
+            &operator_id_for_reflection,
             &previous_session_id,
             &operator_id_for_reflection,
             None,

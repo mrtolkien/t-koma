@@ -16,8 +16,8 @@ use tempfile::NamedTempFile;
 
 use t_koma_core::{GatewayMessageKind, ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
 use t_koma_db::{
-    ContentBlock, Ghost, GhostDbPool, GhostRepository, Message, OperatorAccessLevel,
-    OperatorRepository, OperatorStatus, Platform, SessionRepository,
+    ContentBlock, Ghost, GhostRepository, Message, OperatorAccessLevel, OperatorRepository,
+    OperatorStatus, Platform, SessionRepository, ghosts::ghost_workspace_path,
 };
 
 use crate::client::WsClient;
@@ -108,9 +108,8 @@ impl TuiApp {
         let mut recent_message_count = 0;
         let since = Utc::now().timestamp() - 300;
         for ghost in &ghosts {
-            if let Ok(ghost_db) = GhostDbPool::new(&ghost.name).await
-                && let Ok(count) =
-                    SessionRepository::count_messages_since(ghost_db.pool(), since).await
+            if let Ok(count) =
+                SessionRepository::count_messages_since(db.pool(), &ghost.id, since).await
             {
                 recent_message_count += count;
             }
@@ -170,8 +169,8 @@ impl TuiApp {
     }
 
     async fn compute_ghost_heartbeat_status(&self, ghost: &Ghost) -> Option<String> {
-        let ghost_db = GhostDbPool::new(&ghost.name).await.ok()?;
-        let sessions = SessionRepository::list(ghost_db.pool(), &ghost.owner_operator_id)
+        let db = self.db.as_ref()?;
+        let sessions = SessionRepository::list(db.pool(), &ghost.id, &ghost.owner_operator_id)
             .await
             .ok()?;
 
@@ -180,7 +179,7 @@ impl TuiApp {
             if !session.is_active {
                 continue;
             }
-            let last_message = SessionRepository::get_last_message(ghost_db.pool(), &session.id)
+            let last_message = SessionRepository::get_last_message(db.pool(), &session.id)
                 .await
                 .ok()
                 .flatten();
@@ -472,7 +471,7 @@ impl TuiApp {
 
         match GhostRepository::delete_by_name(db.pool(), ghost_name).await {
             Ok(()) => {
-                if let Ok(path) = GhostDbPool::workspace_path_for(ghost_name)
+                if let Ok(path) = ghost_workspace_path(ghost_name)
                     && path.exists()
                 {
                     let _ = fs::remove_dir_all(&path);

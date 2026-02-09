@@ -12,11 +12,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
+use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 use crate::prompt::render::SystemBlock;
-use t_koma_db::{GhostDbPool, PromptCacheEntry, PromptCacheRepository};
+use t_koma_db::{PromptCacheEntry, PromptCacheRepository};
 
 /// Default cache TTL in seconds (5 minutes — matches common provider cache windows).
 const DEFAULT_TTL_SECS: i64 = 300;
@@ -52,9 +53,9 @@ impl PromptCacheManager {
     /// Load cached entries from the DB that are still within the TTL.
     ///
     /// Call this on startup to recover caches that survive process restarts.
-    pub async fn load_from_db(&self, ghost_db: &GhostDbPool) {
+    pub async fn load_from_db(&self, pool: &SqlitePool, ghost_id: &str) {
         let cutoff = Utc::now().timestamp() - DEFAULT_TTL_SECS;
-        let rows = match PromptCacheRepository::load_recent(ghost_db.pool(), cutoff).await {
+        let rows = match PromptCacheRepository::load_recent(pool, ghost_id, cutoff).await {
             Ok(rows) => rows,
             Err(e) => {
                 warn!(error = %e, "Failed to load prompt cache from DB");
@@ -92,7 +93,8 @@ impl PromptCacheManager {
     pub async fn get_or_build<F, Fut>(
         &self,
         session_id: &str,
-        ghost_db: &GhostDbPool,
+        pool: &SqlitePool,
+        ghost_id: &str,
         context_hash: &str,
         build: F,
     ) -> Vec<SystemBlock>
@@ -125,13 +127,8 @@ impl PromptCacheManager {
 
         // Persist to DB (fire-and-forget)
         if let Ok(json) = serde_json::to_string(&entry.system_blocks) {
-            let db_entry = PromptCacheEntry {
-                session_id: session_id.to_string(),
-                system_blocks_json: json,
-                context_hash: context_hash.to_string(),
-                cached_at: now,
-            };
-            if let Err(e) = PromptCacheRepository::upsert(ghost_db.pool(), &db_entry).await {
+            let db_entry = PromptCacheEntry::new(ghost_id, session_id, &json, context_hash, now);
+            if let Err(e) = PromptCacheRepository::upsert(pool, &db_entry).await {
                 warn!(session_id, error = %e, "Failed to persist prompt cache");
             }
         }
@@ -216,19 +213,19 @@ mod tests {
         ];
         let blocks_clone = blocks.clone();
 
-        let db = t_koma_db::test_helpers::create_test_ghost_pool("CacheGhost")
-            .await
-            .unwrap();
+        let db = t_koma_db::test_helpers::create_test_pool().await.unwrap();
 
         let result = cache
-            .get_or_build("sess_test", &db, "hash1", || async { blocks_clone })
+            .get_or_build("sess_test", db.pool(), "ghost1", "hash1", || async {
+                blocks_clone
+            })
             .await;
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].text, "Instruction 1");
 
         // Second call should hit the cache (build closure not called)
         let result2 = cache
-            .get_or_build("sess_test", &db, "hash1", || async {
+            .get_or_build("sess_test", db.pool(), "ghost1", "hash1", || async {
                 panic!("should not be called on cache hit")
             })
             .await;
@@ -239,22 +236,20 @@ mod tests {
     #[tokio::test]
     async fn test_cache_invalidation_on_hash_change() {
         let cache = PromptCacheManager::new();
-        let db = t_koma_db::test_helpers::create_test_ghost_pool("CacheGhost2")
-            .await
-            .unwrap();
+        let db = t_koma_db::test_helpers::create_test_pool().await.unwrap();
 
         let blocks_v1 = vec![SystemBlock::new("Version 1")];
         let blocks_v2 = vec![SystemBlock::new("Version 2")];
 
         let v1 = blocks_v1.clone();
         cache
-            .get_or_build("sess_test", &db, "hash_v1", || async { v1 })
+            .get_or_build("sess_test", db.pool(), "ghost1", "hash_v1", || async { v1 })
             .await;
 
         // Different hash → cache miss, build is called
         let v2 = blocks_v2.clone();
         let result = cache
-            .get_or_build("sess_test", &db, "hash_v2", || async { v2 })
+            .get_or_build("sess_test", db.pool(), "ghost1", "hash_v2", || async { v2 })
             .await;
         assert_eq!(result[0].text, "Version 2");
     }

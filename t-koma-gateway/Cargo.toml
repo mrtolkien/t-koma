@@ -69,6 +69,9 @@ globset = "0.4"
 # HTML to text conversion
 html2text = "0.12"
 
+# Database (re-export pool types)
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+
 # SVG → PNG table rendering for Discord
 resvg = "0.46"
 
