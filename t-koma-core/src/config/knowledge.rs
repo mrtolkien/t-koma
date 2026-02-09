@@ -39,7 +39,7 @@ impl Default for KnowledgeSettings {
         Self {
             embedding_url: default_embedding_url(),
             embedding_model: default_embedding_model(),
-            embedding_dim: Some(1024),
+            embedding_dim: None,
             embedding_batch: default_embedding_batch(),
             reconcile_seconds: default_reconcile_seconds(),
             knowledge_db_path_override: None,
