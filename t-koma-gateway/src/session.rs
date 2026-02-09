@@ -31,7 +31,7 @@ pub enum ChatError {
     #[error("Database error: {0}")]
     Database(#[from] t_koma_db::DbError),
 
-    #[error("Anthropic API error: {0}")]
+    #[error("Provider API error: {0}")]
     Api(String),
 
     #[error("Session not found or access denied")]
