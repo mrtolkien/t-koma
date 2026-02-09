@@ -705,7 +705,7 @@ impl SessionChat {
             provider_name,
             model,
             if text.len() > 100 {
-                &text[..100]
+                &text[..text.floor_char_boundary(100)]
             } else {
                 &text
             }
@@ -1481,7 +1481,7 @@ with your reply — do not respond without saving first."
             provider_name,
             model,
             if text.len() > 100 {
-                &text[..100]
+                &text[..text.floor_char_boundary(100)]
             } else {
                 &text
             }
