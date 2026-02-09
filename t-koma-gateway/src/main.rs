@@ -3,6 +3,8 @@ use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use t_koma_gateway::state::LogEntry;
+
 use t_koma_gateway::discord::start_discord_bot;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
@@ -227,6 +229,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.settings.heartbeat_timing.clone(),
         )
         .await;
+
+    // Start append-only JSONL log file writer if enabled
+    if config.settings.logging.file_enabled {
+        let log_path = config
+            .settings
+            .logging
+            .file_path
+            .clone()
+            .unwrap_or_else(|| "logs/t-koma.jsonl".to_string());
+        if let Some(parent) = std::path::Path::new(&log_path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)?;
+        let mut rx = state.subscribe_logs();
+        tokio::spawn(async move {
+            use std::io::Write;
+            let mut writer = std::io::BufWriter::new(file);
+            while let Ok(entry) = rx.recv().await {
+                #[derive(serde::Serialize)]
+                struct Line {
+                    ts: String,
+                    #[serde(flatten)]
+                    entry: LogEntry,
+                }
+                let line = Line {
+                    ts: chrono::Utc::now().to_rfc3339(),
+                    entry,
+                };
+                if let Ok(json) = serde_json::to_string(&line) {
+                    let _ = writeln!(writer, "{json}");
+                    let _ = writer.flush();
+                }
+            }
+        });
+        info!("JSONL log writer started: {}", log_path);
+    }
 
     // Start Discord bot if enabled and token is present
     let discord_client = if config.discord_enabled() {
