@@ -1,19 +1,21 @@
-//! Reflection job: curate inbox captures into structured knowledge.
+//! Reflection job: curate conversation insights into structured knowledge.
 //!
 //! After heartbeat completes for a session, the reflection runner checks if
-//! the ghost has unprocessed inbox files. If so, it renders the
-//! `reflection-prompt.md` template (which includes note-guidelines.md) with
-//! the inbox items, then sends it through `chat_job()` so the ghost can
-//! create/update notes without polluting the session history.
+//! there are new messages since the last reflection. If so, it builds a prompt
+//! with the recent conversation and recently saved references, then sends it
+//! through `chat_job()` so the ghost can create/update notes, curate references,
+//! and update identity files without polluting the session history.
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use tracing::{info, warn};
 
 use crate::scheduler::JobKind;
 use crate::state::{AppState, LogEntry};
-use t_koma_db::{JobKind as DbJobKind, JobLog, JobLogRepository};
+use t_koma_db::{
+    ContentBlock, JobKind as DbJobKind, JobLog, JobLogRepository, MessageRole, SessionRepository,
+};
 
 /// Default reflection idle minutes (overridden by config).
 const DEFAULT_REFLECTION_IDLE_MINUTES: i64 = 4;
@@ -22,9 +24,8 @@ const DEFAULT_REFLECTION_IDLE_MINUTES: i64 = 4;
 ///
 /// Called from the heartbeat loop after a heartbeat tick completes for a session.
 /// Conditions:
-/// 1. Ghost inbox has files
-/// 2. Session has been idle for at least 30 minutes
-/// 3. Last reflection was > 30 minutes ago (tracked via scheduler)
+/// 1. New messages exist since last reflection
+/// 2. Session has been idle for at least N minutes
 pub async fn maybe_run_reflection(
     state: &Arc<AppState>,
     ghost_name: &str,
@@ -41,7 +42,6 @@ pub async fn maybe_run_reflection(
         session_updated_at,
         operator_id,
         heartbeat_model_alias,
-        true,
         true,
         idle_minutes.unwrap_or(DEFAULT_REFLECTION_IDLE_MINUTES),
     )
@@ -67,7 +67,6 @@ pub async fn run_reflection_now(
         operator_id,
         heartbeat_model_alias,
         false,
-        false,
         0, // idle_minutes irrelevant when not enforced
     )
     .await;
@@ -82,10 +81,8 @@ async fn run_reflection(
     operator_id: &str,
     heartbeat_model_alias: Option<&str>,
     enforce_idle_gate: bool,
-    enforce_cooldown_gate: bool,
     idle_minutes: i64,
 ) {
-    let scheduler_key = format!("reflection:{ghost_name}");
     let now_ts = Utc::now().timestamp();
     let idle_secs = idle_minutes * 60;
 
@@ -94,36 +91,52 @@ async fn run_reflection(
         return;
     }
 
-    // Check cooldown
-    if enforce_cooldown_gate
-        && let Some(next_due) = state
-            .scheduler_get(JobKind::Reflection, &scheduler_key)
-            .await
-        && now_ts < next_due
-    {
-        return;
-    }
-
-    // Check if inbox has files
     let ghost_db = match state.get_or_init_ghost_db(ghost_name).await {
         Ok(db) => db,
         Err(_) => return,
     };
-    let inbox_path = ghost_db.workspace_path().join("inbox");
-    let inbox_items = match read_inbox_items(&inbox_path).await {
-        Ok(items) if items.is_empty() => return,
-        Ok(items) => items,
+
+    // Find the timestamp of the last successful reflection for this session.
+    let last_reflection_ts =
+        match JobLogRepository::latest_ok(ghost_db.pool(), session_id, DbJobKind::Reflection).await
+        {
+            Ok(Some(log)) => log.finished_at.unwrap_or(log.started_at),
+            Ok(None) => 0, // never reflected — process everything
+            Err(_) => return,
+        };
+
+    // Check if new messages exist since last reflection.
+    let recent_messages = match SessionRepository::get_messages_since(
+        ghost_db.pool(),
+        session_id,
+        last_reflection_ts,
+    )
+    .await
+    {
+        Ok(msgs) if msgs.is_empty() => return,
+        Ok(msgs) => msgs,
         Err(_) => return,
     };
 
     info!(
-        "reflection: {} inbox items for ghost '{}'",
-        inbox_items.len(),
+        "reflection: {} new messages since last reflection for ghost '{}'",
+        recent_messages.len(),
         ghost_name
     );
 
+    // Build recent references list
+    let since_rfc3339 = DateTime::from_timestamp(last_reflection_ts, 0)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC)
+        .to_rfc3339();
+
+    let recent_refs = state
+        .knowledge_engine()
+        .recent_reference_files(&since_rfc3339)
+        .await
+        .unwrap_or_default();
+
     // Build and run the reflection prompt
-    let prompt = build_reflection_prompt(&inbox_items);
+    let prompt = build_reflection_prompt(&recent_messages, &recent_refs);
 
     let model = if let Some(alias) = heartbeat_model_alias {
         state
@@ -148,21 +161,25 @@ async fn run_reflection(
             session_id,
             operator_id,
             &prompt,
-            true, // load session history for reference context
+            false, // recent messages are embedded in the prompt
         )
         .await;
 
     state.clear_chat_in_flight(&chat_key).await;
 
-    // Update scheduler regardless of outcome — use idle_secs as cooldown
-    let next_due = Utc::now().timestamp() + idle_secs;
+    // Update scheduler — no cooldown; reflection won't re-trigger until new messages appear
+    let scheduler_key = format!("reflection:{ghost_name}");
     state
-        .scheduler_set(JobKind::Reflection, &scheduler_key, Some(next_due))
+        .scheduler_set(JobKind::Reflection, &scheduler_key, None)
         .await;
 
     match result {
         Ok(job_result) => {
-            let status = format!("processed {} items", inbox_items.len());
+            let status = format!(
+                "processed {} messages, {} references",
+                recent_messages.len(),
+                recent_refs.len()
+            );
             let mut job_log = JobLog::start(DbJobKind::Reflection, session_id);
             job_log.transcript = job_result.transcript;
             job_log.finish(&status);
@@ -197,58 +214,84 @@ async fn run_reflection(
     }
 }
 
-/// Read all inbox files, sorted chronologically by filename.
-async fn read_inbox_items(inbox_path: &std::path::Path) -> std::io::Result<Vec<InboxItem>> {
-    if !inbox_path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut entries = Vec::new();
-    let mut dir = tokio::fs::read_dir(inbox_path).await?;
-    while let Some(entry) = dir.next_entry().await? {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("md") {
-            continue;
+/// Format recent messages as a conversation excerpt for the reflection prompt.
+fn format_messages(messages: &[t_koma_db::Message]) -> String {
+    let mut out = String::new();
+    for msg in messages {
+        let role = match msg.role {
+            MessageRole::Operator => "OPERATOR",
+            MessageRole::Ghost => "GHOST",
+        };
+        for block in &msg.content {
+            match block {
+                ContentBlock::Text { text } => {
+                    out.push_str(&format!("**{}**: {}\n\n", role, text));
+                }
+                ContentBlock::ToolUse { name, .. } => {
+                    out.push_str(&format!("**{}** [tool_use: {}]\n\n", role, name));
+                }
+                ContentBlock::ToolResult {
+                    content, is_error, ..
+                } => {
+                    let label = if is_error == &Some(true) {
+                        "tool_error"
+                    } else {
+                        "tool_result"
+                    };
+                    // Truncate long tool results
+                    let preview = if content.len() > 500 {
+                        format!(
+                            "{}... (truncated)",
+                            &content[..content.floor_char_boundary(500)]
+                        )
+                    } else {
+                        content.clone()
+                    };
+                    out.push_str(&format!("[{}: {}]\n\n", label, preview));
+                }
+            }
         }
-        let content = tokio::fs::read_to_string(&path).await?;
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-        entries.push(InboxItem { filename, content });
     }
-
-    entries.sort_by(|a, b| a.filename.cmp(&b.filename));
-    Ok(entries)
+    out
 }
 
-struct InboxItem {
-    filename: String,
-    content: String,
+/// Format recent reference saves as a list.
+fn format_references(refs: &[t_koma_knowledge::RecentRefSummary]) -> String {
+    if refs.is_empty() {
+        return "No references saved since last reflection.".to_string();
+    }
+    let mut out = String::new();
+    for r in refs {
+        out.push_str(&format!("- **{}** / `{}`", r.topic_title, r.path));
+        if let Some(url) = &r.source_url {
+            out.push_str(&format!(" — source: {}", url));
+        }
+        out.push('\n');
+    }
+    out
 }
 
-fn build_reflection_prompt(items: &[InboxItem]) -> String {
-    let mut inbox_text = String::new();
-    for (i, item) in items.iter().enumerate() {
-        inbox_text.push_str(&format!(
-            "## Inbox Item {} — `{}`\n\n{}\n\n---\n\n",
-            i + 1,
-            item.filename,
-            item.content,
-        ));
-    }
+fn build_reflection_prompt(
+    messages: &[t_koma_db::Message],
+    refs: &[t_koma_knowledge::RecentRefSummary],
+) -> String {
+    let recent_messages = format_messages(messages);
+    let recent_references = format_references(refs);
 
     crate::content::prompt_text(
         crate::content::ids::PROMPT_REFLECTION,
         None,
-        &[("inbox_items", &inbox_text)],
+        &[
+            ("recent_messages", &recent_messages),
+            ("recent_references", &recent_references),
+        ],
     )
     .unwrap_or_else(|e| {
         tracing::warn!("Failed to render reflection prompt: {e}, using fallback");
         format!(
-            "You are in reflection mode. Process the following inbox items into \
-             structured knowledge, then delete each inbox file.\n\n{inbox_text}"
+            "You are in reflection mode. Process the following conversation into \
+             structured knowledge.\n\n## Recent Conversation\n\n{recent_messages}\n\n\
+             ## Recent References\n\n{recent_references}"
         )
     })
 }

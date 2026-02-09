@@ -359,6 +359,28 @@ impl SessionRepository {
         Ok(row.try_get::<i64, _>("count").unwrap_or(0))
     }
 
+    /// Get messages created after the given unix timestamp for a specific session.
+    pub async fn get_messages_since(
+        pool: &SqlitePool,
+        session_id: &str,
+        since_unix_seconds: i64,
+    ) -> DbResult<Vec<Message>> {
+        let rows = sqlx::query_as::<_, MessageRow>(
+            "SELECT id, session_id, role, content, model, created_at
+             FROM messages
+             WHERE session_id = ? AND created_at > ?
+             ORDER BY created_at ASC",
+        )
+        .bind(session_id)
+        .bind(since_unix_seconds)
+        .fetch_all(pool)
+        .await?;
+
+        rows.into_iter()
+            .map(Message::try_from)
+            .collect::<DbResult<Vec<_>>>()
+    }
+
     /// Count messages created at or after the provided unix timestamp.
     pub async fn count_messages_since(pool: &SqlitePool, since_unix_seconds: i64) -> DbResult<i64> {
         let row = sqlx::query("SELECT COUNT(*) as count FROM messages WHERE created_at >= ?")

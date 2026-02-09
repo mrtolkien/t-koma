@@ -24,6 +24,8 @@ pub(crate) mod save;
 pub(crate) mod search;
 pub(crate) mod topics;
 
+pub use reference::RecentRefSummary;
+
 #[derive(Debug, Clone)]
 pub struct KnowledgeEngine {
     settings: KnowledgeSettings,
@@ -206,6 +208,14 @@ impl KnowledgeEngine {
         max_chars: Option<usize>,
     ) -> KnowledgeResult<NoteDocument> {
         reference::reference_get(self, note_id, topic, file_path, max_chars).await
+    }
+
+    /// Get reference files saved since a given RFC3339 timestamp.
+    pub async fn recent_reference_files(
+        &self,
+        since_rfc3339: &str,
+    ) -> KnowledgeResult<Vec<reference::RecentRefSummary>> {
+        reference::recent_reference_files(self, since_rfc3339).await
     }
 
     /// Resolve an existing reference topic by fuzzy name matching.

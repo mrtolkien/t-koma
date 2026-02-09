@@ -135,6 +135,28 @@ impl JobLogRepository {
 
         row.map(JobLog::try_from).transpose()
     }
+
+    /// Find the most recent successful job of the given kind (no time bound).
+    pub async fn latest_ok(
+        pool: &SqlitePool,
+        session_id: &str,
+        kind: JobKind,
+    ) -> DbResult<Option<JobLog>> {
+        let row = sqlx::query_as::<_, JobLogRow>(
+            "SELECT id, job_kind, session_id, started_at, finished_at, status, transcript
+             FROM job_logs
+             WHERE session_id = ? AND job_kind = ?
+               AND status IS NOT NULL AND status NOT LIKE 'error:%'
+             ORDER BY started_at DESC
+             LIMIT 1",
+        )
+        .bind(session_id)
+        .bind(kind.to_string())
+        .fetch_optional(pool)
+        .await?;
+
+        row.map(JobLog::try_from).transpose()
+    }
 }
 
 #[derive(Debug, sqlx::FromRow)]
