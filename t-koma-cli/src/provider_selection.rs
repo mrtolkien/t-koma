@@ -40,7 +40,7 @@ pub async fn select_provider_interactive_with_mode(
     println!("╠════════════════════════════════════╣");
     println!("║  1. Anthropic                      ║");
     println!("║  2. OpenRouter                     ║");
-    println!("║  3. llama.cpp                      ║");
+    println!("║  3. OpenAI-compatible              ║");
     println!("╚════════════════════════════════════╝");
     print!("\nSelect [1-3]: ");
     io::stdout().flush()?;
@@ -58,8 +58,8 @@ pub async fn select_provider_interactive_with_mode(
             select_openrouter_model(ws_tx, ws_rx, mode).await
         }
         "3" => {
-            info!("User selected llama.cpp provider");
-            select_llama_cpp_model(ws_tx, ws_rx, mode).await
+            info!("User selected OpenAI-compatible provider");
+            select_openai_compatible_model(ws_tx, ws_rx, mode).await
         }
         _ => {
             println!("Invalid selection, defaulting to Anthropic");
@@ -216,23 +216,23 @@ async fn select_openrouter_model(
     })
 }
 
-/// Select a llama.cpp model (configured list)
-async fn select_llama_cpp_model(
+/// Select an OpenAI-compatible model (configured list)
+async fn select_openai_compatible_model(
     ws_tx: &mpsc::UnboundedSender<WsMessage>,
     ws_rx: &mut mpsc::UnboundedReceiver<WsResponse>,
     mode: ProviderSelectionMode,
 ) -> Result<ProviderSelection, Box<dyn std::error::Error>> {
     ws_tx.send(WsMessage::ListAvailableModels {
-        provider: ProviderType::LlamaCpp,
+        provider: ProviderType::OpenAiCompatible,
     })?;
 
-    let models = wait_for_models(ws_rx, "llama_cpp").await?;
+    let models = wait_for_models(ws_rx, "openai_compatible").await?;
     if models.is_empty() {
-        return Err("No llama.cpp models configured".into());
+        return Err("No OpenAI-compatible models configured".into());
     }
 
     println!("\n╔════════════════════════════════════╗");
-    println!("║      Select llama.cpp Model        ║");
+    println!("║  Select OpenAI-compatible Model    ║");
     println!("╠════════════════════════════════════╣");
 
     for (i, model) in models.iter().enumerate().take(10) {
@@ -263,17 +263,17 @@ async fn select_llama_cpp_model(
 
     if mode == ProviderSelectionMode::SendToGateway {
         ws_tx.send(WsMessage::SelectProvider {
-            provider: ProviderType::LlamaCpp,
+            provider: ProviderType::OpenAiCompatible,
             model: model_id.clone(),
         })?;
 
         wait_for_provider_confirmation(ws_rx).await?;
 
-        println!("✓ Selected llama.cpp model: {}", model_id);
+        println!("✓ Selected OpenAI-compatible model: {}", model_id);
     }
 
     Ok(ProviderSelection {
-        provider: ProviderType::LlamaCpp,
+        provider: ProviderType::OpenAiCompatible,
         model: model_id,
     })
 }

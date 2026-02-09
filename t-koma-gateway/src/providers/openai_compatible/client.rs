@@ -1,4 +1,4 @@
-//! llama.cpp API client with OpenAI-compatible format.
+//! OpenAI-compatible API client.
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -11,13 +11,14 @@ use crate::providers::provider::{
 };
 use crate::tools::Tool;
 
-/// llama.cpp API client
+/// OpenAI-compatible API client.
 #[derive(Clone)]
-pub struct LlamaCppClient {
+pub struct OpenAiCompatibleClient {
     http_client: reqwest::Client,
     api_key: Option<String>,
     model: String,
     base_url: String,
+    provider_name: String,
     dump_queries: bool,
 }
 
@@ -101,12 +102,13 @@ struct Usage {
     total_tokens: u32,
 }
 
-impl LlamaCppClient {
-    /// Create a new llama.cpp client.
+impl OpenAiCompatibleClient {
+    /// Create a new OpenAI-compatible client.
     pub fn new(
         base_url: impl Into<String>,
         api_key: Option<String>,
         model: impl Into<String>,
+        provider_name: impl Into<String>,
     ) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -122,6 +124,7 @@ impl LlamaCppClient {
             api_key,
             model: model.into(),
             base_url: base_url.into(),
+            provider_name: provider_name.into(),
             dump_queries: false,
         }
     }
@@ -335,9 +338,9 @@ impl LlamaCppClient {
 }
 
 #[async_trait::async_trait]
-impl Provider for LlamaCppClient {
+impl Provider for OpenAiCompatibleClient {
     fn name(&self) -> &str {
-        "llama_cpp"
+        &self.provider_name
     }
 
     fn model(&self) -> &str {
@@ -386,7 +389,8 @@ impl Provider for LlamaCppClient {
         let dump = if self.dump_queries
             && let Ok(val) = serde_json::to_value(&request_body)
         {
-            crate::providers::query_dump::QueryDump::request("llama_cpp", &self.model, &val).await
+            crate::providers::query_dump::QueryDump::request(&self.provider_name, &self.model, &val)
+                .await
         } else {
             None
         };
@@ -430,14 +434,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_llama_cpp_client_creation() {
-        let client = LlamaCppClient::new("http://127.0.0.1:8080", None, "llama3.1");
+    fn test_openai_compatible_client_creation() {
+        let client = OpenAiCompatibleClient::new(
+            "http://127.0.0.1:8080",
+            None,
+            "llama3.1",
+            "openai_compatible",
+        );
         assert_eq!(client.model(), "llama3.1");
     }
 
     #[test]
     fn test_chat_completions_url_without_v1_suffix() {
-        let client = LlamaCppClient::new("http://127.0.0.1:8080/", None, "llama3.1");
+        let client = OpenAiCompatibleClient::new(
+            "http://127.0.0.1:8080/",
+            None,
+            "llama3.1",
+            "openai_compatible",
+        );
         assert_eq!(
             client.chat_completions_url(),
             "http://127.0.0.1:8080/v1/chat/completions"
@@ -446,7 +460,12 @@ mod tests {
 
     #[test]
     fn test_chat_completions_url_with_v1_suffix() {
-        let client = LlamaCppClient::new("http://127.0.0.1:8080/v1", None, "llama3.1");
+        let client = OpenAiCompatibleClient::new(
+            "http://127.0.0.1:8080/v1",
+            None,
+            "llama3.1",
+            "openai_compatible",
+        );
         assert_eq!(
             client.chat_completions_url(),
             "http://127.0.0.1:8080/v1/chat/completions"

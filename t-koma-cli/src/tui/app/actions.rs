@@ -505,6 +505,9 @@ impl TuiApp {
             ModelConfig {
                 provider,
                 model: parts[2].to_string(),
+                base_url: None,
+                api_key_env: None,
+                routing: None,
                 context_window: None,
             },
         );

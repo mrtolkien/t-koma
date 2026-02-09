@@ -3,7 +3,6 @@
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use t_koma_core::OpenRouterProviderRoutingSettings;
 
 use crate::chat::history::{ChatContentBlock, ChatMessage, ChatRole};
 use crate::prompt::render::SystemBlock;
@@ -21,7 +20,7 @@ pub struct OpenRouterClient {
     base_url: String,
     http_referer: Option<String>,
     app_name: Option<String>,
-    provider_routing: Option<OpenRouterProviderRoutingSettings>,
+    routing: Option<Vec<String>>,
     dump_queries: bool,
 }
 
@@ -42,8 +41,6 @@ struct ChatCompletionsRequest {
 #[derive(Debug, Clone, Serialize)]
 struct OpenRouterProviderRoutingRequest {
     order: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    allow_fallbacks: Option<bool>,
 }
 
 /// OpenAI-compatible message format
@@ -174,9 +171,10 @@ impl OpenRouterClient {
     pub fn new(
         api_key: impl Into<String>,
         model: impl Into<String>,
+        base_url: Option<String>,
         http_referer: Option<String>,
         app_name: Option<String>,
-        provider_routing: Option<OpenRouterProviderRoutingSettings>,
+        routing: Option<Vec<String>>,
     ) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -191,10 +189,10 @@ impl OpenRouterClient {
             http_client,
             api_key: api_key.into(),
             model: model.into(),
-            base_url: "https://openrouter.ai/api/v1".to_string(),
+            base_url: base_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
             http_referer,
             app_name,
-            provider_routing,
+            routing,
             dump_queries: false,
         }
     }
@@ -422,9 +420,8 @@ impl OpenRouterClient {
     }
 
     fn provider_routing_request(&self) -> Option<OpenRouterProviderRoutingRequest> {
-        let routing = self.provider_routing.as_ref()?;
+        let routing = self.routing.as_ref()?;
         let order: Vec<String> = routing
-            .order
             .iter()
             .map(|value| value.trim())
             .filter(|value| !value.is_empty())
@@ -433,10 +430,7 @@ impl OpenRouterClient {
         if order.is_empty() {
             return None;
         }
-        Some(OpenRouterProviderRoutingRequest {
-            order,
-            allow_fallbacks: routing.allow_fallbacks,
-        })
+        Some(OpenRouterProviderRoutingRequest { order })
     }
 
     /// Fetch available models from OpenRouter
@@ -592,7 +586,8 @@ mod tests {
 
     #[test]
     fn test_openrouter_client_creation() {
-        let client = OpenRouterClient::new("test-key", "openrouter/model-a", None, None, None);
+        let client =
+            OpenRouterClient::new("test-key", "openrouter/model-a", None, None, None, None);
         assert_eq!(client.model(), "openrouter/model-a");
     }
 
@@ -626,7 +621,7 @@ mod tests {
             }
         }
 
-        let client = OpenRouterClient::new("test-key", "test-model", None, None, None);
+        let client = OpenRouterClient::new("test-key", "test-model", None, None, None, None);
         let tools: Vec<&dyn Tool> = vec![&TestTool];
         let openai_tools = client.convert_tools(&tools);
 
@@ -642,15 +637,12 @@ mod tests {
             "test-model",
             None,
             None,
-            Some(OpenRouterProviderRoutingSettings {
-                order: vec![" anthropic ".to_string(), "".to_string()],
-                allow_fallbacks: Some(false),
-            }),
+            None,
+            Some(vec![" anthropic ".to_string(), "".to_string()]),
         );
 
         let request = client.provider_routing_request().expect("routing present");
         assert_eq!(request.order, vec!["anthropic".to_string()]);
-        assert_eq!(request.allow_fallbacks, Some(false));
     }
 
     #[test]
@@ -660,10 +652,8 @@ mod tests {
             "test-model",
             None,
             None,
-            Some(OpenRouterProviderRoutingSettings {
-                order: vec!["anthropic".to_string()],
-                allow_fallbacks: Some(false),
-            }),
+            None,
+            Some(vec!["anthropic".to_string()]),
         );
 
         let body = ChatCompletionsRequest {
@@ -676,10 +666,6 @@ mod tests {
         };
         let json = serde_json::to_value(body).unwrap();
         assert_eq!(json["provider"]["order"], serde_json::json!(["anthropic"]));
-        assert_eq!(
-            json["provider"]["allow_fallbacks"],
-            serde_json::json!(false)
-        );
     }
 
     #[test]

@@ -104,10 +104,12 @@ heartbeat_model = "fallback"
 [models.primary]
 provider = "openrouter"
 model = "your-openrouter-model-id"
+routing = ["anthropic"] # optional OpenRouter provider order
 
 [models.fallback]
-provider = "anthropic"
-model = "your-anthropic-model-id"
+provider = "openai_compatible"
+model = "your-local-model-id"
+base_url = "http://127.0.0.1:8080"
 
 [gateway]
 host = "127.0.0.1"
@@ -119,6 +121,7 @@ port = 3000
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
 OPENROUTER_API_KEY=sk-or-...
+OPENAI_API_KEY=sk-openai-...
 ```
 
 ## API Endpoints

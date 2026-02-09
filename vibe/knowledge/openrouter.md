@@ -2,14 +2,20 @@
 
 ## Overview
 
-OpenRouter provides a unified API for accessing hundreds of AI models through a single OpenAI-compatible endpoint. t-koma integrates OpenRouter as an alternative provider alongside the native Anthropic integration.
+OpenRouter provides a unified API for accessing hundreds of AI models through a
+single OpenAI-compatible endpoint. t-koma integrates OpenRouter as an
+alternative provider alongside the native Anthropic integration.
 
 ## Key Features
 
-- **Unified API**: Access models from Anthropic, OpenAI, Google, Meta, and more through a single endpoint
-- **Model Selection**: CLI provides interactive model selection from top 20 popular models
-- **Fallback Support**: Automatic fallback to alternative providers if a model is unavailable
-- **Cost Optimization**: OpenRouter routes requests to the most cost-effective provider
+- **Unified API**: Access models from Anthropic, OpenAI, Google, Meta, and more
+  through a single endpoint
+- **Model Selection**: CLI provides interactive model selection from top 20
+  popular models
+- **Fallback Support**: Automatic fallback to alternative providers if a model
+  is unavailable
+- **Cost Optimization**: OpenRouter routes requests to the most cost-effective
+  provider
 
 ## Configuration
 
@@ -42,9 +48,9 @@ Both Anthropic and OpenRouter implement the `Provider` trait:
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
     fn model(&self) -> &str;
-    
+
     async fn send_message(&self, content: &str) -> Result<ProviderResponse, ProviderError>;
-    
+
     async fn send_conversation(
         &self,
         system: Option<Vec<SystemBlock>>,
@@ -67,24 +73,19 @@ Located in `t-koma-gateway/src/providers/openrouter/client.rs`:
 
 ### Per-model provider routing
 
-OpenRouter "provider" routing is configured in OpenRouter settings, keyed by
-model alias:
+OpenRouter `provider.order` routing is configured directly on each model:
 
 ```toml
 [models.kimi25]
 provider = "openrouter"
 model = "moonshotai/kimi-k2.5"
-
-[openrouter.model_provider.kimi25]
-order = ["anthropic"]
-allow_fallbacks = false # optional
+routing = ["anthropic"]
 ```
 
 Notes:
-- Each key in `openrouter.model_provider` must match a configured model alias.
-- The alias target must be an OpenRouter model (`provider = "openrouter"`).
-- `order` must include at least one non-empty provider slug.
-- If `allow_fallbacks` is omitted, OpenRouter default behavior is used.
+
+- `routing` is only valid for OpenRouter models (`provider = "openrouter"`).
+- `routing` must include at least one non-empty provider slug when set.
 
 ### Message Format Conversion
 
@@ -95,26 +96,12 @@ The OpenRouter client performs these conversions:
 3. **Tools**: Converted to OpenAI's `functions` format
 4. **Tool Results**: Formatted as user messages with tool output
 
-## Popular Models
-
-| Model | ID | Provider |
-|-------|-----|----------|
-| Claude 3.5 Sonnet | `anthropic/claude-3.5-sonnet` | Anthropic |
-| Claude 3 Opus | `anthropic/claude-3-opus` | Anthropic |
-| Claude 3 Haiku | `anthropic/claude-3-haiku` | Anthropic |
-| DeepSeek R1 | `deepseek/deepseek-r1` | DeepSeek |
-| DeepSeek V3 | `deepseek/deepseek-chat` | DeepSeek |
-| GPT-4o | `openai/gpt-4o` | OpenAI |
-| GPT-4o Mini | `openai/gpt-4o-mini` | OpenAI |
-| Gemini Flash 1.5 | `google/gemini-flash-1.5` | Google |
-| Gemini Pro 1.5 | `google/gemini-pro-1.5` | Google |
-| Llama 3.1 405B | `meta-llama/llama-3.1-405b-instruct` | Meta |
-
 ## CLI Provider Selection
 
 When starting the CLI chat mode, users are presented with:
 
 1. **Provider Selection**:
+
    ```
    ╔════════════════════════════════════╗
    ║     Select Model Provider          ║
@@ -194,6 +181,7 @@ If OpenRouter does not return cache detail fields, both remain `None`.
 ### SelectProvider
 
 Client → Gateway:
+
 ```json
 {
   "type": "select_provider",
@@ -203,6 +191,7 @@ Client → Gateway:
 ```
 
 Gateway → Client:
+
 ```json
 {
   "type": "provider_selected",
@@ -214,6 +203,7 @@ Gateway → Client:
 ### ListAvailableModels
 
 Client → Gateway:
+
 ```json
 {
   "type": "list_available_models",
@@ -222,6 +212,7 @@ Client → Gateway:
 ```
 
 Gateway → Client:
+
 ```json
 {
   "type": "available_models",
@@ -275,6 +266,7 @@ OpenRouter supports tool calling via the OpenAI format:
 ```
 
 The t-koma gateway:
+
 1. Converts internal tool definitions to OpenAI format
 2. Extracts `tool_calls` from responses
 3. Executes tools and returns results

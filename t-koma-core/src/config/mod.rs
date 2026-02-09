@@ -8,7 +8,7 @@
 //! ## Secrets (Environment Variables)
 //! - `ANTHROPIC_API_KEY` - Anthropic API key
 //! - `OPENROUTER_API_KEY` - OpenRouter API key
-//! - `LLAMA_CPP_API_KEY` - Optional llama.cpp API key
+//! - `OPENAI_API_KEY` - Optional OpenAI-compatible API key
 //! - `DISCORD_BOT_TOKEN` - Discord bot token
 //! - `BRAVE_API_KEY` - Brave Search API key
 //!
@@ -42,8 +42,8 @@ use crate::message::ProviderType;
 pub use knowledge::{KnowledgeSettings, SearchDefaults};
 pub use secrets::{Secrets, SecretsError};
 pub use settings::{
-    GatewaySettings, KnowledgeSearchSettings, KnowledgeToolsSettings, LlamaCppSettings,
-    ModelConfig, OpenRouterProviderRoutingSettings, OpenRouterSettings, Settings, SettingsError,
+    GatewaySettings, KnowledgeSearchSettings, KnowledgeToolsSettings, ModelConfig,
+    OpenRouterSettings, Settings, SettingsError,
 };
 
 #[cfg(test)]
@@ -91,15 +91,15 @@ pub enum ConfigError {
     #[error("Provider '{provider}' for heartbeat model '{alias}' is missing required settings")]
     HeartbeatModelProviderMisconfigured { provider: String, alias: String },
 
+    #[error("Model '{alias}' requires API key env var '{env_var}', but it is not set")]
+    ModelApiKeyEnvMissing { alias: String, env_var: String },
+
     #[error(
-        "OpenRouter model_provider alias '{alias}' points to provider '{provider}' (must be 'openrouter')"
+        "OpenRouter routing alias '{alias}' points to provider '{provider}' (must be 'openrouter')"
     )]
     OpenRouterProviderOnNonOpenRouterModel { alias: String, provider: String },
 
-    #[error("OpenRouter model_provider alias '{alias}' is not a configured model alias")]
-    OpenRouterProviderUnknownAlias { alias: String },
-
-    #[error("OpenRouter model_provider alias '{alias}' has empty order")]
+    #[error("OpenRouter routing alias '{alias}' has empty order")]
     OpenRouterProviderOrderEmpty { alias: String },
 }
 
@@ -114,7 +114,7 @@ impl Config {
     ///
     /// Returns an error if:
     /// - The default provider's API key is missing
-    /// - The selected provider has missing required settings (for example `llama_cpp.base_url`)
+    /// - The selected provider has missing required settings
     /// - The TOML file cannot be read or parsed
     pub fn load() -> Result<Self, ConfigError> {
         let secrets = Secrets::from_env()?;
@@ -133,29 +133,7 @@ impl Config {
             .get(default_alias)
             .ok_or_else(|| ConfigError::DefaultModelNotFound(default_alias.to_string()))?;
 
-        match default_model.provider {
-            ProviderType::Anthropic | ProviderType::OpenRouter => {
-                if !secrets.has_provider_type(default_model.provider) {
-                    return Err(ConfigError::DefaultModelProviderNotConfigured {
-                        provider: default_model.provider.to_string(),
-                        alias: default_alias.to_string(),
-                    });
-                }
-            }
-            ProviderType::LlamaCpp => {
-                let has_base_url = settings
-                    .llama_cpp
-                    .base_url
-                    .as_deref()
-                    .is_some_and(|value| !value.trim().is_empty());
-                if !has_base_url {
-                    return Err(ConfigError::DefaultModelProviderMisconfigured {
-                        provider: default_model.provider.to_string(),
-                        alias: default_alias.to_string(),
-                    });
-                }
-            }
-        }
+        Self::validate_model(&secrets, default_alias, default_model, false)?;
 
         if let Some(heartbeat_alias) = settings
             .heartbeat_model
@@ -167,54 +145,126 @@ impl Config {
                 .models
                 .get(heartbeat_alias)
                 .ok_or_else(|| ConfigError::HeartbeatModelNotFound(heartbeat_alias.to_string()))?;
-            match heartbeat_model.provider {
-                ProviderType::Anthropic | ProviderType::OpenRouter => {
-                    if !secrets.has_provider_type(heartbeat_model.provider) {
-                        return Err(ConfigError::HeartbeatModelProviderNotConfigured {
-                            provider: heartbeat_model.provider.to_string(),
-                            alias: heartbeat_alias.to_string(),
-                        });
-                    }
-                }
-                ProviderType::LlamaCpp => {
-                    let has_base_url = settings
-                        .llama_cpp
-                        .base_url
-                        .as_deref()
-                        .is_some_and(|value| !value.trim().is_empty());
-                    if !has_base_url {
-                        return Err(ConfigError::HeartbeatModelProviderMisconfigured {
-                            provider: heartbeat_model.provider.to_string(),
-                            alias: heartbeat_alias.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-
-        for (alias, routing) in &settings.openrouter.model_provider {
-            let Some(model) = settings.models.get(alias) else {
-                return Err(ConfigError::OpenRouterProviderUnknownAlias {
-                    alias: alias.clone(),
-                });
-            };
-
-            if model.provider != ProviderType::OpenRouter {
-                return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
-                    alias: alias.clone(),
-                    provider: model.provider.to_string(),
-                });
-            }
-
-            let has_non_empty_order = routing.order.iter().any(|item| !item.trim().is_empty());
-            if !has_non_empty_order {
-                return Err(ConfigError::OpenRouterProviderOrderEmpty {
-                    alias: alias.clone(),
-                });
-            }
+            Self::validate_model(&secrets, heartbeat_alias, heartbeat_model, true)?;
         }
 
         Ok(Self { secrets, settings })
+    }
+
+    fn validate_model(
+        secrets: &Secrets,
+        alias: &str,
+        model: &ModelConfig,
+        heartbeat: bool,
+    ) -> Result<(), ConfigError> {
+        let not_configured = || {
+            if heartbeat {
+                ConfigError::HeartbeatModelProviderNotConfigured {
+                    provider: model.provider.to_string(),
+                    alias: alias.to_string(),
+                }
+            } else {
+                ConfigError::DefaultModelProviderNotConfigured {
+                    provider: model.provider.to_string(),
+                    alias: alias.to_string(),
+                }
+            }
+        };
+        let misconfigured = || {
+            if heartbeat {
+                ConfigError::HeartbeatModelProviderMisconfigured {
+                    provider: model.provider.to_string(),
+                    alias: alias.to_string(),
+                }
+            } else {
+                ConfigError::DefaultModelProviderMisconfigured {
+                    provider: model.provider.to_string(),
+                    alias: alias.to_string(),
+                }
+            }
+        };
+
+        match model.provider {
+            ProviderType::Anthropic => {
+                if model.routing.is_some() {
+                    return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
+                        alias: alias.to_string(),
+                        provider: model.provider.to_string(),
+                    });
+                }
+                if !secrets.has_provider_type(model.provider) {
+                    return Err(not_configured());
+                }
+            }
+            ProviderType::OpenRouter => {
+                if let Some(routing) = &model.routing {
+                    let has_non_empty_order = routing.iter().any(|item| !item.trim().is_empty());
+                    if !has_non_empty_order {
+                        return Err(ConfigError::OpenRouterProviderOrderEmpty {
+                            alias: alias.to_string(),
+                        });
+                    }
+                }
+                if model
+                    .base_url
+                    .as_deref()
+                    .is_some_and(|value| value.trim().is_empty())
+                {
+                    return Err(misconfigured());
+                }
+                if let Some(key) = Self::resolve_api_key_for_model(secrets, alias, model)? {
+                    if key.trim().is_empty() {
+                        return Err(not_configured());
+                    }
+                } else {
+                    return Err(not_configured());
+                }
+            }
+            ProviderType::OpenAiCompatible => {
+                let has_base_url = model
+                    .base_url
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty());
+                if !has_base_url {
+                    return Err(misconfigured());
+                }
+                if model.routing.is_some() {
+                    return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
+                        alias: alias.to_string(),
+                        provider: model.provider.to_string(),
+                    });
+                }
+                let _ = Self::resolve_api_key_for_model(secrets, alias, model)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn resolve_api_key_for_model(
+        secrets: &Secrets,
+        alias: &str,
+        model: &ModelConfig,
+    ) -> Result<Option<String>, ConfigError> {
+        if model.provider == ProviderType::Anthropic {
+            return Ok(secrets.anthropic_api_key.clone());
+        }
+        let env_var = model
+            .api_key_env
+            .as_deref()
+            .unwrap_or(match model.provider {
+                ProviderType::OpenRouter => "OPENROUTER_API_KEY",
+                ProviderType::OpenAiCompatible => "OPENAI_API_KEY",
+                ProviderType::Anthropic => "ANTHROPIC_API_KEY",
+            });
+        match std::env::var(env_var) {
+            Ok(value) => Ok(Some(value)),
+            Err(_) if model.api_key_env.is_some() => Err(ConfigError::ModelApiKeyEnvMissing {
+                alias: alias.to_string(),
+                env_var: env_var.to_string(),
+            }),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Get the default model alias.
@@ -269,14 +319,14 @@ impl Config {
         self.secrets.openrouter_api_key.as_deref()
     }
 
-    /// Get the llama.cpp API key (if configured).
-    pub fn llama_cpp_api_key(&self) -> Option<&str> {
-        self.secrets.llama_cpp_api_key.as_deref()
-    }
-
-    /// Get the llama.cpp base URL (if configured).
-    pub fn llama_cpp_base_url(&self) -> Option<&str> {
-        self.settings.llama_cpp.base_url.as_deref()
+    /// Resolve API key for a configured model alias.
+    pub fn api_key_for_alias(&self, alias: &str) -> Result<Option<String>, ConfigError> {
+        let model = self
+            .settings
+            .models
+            .get(alias)
+            .ok_or_else(|| ConfigError::DefaultModelNotFound(alias.to_string()))?;
+        Self::resolve_api_key_for_model(&self.secrets, alias, model)
     }
 
     /// Get the Discord bot token (if configured).
@@ -312,9 +362,20 @@ mod tests {
         unsafe {
             env::remove_var("ANTHROPIC_API_KEY");
             env::remove_var("OPENROUTER_API_KEY");
-            env::remove_var("LLAMA_CPP_API_KEY");
+            env::remove_var("OPENAI_API_KEY");
             env::remove_var("DISCORD_BOT_TOKEN");
             env::remove_var("BRAVE_API_KEY");
+        }
+    }
+
+    fn model(provider: ProviderType, id: &str) -> ModelConfig {
+        ModelConfig {
+            provider,
+            model: id.to_string(),
+            base_url: None,
+            api_key_env: None,
+            routing: None,
+            context_window: None,
         }
     }
 
@@ -323,15 +384,10 @@ mod tests {
         let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
 
-        // Create settings with a default model alias
         let mut settings = Settings::default();
         settings.models.insert(
             "default".to_string(),
-            ModelConfig {
-                provider: ProviderType::Anthropic,
-                model: "test-model".to_string(),
-                context_window: None,
-            },
+            model(ProviderType::Anthropic, "test-model"),
         );
         settings.default_model = "default".to_string();
 
@@ -356,26 +412,20 @@ mod tests {
     fn test_model_selection() {
         let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
-        unsafe { env::set_var("ANTHROPIC_API_KEY", "sk-test") }
+        unsafe {
+            env::set_var("ANTHROPIC_API_KEY", "sk-test");
+            env::set_var("OPENROUTER_API_KEY", "sk-or-test");
+        }
 
         let secrets = Secrets::from_env_inner().unwrap();
         let mut settings = Settings::default();
         settings.models.insert(
             "a".to_string(),
-            ModelConfig {
-                provider: ProviderType::Anthropic,
-                model: "anthropic-model-a".to_string(),
-                context_window: None,
-            },
+            model(ProviderType::Anthropic, "anthropic-model-a"),
         );
-        settings.models.insert(
-            "b".to_string(),
-            ModelConfig {
-                provider: ProviderType::OpenRouter,
-                model: "gpt-4".to_string(),
-                context_window: None,
-            },
-        );
+        settings
+            .models
+            .insert("b".to_string(), model(ProviderType::OpenRouter, "gpt-4"));
         settings.default_model = "a".to_string();
 
         let config = Config { secrets, settings };
@@ -422,89 +472,40 @@ mod tests {
         let secrets = Secrets::from_env_inner().unwrap();
 
         let mut settings = Settings::default();
-        settings.models.insert(
-            "default".to_string(),
-            ModelConfig {
-                provider: ProviderType::OpenRouter,
-                model: "anthropic/claude-3.5-sonnet".to_string(),
-                context_window: None,
-            },
-        );
-        settings.openrouter.model_provider.insert(
-            "default".to_string(),
-            OpenRouterProviderRoutingSettings {
-                order: vec!["anthropic".to_string()],
-                allow_fallbacks: Some(false),
-            },
-        );
+        let mut default = model(ProviderType::OpenRouter, "anthropic/claude-3.5-sonnet");
+        default.routing = Some(vec!["anthropic".to_string()]);
+        settings.models.insert("default".to_string(), default);
         settings.default_model = "default".to_string();
 
         let valid = Config::from_parts(secrets.clone(), settings.clone()).unwrap();
         assert_eq!(valid.default_provider(), ProviderType::OpenRouter);
 
         let mut bad_provider_settings = settings.clone();
-        bad_provider_settings.models.insert(
-            "anthropic".to_string(),
-            ModelConfig {
-                provider: ProviderType::Anthropic,
-                model: "claude".to_string(),
-                context_window: None,
-            },
-        );
-        bad_provider_settings.openrouter.model_provider.insert(
-            "anthropic".to_string(),
-            OpenRouterProviderRoutingSettings {
-                order: vec!["anthropic".to_string()],
-                allow_fallbacks: None,
-            },
-        );
+        let mut anthropic = model(ProviderType::Anthropic, "claude");
+        anthropic.routing = Some(vec!["anthropic".to_string()]);
+        bad_provider_settings
+            .models
+            .insert("anthropic".to_string(), anthropic);
+        bad_provider_settings.heartbeat_model = Some("anthropic".to_string());
         let err = Config::from_parts(secrets.clone(), bad_provider_settings).unwrap_err();
         assert!(matches!(
             err,
             ConfigError::OpenRouterProviderOnNonOpenRouterModel { .. }
         ));
 
-        let mut empty_order_settings = settings;
-        empty_order_settings.openrouter.model_provider.insert(
-            "default".to_string(),
-            OpenRouterProviderRoutingSettings {
-                order: vec!["   ".to_string()],
-                allow_fallbacks: None,
-            },
-        );
+        let mut empty_order_settings = settings.clone();
+        if let Some(m) = empty_order_settings.models.get_mut("default") {
+            m.routing = Some(vec!["   ".to_string()]);
+        }
         let err = Config::from_parts(secrets, empty_order_settings).unwrap_err();
         assert!(matches!(
             err,
             ConfigError::OpenRouterProviderOrderEmpty { .. }
         ));
-
-        let secrets = Secrets::from_env_inner().unwrap();
-        let mut unknown_alias_settings = Settings::default();
-        unknown_alias_settings.models.insert(
-            "default".to_string(),
-            ModelConfig {
-                provider: ProviderType::OpenRouter,
-                model: "anthropic/claude-3.5-sonnet".to_string(),
-                context_window: None,
-            },
-        );
-        unknown_alias_settings.default_model = "default".to_string();
-        unknown_alias_settings.openrouter.model_provider.insert(
-            "missing".to_string(),
-            OpenRouterProviderRoutingSettings {
-                order: vec!["anthropic".to_string()],
-                allow_fallbacks: None,
-            },
-        );
-        let err = Config::from_parts(secrets, unknown_alias_settings).unwrap_err();
-        assert!(matches!(
-            err,
-            ConfigError::OpenRouterProviderUnknownAlias { .. }
-        ));
     }
 
     #[test]
-    fn test_llama_cpp_base_url_validation() {
+    fn test_openai_compatible_base_url_validation() {
         let _lock = crate::config::ENV_MUTEX.lock().unwrap();
         clear_env();
 
@@ -513,11 +514,7 @@ mod tests {
         let mut missing_url = Settings::default();
         missing_url.models.insert(
             "local".to_string(),
-            ModelConfig {
-                provider: ProviderType::LlamaCpp,
-                model: "qwen2.5".to_string(),
-                context_window: None,
-            },
+            model(ProviderType::OpenAiCompatible, "qwen2.5"),
         );
         missing_url.default_model = "local".to_string();
 
@@ -528,19 +525,37 @@ mod tests {
         ));
 
         let mut valid = Settings::default();
-        valid.models.insert(
-            "local".to_string(),
-            ModelConfig {
-                provider: ProviderType::LlamaCpp,
-                model: "qwen2.5".to_string(),
-                context_window: None,
-            },
-        );
+        let mut local = model(ProviderType::OpenAiCompatible, "qwen2.5");
+        local.base_url = Some("http://127.0.0.1:8080".to_string());
+        valid.models.insert("local".to_string(), local);
         valid.default_model = "local".to_string();
-        valid.llama_cpp.base_url = Some("http://127.0.0.1:8080".to_string());
 
-        let config = Config::from_parts(secrets, valid).expect("llama_cpp config should validate");
-        assert_eq!(config.default_provider(), ProviderType::LlamaCpp);
-        assert_eq!(config.llama_cpp_base_url(), Some("http://127.0.0.1:8080"));
+        let config =
+            Config::from_parts(secrets, valid).expect("openai_compatible config should validate");
+        assert_eq!(config.default_provider(), ProviderType::OpenAiCompatible);
+    }
+
+    #[test]
+    fn test_model_api_key_env_override() {
+        let _lock = crate::config::ENV_MUTEX.lock().unwrap();
+        clear_env();
+        unsafe {
+            env::set_var("CUSTOM_MODEL_KEY", "abc123");
+        }
+
+        let secrets = Secrets::from_env_inner().unwrap();
+        let mut settings = Settings::default();
+        let mut m = model(ProviderType::OpenAiCompatible, "local-model");
+        m.base_url = Some("http://127.0.0.1:8080".to_string());
+        m.api_key_env = Some("CUSTOM_MODEL_KEY".to_string());
+        settings.models.insert("local".to_string(), m);
+        settings.default_model = "local".to_string();
+
+        let config = Config::from_parts(secrets, settings).expect("valid config");
+        let key = config
+            .api_key_for_alias("local")
+            .expect("api key lookup")
+            .expect("api key present");
+        assert_eq!(key, "abc123");
     }
 }

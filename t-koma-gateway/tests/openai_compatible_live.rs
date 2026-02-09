@@ -1,9 +1,9 @@
-//! Live tests for llama.cpp provider (requires --features live-tests).
+//! Live tests for OpenAI-compatible provider (requires --features live-tests).
 
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::providers::Provider;
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::providers::llama_cpp::LlamaCppClient;
+use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::tools::{Tool, ToolContext};
 
@@ -64,10 +64,11 @@ async fn test_llama_cpp_chat_completion() {
         }
     };
 
-    let client = LlamaCppClient::new(
+    let client = OpenAiCompatibleClient::new(
         base_url,
-        std::env::var("LLAMA_CPP_API_KEY").ok(),
+        std::env::var("OPENAI_API_KEY").ok(),
         model_name,
+        "openai_compatible",
     );
 
     let response = client
@@ -102,10 +103,11 @@ async fn test_llama_cpp_tool_calling() {
         }
     };
 
-    let client = LlamaCppClient::new(
+    let client = OpenAiCompatibleClient::new(
         base_url,
-        std::env::var("LLAMA_CPP_API_KEY").ok(),
+        std::env::var("OPENAI_API_KEY").ok(),
         model_name,
+        "openai_compatible",
     );
 
     let tool = EchoTool;
