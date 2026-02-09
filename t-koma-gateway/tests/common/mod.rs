@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use t_koma_core::Config;
 
-use t_koma_db::{GhostDbPool, GhostRepository, KomaDbPool, Operator, OperatorRepository, Platform};
+use t_koma_db::{GhostRepository, KomaDbPool, Operator, OperatorRepository, Platform};
 use t_koma_gateway::providers::Provider;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
@@ -115,7 +115,6 @@ pub async fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
 #[allow(dead_code)]
 pub struct TestEnvironment {
     pub koma_db: KomaDbPool,
-    pub ghost_db: GhostDbPool,
     pub operator: Operator,
     pub ghost: t_koma_db::Ghost,
 }
@@ -125,7 +124,7 @@ pub async fn setup_test_environment(
     operator_name: &str,
     ghost_name: &str,
 ) -> Result<TestEnvironment, Box<dyn std::error::Error>> {
-    let koma_db = t_koma_db::test_helpers::create_test_koma_pool().await?;
+    let koma_db = t_koma_db::test_helpers::create_test_pool().await?;
     let operator = OperatorRepository::create_new(
         koma_db.pool(),
         operator_name,
@@ -135,11 +134,9 @@ pub async fn setup_test_environment(
     .await?;
     let operator = OperatorRepository::approve(koma_db.pool(), &operator.id).await?;
     let ghost = GhostRepository::create(koma_db.pool(), &operator.id, ghost_name).await?;
-    let ghost_db = GhostDbPool::new(&ghost.name).await?;
 
     Ok(TestEnvironment {
         koma_db,
-        ghost_db,
         operator,
         ghost,
     })

@@ -439,41 +439,58 @@ impl EventHandler for Bot {
             return;
         };
 
-        let ghost_db = match self.state.get_or_init_ghost_db(&ghost_name).await {
-            Ok(db) => db,
-            Err(e) => {
-                error!("Failed to init ghost DB: {}", e);
-                let _ = send_gateway_embed(
-                    &ctx,
-                    msg.channel_id,
-                    &super::render_message("error-failed-init-ghost-storage", &[]),
-                    None,
-                )
-                .await;
-                return;
-            }
-        };
-
-        let session =
-            match t_koma_db::SessionRepository::get_or_create_active(ghost_db.pool(), &operator_id)
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.state.koma_db.pool(), &ghost_name)
                 .await
             {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(
-                        "Failed to create session for operator {}: {}",
-                        operator_id, e
-                    );
+                Ok(Some(g)) => g,
+                Ok(None) => {
+                    error!("Ghost not found: {}", ghost_name);
                     let _ = send_gateway_embed(
                         &ctx,
                         msg.channel_id,
-                        &super::render_message("error-init-session-discord", &[]),
+                        &super::render_message("error-failed-load-ghosts", &[]),
+                        None,
+                    )
+                    .await;
+                    return;
+                }
+                Err(e) => {
+                    error!("Failed to load ghost {}: {}", ghost_name, e);
+                    let _ = send_gateway_embed(
+                        &ctx,
+                        msg.channel_id,
+                        &super::render_message("error-failed-load-ghosts", &[]),
                         None,
                     )
                     .await;
                     return;
                 }
             };
+
+        let session = match t_koma_db::SessionRepository::get_or_create_active(
+            self.state.koma_db.pool(),
+            &ghost.id,
+            &operator_id,
+        )
+        .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                error!(
+                    "Failed to create session for operator {}: {}",
+                    operator_id, e
+                );
+                let _ = send_gateway_embed(
+                    &ctx,
+                    msg.channel_id,
+                    &super::render_message("error-init-session-discord", &[]),
+                    None,
+                )
+                .await;
+                return;
+            }
+        };
 
         let operator =
             match t_koma_db::OperatorRepository::get_by_id(self.state.koma_db.pool(), &operator_id)
@@ -527,10 +544,25 @@ impl EventHandler for Bot {
         }
 
         if clean_content.eq_ignore_ascii_case("new") {
+            let workspace_path = match t_koma_db::ghosts::ghost_workspace_path(&ghost.name) {
+                Ok(path) => path,
+                Err(e) => {
+                    error!("Failed to get workspace path: {}", e);
+                    let _ = send_gateway_embed(
+                        &ctx,
+                        msg.channel_id,
+                        &super::render_message("error-failed-init-ghost-storage", &[]),
+                        None,
+                    )
+                    .await;
+                    return;
+                }
+            };
             self.handle_new_session(
                 &ctx,
                 &msg,
-                &ghost_db,
+                &workspace_path,
+                &ghost.id,
                 &ghost_name,
                 &operator_id,
                 &operator_external_id,
@@ -542,7 +574,21 @@ impl EventHandler for Bot {
 
         // Process file attachments: download to ghost workspace and prepend context
         let chat_content = if !msg.attachments.is_empty() {
-            let uploaded = download_attachments(&msg.attachments, ghost_db.workspace_path()).await;
+            let workspace_path = match t_koma_db::ghosts::ghost_workspace_path(&ghost.name) {
+                Ok(path) => path,
+                Err(e) => {
+                    error!("Failed to get workspace path: {}", e);
+                    let _ = send_gateway_embed(
+                        &ctx,
+                        msg.channel_id,
+                        &super::render_message("error-failed-init-ghost-storage", &[]),
+                        None,
+                    )
+                    .await;
+                    return;
+                }
+            };
+            let uploaded = download_attachments(&msg.attachments, &workspace_path).await;
             build_message_with_attachments(clean_content, &uploaded)
         } else {
             clean_content.to_string()
@@ -761,10 +807,10 @@ impl Bot {
             }
         };
 
-        let ghost_db = match self.state.get_or_init_ghost_db(&ghost.name).await {
-            Ok(db) => db,
+        let workspace_path = match t_koma_db::ghosts::ghost_workspace_path(&ghost.name) {
+            Ok(path) => path,
             Err(e) => {
-                error!("Failed to initialize ghost DB: {}", e);
+                error!("Failed to get workspace path: {}", e);
                 let _ = send_gateway_embed(
                     ctx,
                     msg.channel_id,
@@ -776,9 +822,14 @@ impl Bot {
             }
         };
 
-        persist_ghost_name_to_soul(ghost_db.workspace_path(), &ghost.name).await;
+        persist_ghost_name_to_soul(&workspace_path, &ghost.name).await;
 
-        let session = match t_koma_db::SessionRepository::create(ghost_db.pool(), operator_id).await
+        let session = match t_koma_db::SessionRepository::create(
+            self.state.koma_db.pool(),
+            &ghost.id,
+            operator_id,
+        )
+        .await
         {
             Ok(session) => session,
             Err(e) => {
@@ -916,30 +967,36 @@ impl Bot {
         &self,
         ctx: &Context,
         msg: &Message,
-        ghost_db: &t_koma_db::GhostDbPool,
+        _workspace_path: &std::path::Path,
+        ghost_id: &str,
         ghost_name: &str,
         operator_id: &str,
         operator_external_id: &str,
         previous_session_id: &str,
     ) {
-        let new_session =
-            match t_koma_db::SessionRepository::create(ghost_db.pool(), operator_id).await {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(
-                        "Failed to create new session for operator {}: {}",
-                        operator_id, e
-                    );
-                    let _ = send_gateway_embed(
-                        ctx,
-                        msg.channel_id,
-                        &super::render_message("error-init-session-discord", &[]),
-                        None,
-                    )
-                    .await;
-                    return;
-                }
-            };
+        let new_session = match t_koma_db::SessionRepository::create(
+            self.state.koma_db.pool(),
+            ghost_id,
+            operator_id,
+        )
+        .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                error!(
+                    "Failed to create new session for operator {}: {}",
+                    operator_id, e
+                );
+                let _ = send_gateway_embed(
+                    ctx,
+                    msg.channel_id,
+                    &super::render_message("error-init-session-discord", &[]),
+                    None,
+                )
+                .await;
+                return;
+            }
+        };
 
         let typing = msg.channel_id.start_typing(&ctx.http);
         self.start_new_session_core(

@@ -698,25 +698,9 @@ async fn handle_websocket(
                                 ))
                                 .await;
 
-                            let ghost_db = match state.get_or_init_ghost_db(&ghost.name).await {
-                                Ok(db) => db,
-                                Err(e) => {
-                                    error!("Failed to init ghost DB: {}", e);
-                                    let error_response = ws_error_response(render_message(
-                                        ids::FAILED_INIT_GHOST_SESSION,
-                                        &[],
-                                    ));
-                                    let _ = sender
-                                        .send(Message::Text(
-                                            serde_json::to_string(&error_response).unwrap().into(),
-                                        ))
-                                        .await;
-                                    continue;
-                                }
-                            };
-
                             match t_koma_db::SessionRepository::get_or_create_active(
-                                ghost_db.pool(),
+                                state.koma_db.pool(),
+                                &ghost.id,
                                 &op_id,
                             )
                             .await
@@ -806,12 +790,29 @@ async fn handle_websocket(
                                 state.set_active_ghost(&op_id, &ghost_name).await;
                             }
 
-                            let ghost_db = match state.get_or_init_ghost_db(&ghost_name).await {
-                                Ok(db) => db,
-                                Err(e) => {
-                                    error!("Failed to init ghost DB: {}", e);
+                            let ghost = match t_koma_db::GhostRepository::get_by_name(
+                                state.koma_db.pool(),
+                                &ghost_name,
+                            )
+                            .await
+                            {
+                                Ok(Some(g)) => g,
+                                Ok(None) => {
                                     let error_response = ws_error_response(render_message(
-                                        ids::FAILED_INIT_GHOST_DB,
+                                        ids::UNKNOWN_GHOST_NAME_SERVER,
+                                        &[],
+                                    ));
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                                Err(e) => {
+                                    error!("Failed to load ghost: {}", e);
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_GHOST,
                                         &[],
                                     ));
                                     let _ = sender
@@ -825,7 +826,8 @@ async fn handle_websocket(
 
                             let mut target_session_id = if session_id == "active" {
                                 match t_koma_db::SessionRepository::get_or_create_active(
-                                    ghost_db.pool(),
+                                    state.koma_db.pool(),
+                                    &ghost.id,
                                     &op_id,
                                 )
                                 .await
@@ -848,9 +850,10 @@ async fn handle_websocket(
                                     }
                                 }
                             } else {
-                                match t_koma_db::SessionRepository::get_by_id(
-                                    ghost_db.pool(),
+                                match t_koma_db::SessionRepository::get_by_id_for_ghost(
+                                    state.koma_db.pool(),
                                     &session_id,
+                                    &ghost.id,
                                 )
                                 .await
                                 {
@@ -934,9 +937,10 @@ async fn handle_websocket(
                             let mut content_for_chat = content.clone();
                             if content.trim().eq_ignore_ascii_case("new") {
                                 let previous_session =
-                                    match t_koma_db::SessionRepository::get_by_id(
-                                        ghost_db.pool(),
+                                    match t_koma_db::SessionRepository::get_by_id_for_ghost(
+                                        state.koma_db.pool(),
                                         &target_session_id,
+                                        &ghost.id,
                                     )
                                     .await
                                     {
@@ -958,7 +962,8 @@ async fn handle_websocket(
                                     };
 
                                 let new_session = match t_koma_db::SessionRepository::create(
-                                    ghost_db.pool(),
+                                    state.koma_db.pool(),
+                                    &ghost.id,
                                     &op_id,
                                 )
                                 .await
@@ -1097,12 +1102,29 @@ async fn handle_websocket(
                                 continue;
                             }
 
-                            let ghost_db = match state.get_or_init_ghost_db(&ghost_name).await {
-                                Ok(db) => db,
-                                Err(e) => {
-                                    error!("Failed to init ghost DB: {}", e);
+                            let ghost = match t_koma_db::GhostRepository::get_by_name(
+                                state.koma_db.pool(),
+                                &ghost_name,
+                            )
+                            .await
+                            {
+                                Ok(Some(g)) => g,
+                                Ok(None) => {
                                     let error_response = ws_error_response(render_message(
-                                        ids::FAILED_INIT_GHOST_DB,
+                                        ids::UNKNOWN_GHOST_NAME_SERVER,
+                                        &[],
+                                    ));
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                                Err(e) => {
+                                    error!("Failed to load ghost: {}", e);
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_GHOST,
                                         &[],
                                     ));
                                     let _ = sender
@@ -1114,7 +1136,12 @@ async fn handle_websocket(
                                 }
                             };
 
-                            match t_koma_db::SessionRepository::list(ghost_db.pool(), &op_id).await
+                            match t_koma_db::SessionRepository::list(
+                                state.koma_db.pool(),
+                                &ghost.id,
+                                &op_id,
+                            )
+                            .await
                             {
                                 Ok(sessions) => {
                                     let mut session_infos = Vec::with_capacity(sessions.len());
@@ -1128,7 +1155,8 @@ async fn handle_websocket(
                                             None => {
                                                 let had_ok_heartbeat =
                                                     t_koma_db::JobLogRepository::latest_ok_since(
-                                                        ghost_db.pool(),
+                                                        state.koma_db.pool(),
+                                                        &ghost.id,
                                                         &s.id,
                                                         t_koma_db::JobKind::Heartbeat,
                                                         s.updated_at,
@@ -1204,12 +1232,29 @@ async fn handle_websocket(
                                 continue;
                             }
 
-                            let ghost_db = match state.get_or_init_ghost_db(&ghost_name).await {
-                                Ok(db) => db,
-                                Err(e) => {
-                                    error!("Failed to init ghost DB: {}", e);
+                            let ghost = match t_koma_db::GhostRepository::get_by_name(
+                                state.koma_db.pool(),
+                                &ghost_name,
+                            )
+                            .await
+                            {
+                                Ok(Some(g)) => g,
+                                Ok(None) => {
                                     let error_response = ws_error_response(render_message(
-                                        ids::FAILED_INIT_GHOST_DB,
+                                        ids::UNKNOWN_GHOST_NAME_SERVER,
+                                        &[],
+                                    ));
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                                Err(e) => {
+                                    error!("Failed to load ghost: {}", e);
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_GHOST,
                                         &[],
                                     ));
                                     let _ = sender
@@ -1221,8 +1266,12 @@ async fn handle_websocket(
                                 }
                             };
 
-                            match t_koma_db::SessionRepository::create(ghost_db.pool(), &op_id)
-                                .await
+                            match t_koma_db::SessionRepository::create(
+                                state.koma_db.pool(),
+                                &ghost.id,
+                                &op_id,
+                            )
+                            .await
                             {
                                 Ok(new_session) => {
                                     let response = WsResponse::SessionCreated {
@@ -1275,12 +1324,29 @@ async fn handle_websocket(
                                 continue;
                             }
 
-                            let ghost_db = match state.get_or_init_ghost_db(&ghost_name).await {
-                                Ok(db) => db,
-                                Err(e) => {
-                                    error!("Failed to init ghost DB: {}", e);
+                            let ghost = match t_koma_db::GhostRepository::get_by_name(
+                                state.koma_db.pool(),
+                                &ghost_name,
+                            )
+                            .await
+                            {
+                                Ok(Some(g)) => g,
+                                Ok(None) => {
                                     let error_response = ws_error_response(render_message(
-                                        ids::FAILED_INIT_GHOST_DB,
+                                        ids::UNKNOWN_GHOST_NAME_SERVER,
+                                        &[],
+                                    ));
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                                Err(e) => {
+                                    error!("Failed to load ghost: {}", e);
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_GHOST,
                                         &[],
                                     ));
                                     let _ = sender
@@ -1293,7 +1359,8 @@ async fn handle_websocket(
                             };
 
                             match t_koma_db::SessionRepository::switch(
-                                ghost_db.pool(),
+                                state.koma_db.pool(),
+                                &ghost.id,
                                 &op_id,
                                 &session_id,
                             )
@@ -1337,12 +1404,29 @@ async fn handle_websocket(
                                 continue;
                             }
 
-                            let ghost_db = match state.get_or_init_ghost_db(&ghost_name).await {
-                                Ok(db) => db,
-                                Err(e) => {
-                                    error!("Failed to init ghost DB: {}", e);
+                            let ghost = match t_koma_db::GhostRepository::get_by_name(
+                                state.koma_db.pool(),
+                                &ghost_name,
+                            )
+                            .await
+                            {
+                                Ok(Some(g)) => g,
+                                Ok(None) => {
                                     let error_response = ws_error_response(render_message(
-                                        ids::FAILED_INIT_GHOST_DB,
+                                        ids::UNKNOWN_GHOST_NAME_SERVER,
+                                        &[],
+                                    ));
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            serde_json::to_string(&error_response).unwrap().into(),
+                                        ))
+                                        .await;
+                                    continue;
+                                }
+                                Err(e) => {
+                                    error!("Failed to load ghost: {}", e);
+                                    let error_response = ws_error_response(render_message(
+                                        ids::FAILED_LOAD_GHOST,
                                         &[],
                                     ));
                                     let _ = sender
@@ -1355,7 +1439,8 @@ async fn handle_websocket(
                             };
 
                             match t_koma_db::SessionRepository::delete(
-                                ghost_db.pool(),
+                                state.koma_db.pool(),
+                                &ghost.id,
                                 &op_id,
                                 &session_id,
                             )
