@@ -35,6 +35,18 @@ pub fn separator(divider: bool) -> serde_json::Value {
     })
 }
 
+/// Build a `MediaGallery` component (type 12) referencing an attachment by filename.
+pub fn media_gallery(attachment_filename: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": 12,
+        "items": [{
+            "media": {
+                "url": format!("attachment://{attachment_filename}")
+            }
+        }]
+    })
+}
+
 /// Build a `Container` component (type 17) wrapping inner components.
 pub fn container(
     components: Vec<serde_json::Value>,
@@ -62,10 +74,12 @@ pub fn action_row_to_json(row: &CreateActionRow) -> serde_json::Value {
 ///
 /// `components` is the top-level v2 component array. If it exceeds
 /// `MAX_V2_COMPONENTS`, only the first 40 are sent (Discord limit).
+/// `attachments` are file uploads (e.g. table images) referenced by components.
 pub async fn send_v2_message(
     http: &Http,
     channel_id: ChannelId,
     components: &[serde_json::Value],
+    attachments: Vec<serenity::builder::CreateAttachment>,
 ) -> serenity::Result<serenity::model::channel::Message> {
     let capped = if components.len() > MAX_V2_COMPONENTS {
         warn!(
@@ -83,7 +97,7 @@ pub async fn send_v2_message(
         "components": capped,
     });
 
-    http.send_message(channel_id, Vec::new(), &payload).await
+    http.send_message(channel_id, attachments, &payload).await
 }
 
 /// Group a flat list of v2 components into message-sized chunks of at most

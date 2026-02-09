@@ -1,4 +1,4 @@
-use serenity::builder::{CreateActionRow, CreateEmbed, CreateMessage};
+use serenity::builder::{CreateActionRow, CreateAttachment, CreateEmbed, CreateMessage};
 use serenity::http::Http;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
@@ -30,18 +30,51 @@ pub async fn send_assistant_v2(
     channel_id: ChannelId,
     content: &str,
 ) -> serenity::Result<()> {
-    let components = markdown::markdown_to_v2_components(content);
+    let markdown::MarkdownComponents {
+        components,
+        attachments,
+    } = markdown::markdown_to_v2_components(content);
+
     if components.is_empty() {
         return Ok(());
     }
 
     for chunk in group_into_v2_messages(components) {
-        if let Err(e) = send_v2_message(http, channel_id, &chunk).await {
+        let files = attachments_for_chunk(&chunk, &attachments);
+        if let Err(e) = send_v2_message(http, channel_id, &chunk, files).await {
             warn!("v2 message failed, falling back to legacy: {}", e);
             return send_discord_message_http(http, channel_id, content).await;
         }
     }
     Ok(())
+}
+
+/// Collect `CreateAttachment` items referenced by `MediaGallery` components in a chunk.
+fn attachments_for_chunk(
+    chunk: &[serde_json::Value],
+    all: &[markdown::MarkdownAttachment],
+) -> Vec<CreateAttachment> {
+    let mut files = Vec::new();
+    for comp in chunk {
+        if comp["type"] != 12 {
+            continue;
+        }
+        let Some(items) = comp["items"].as_array() else {
+            continue;
+        };
+        for item in items {
+            let Some(url) = item["media"]["url"].as_str() else {
+                continue;
+            };
+            let Some(name) = url.strip_prefix("attachment://") else {
+                continue;
+            };
+            if let Some(att) = all.iter().find(|a| a.filename == name) {
+                files.push(CreateAttachment::bytes(att.data.clone(), &att.filename));
+            }
+        }
+    }
+    files
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +103,7 @@ pub async fn send_gateway_v2(
     let accent = color.unwrap_or(GATEWAY_EMBED_COLOR);
     let message_components = vec![container(inner, Some(accent))];
 
-    match send_v2_message(http, channel_id, &message_components).await {
+    match send_v2_message(http, channel_id, &message_components, Vec::new()).await {
         Ok(_) => Ok(()),
         Err(e) => {
             warn!("v2 gateway message failed, falling back to embed: {}", e);
@@ -108,7 +141,7 @@ async fn send_tool_calls_v2(
     let inner = vec![text_display(&lines.join("\n"))];
     let message_components = vec![container(inner, Some(TOOL_CALL_COLOR))];
 
-    match send_v2_message(http, channel_id, &message_components).await {
+    match send_v2_message(http, channel_id, &message_components, Vec::new()).await {
         Ok(_) => Ok(()),
         Err(e) => {
             warn!("v2 tool call message failed: {}", e);

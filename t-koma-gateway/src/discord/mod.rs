@@ -3,6 +3,7 @@ pub(crate) mod components_v2;
 mod interactions;
 mod markdown;
 mod send;
+mod table_image;
 
 use std::sync::Arc;
 

@@ -3,19 +3,33 @@
 /// Converts markdown text into a sequence of v2 component JSON values:
 /// - Regular text → `TextDisplay`
 /// - Horizontal rules (`---`, `***`, `___`) → `Separator`
-/// - Tables → wrapped in a code block inside `TextDisplay`
+/// - Tables → `MediaGallery` with an attached PNG image (code-block fallback)
 ///
 /// Code fences are tracked so that table/HR detection doesn't fire inside
 /// fenced code blocks.
 use super::components_v2::{self, TEXT_DISPLAY_LIMIT};
 
-/// Convert markdown text into a flat list of v2 components (TextDisplay / Separator).
-pub fn markdown_to_v2_components(text: &str) -> Vec<serde_json::Value> {
+/// Output of markdown conversion: v2 components plus file attachments for table images.
+pub struct MarkdownComponents {
+    pub components: Vec<serde_json::Value>,
+    pub attachments: Vec<MarkdownAttachment>,
+}
+
+/// A file attachment produced during markdown conversion (table image).
+pub struct MarkdownAttachment {
+    pub filename: String,
+    pub data: Vec<u8>,
+}
+
+/// Convert markdown text into v2 components and optional table-image attachments.
+pub fn markdown_to_v2_components(text: &str) -> MarkdownComponents {
     let mut components = Vec::new();
+    let mut attachments = Vec::new();
     let mut text_buf = String::new();
     let mut in_fence = false;
     let mut table_buf: Vec<String> = Vec::new();
     let mut in_table = false;
+    let mut table_counter = 0usize;
 
     for line in text.lines() {
         let trimmed = line.trim();
@@ -23,7 +37,13 @@ pub fn markdown_to_v2_components(text: &str) -> Vec<serde_json::Value> {
         // Track code fence open/close
         if trimmed.starts_with("```") {
             if in_table {
-                flush_table(&mut table_buf, &mut text_buf);
+                flush_table(
+                    &mut table_buf,
+                    &mut text_buf,
+                    &mut components,
+                    &mut attachments,
+                    &mut table_counter,
+                );
                 in_table = false;
             }
             in_fence = !in_fence;
@@ -41,7 +61,13 @@ pub fn markdown_to_v2_components(text: &str) -> Vec<serde_json::Value> {
         // Horizontal rule detection (outside code fences)
         if is_horizontal_rule(trimmed) {
             if in_table {
-                flush_table(&mut table_buf, &mut text_buf);
+                flush_table(
+                    &mut table_buf,
+                    &mut text_buf,
+                    &mut components,
+                    &mut attachments,
+                    &mut table_counter,
+                );
                 in_table = false;
             }
             flush_text(&mut text_buf, &mut components);
@@ -71,9 +97,14 @@ pub fn markdown_to_v2_components(text: &str) -> Vec<serde_json::Value> {
                 continue;
             }
         } else if in_table {
-            // End of table — flush as code block, then flush as separate text
-            flush_table(&mut table_buf, &mut text_buf);
-            flush_text(&mut text_buf, &mut components);
+            // End of table
+            flush_table(
+                &mut table_buf,
+                &mut text_buf,
+                &mut components,
+                &mut attachments,
+                &mut table_counter,
+            );
             in_table = false;
         }
 
@@ -82,11 +113,21 @@ pub fn markdown_to_v2_components(text: &str) -> Vec<serde_json::Value> {
     }
 
     if in_table {
-        flush_table(&mut table_buf, &mut text_buf);
+        flush_table(
+            &mut table_buf,
+            &mut text_buf,
+            &mut components,
+            &mut attachments,
+            &mut table_counter,
+        );
     }
 
     flush_text(&mut text_buf, &mut components);
-    components
+
+    MarkdownComponents {
+        components,
+        attachments,
+    }
 }
 
 /// Check if a line is a markdown horizontal rule.
@@ -136,17 +177,42 @@ fn pop_last_line(buf: &mut String) -> Option<String> {
     Some(line)
 }
 
-/// Flush accumulated table lines as a code-block-wrapped TextDisplay.
-fn flush_table(table_buf: &mut Vec<String>, text_buf: &mut String) {
+/// Flush accumulated table lines as either:
+/// - A `MediaGallery` component with a PNG attachment (preferred), or
+/// - A code-block-wrapped `TextDisplay` (fallback when image rendering fails).
+fn flush_table(
+    table_buf: &mut Vec<String>,
+    text_buf: &mut String,
+    components: &mut Vec<serde_json::Value>,
+    attachments: &mut Vec<MarkdownAttachment>,
+    table_counter: &mut usize,
+) {
     if table_buf.is_empty() {
         return;
     }
-    text_buf.push_str("```\n");
-    for line in table_buf.drain(..) {
-        text_buf.push_str(&line);
-        text_buf.push('\n');
+
+    // Flush any pending text that precedes the table
+    flush_text(text_buf, components);
+
+    if let Some(png) = super::table_image::render_table_png(table_buf) {
+        let filename = format!("table_{table_counter}.png");
+        *table_counter += 1;
+        components.push(components_v2::media_gallery(&filename));
+        attachments.push(MarkdownAttachment {
+            filename,
+            data: png,
+        });
+        table_buf.clear();
+    } else {
+        // Fallback: code block
+        let mut block = String::from("```\n");
+        for line in table_buf.drain(..) {
+            block.push_str(&line);
+            block.push('\n');
+        }
+        block.push_str("```");
+        components.push(components_v2::text_display(&block));
     }
-    text_buf.push_str("```\n");
 }
 
 /// Flush the text buffer as one or more TextDisplay components, splitting if
@@ -214,92 +280,100 @@ mod tests {
 
     #[test]
     fn plain_text_becomes_single_text_display() {
-        let components = markdown_to_v2_components("Hello world");
-        assert_eq!(components.len(), 1);
-        assert_eq!(components[0]["type"], 10);
-        assert_eq!(components[0]["content"], "Hello world");
+        let out = markdown_to_v2_components("Hello world");
+        assert_eq!(out.components.len(), 1);
+        assert_eq!(out.components[0]["type"], 10);
+        assert_eq!(out.components[0]["content"], "Hello world");
     }
 
     #[test]
     fn horizontal_rule_becomes_separator() {
         let input = "Before\n---\nAfter";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components.len(), 3);
-        assert_eq!(components[0]["type"], 10); // TextDisplay "Before"
-        assert_eq!(components[1]["type"], 14); // Separator
-        assert_eq!(components[2]["type"], 10); // TextDisplay "After"
+        let out = markdown_to_v2_components(input);
+        assert_eq!(out.components.len(), 3);
+        assert_eq!(out.components[0]["type"], 10); // TextDisplay "Before"
+        assert_eq!(out.components[1]["type"], 14); // Separator
+        assert_eq!(out.components[2]["type"], 10); // TextDisplay "After"
     }
 
     #[test]
     fn triple_asterisk_is_horizontal_rule() {
-        let input = "A\n***\nB";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components[1]["type"], 14);
+        let out = markdown_to_v2_components("A\n***\nB");
+        assert_eq!(out.components[1]["type"], 14);
     }
 
     #[test]
     fn triple_underscore_is_horizontal_rule() {
-        let input = "A\n___\nB";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components[1]["type"], 14);
+        let out = markdown_to_v2_components("A\n___\nB");
+        assert_eq!(out.components[1]["type"], 14);
     }
 
     #[test]
     fn hr_inside_code_fence_is_preserved() {
-        let input = "```\n---\n```";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components.len(), 1);
-        assert_eq!(components[0]["type"], 10);
-        let content = components[0]["content"].as_str().unwrap();
+        let out = markdown_to_v2_components("```\n---\n```");
+        assert_eq!(out.components.len(), 1);
+        assert_eq!(out.components[0]["type"], 10);
+        let content = out.components[0]["content"].as_str().unwrap();
         assert!(content.contains("---"));
     }
 
     #[test]
-    fn table_wrapped_in_code_block() {
+    fn table_becomes_image_or_code_block_fallback() {
         let input = "Before\n| A | B |\n|---|---|\n| 1 | 2 |\nAfter";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components.len(), 3);
+        let out = markdown_to_v2_components(input);
 
-        let before = components[0]["content"].as_str().unwrap();
-        assert_eq!(before, "Before");
+        // First and last components are always text
+        assert_eq!(out.components.first().unwrap()["content"], "Before");
+        assert_eq!(out.components.last().unwrap()["content"], "After");
 
-        let table = components[1]["content"].as_str().unwrap();
-        assert!(table.contains("```"));
-        assert!(table.contains("| A | B |"));
-        assert!(table.contains("| 1 | 2 |"));
+        // Middle component is either MediaGallery (image) or code-block TextDisplay
+        let table_comp = &out.components[1];
+        let is_image = table_comp["type"] == 12;
+        let is_code_block = table_comp["type"] == 10
+            && table_comp["content"]
+                .as_str()
+                .is_some_and(|s| s.contains("```"));
+        assert!(
+            is_image || is_code_block,
+            "Table should be MediaGallery or code-block, got type={}",
+            table_comp["type"]
+        );
 
-        let after = components[2]["content"].as_str().unwrap();
-        assert_eq!(after, "After");
+        if is_image {
+            assert_eq!(out.attachments.len(), 1);
+            assert!(out.attachments[0].filename.starts_with("table_"));
+            assert_eq!(&out.attachments[0].data[..4], b"\x89PNG");
+        }
     }
 
     #[test]
     fn table_inside_code_fence_not_transformed() {
         let input = "```\n| A | B |\n|---|---|\n| 1 | 2 |\n```";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components.len(), 1);
-        let content = components[0]["content"].as_str().unwrap();
+        let out = markdown_to_v2_components(input);
+        assert_eq!(out.components.len(), 1);
+        assert!(out.attachments.is_empty());
+        let content = out.components[0]["content"].as_str().unwrap();
         // Should NOT double-wrap in code fences
         assert_eq!(content.matches("```").count(), 2);
     }
 
     #[test]
     fn empty_text_produces_no_components() {
-        let components = markdown_to_v2_components("");
-        assert!(components.is_empty());
+        let out = markdown_to_v2_components("");
+        assert!(out.components.is_empty());
     }
 
     #[test]
     fn only_whitespace_produces_no_components() {
-        let components = markdown_to_v2_components("   \n\n  ");
-        assert!(components.is_empty());
+        let out = markdown_to_v2_components("   \n\n  ");
+        assert!(out.components.is_empty());
     }
 
     #[test]
     fn two_dashes_is_not_horizontal_rule() {
-        let input = "A\n--\nB";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components.len(), 1);
-        assert_eq!(components[0]["type"], 10);
+        let out = markdown_to_v2_components("A\n--\nB");
+        assert_eq!(out.components.len(), 1);
+        assert_eq!(out.components[0]["type"], 10);
     }
 
     #[test]
@@ -317,9 +391,9 @@ mod tests {
     #[test]
     fn multiple_separators() {
         let input = "A\n---\nB\n***\nC";
-        let components = markdown_to_v2_components(input);
-        assert_eq!(components.len(), 5);
-        assert_eq!(components[1]["type"], 14);
-        assert_eq!(components[3]["type"], 14);
+        let out = markdown_to_v2_components(input);
+        assert_eq!(out.components.len(), 5);
+        assert_eq!(out.components[1]["type"], 14);
+        assert_eq!(out.components[3]["type"], 14);
     }
 }
