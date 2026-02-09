@@ -224,12 +224,21 @@ impl ToolContext {
         id
     }
 
-    /// Resolve a content_ref ID to the cached content string.
-    pub fn resolve_content_ref(&self, id: usize) -> Option<&str> {
-        self.tool_result_cache
-            .iter()
-            .find(|r| r.id == id)
-            .map(|r| r.content.as_str())
+    /// Resolve a content_ref ID to the meaningful content.
+    ///
+    /// For `web_fetch` results, extracts the `.content` field from the JSON
+    /// response envelope. For other tools, returns the raw cached string.
+    pub fn resolve_content_ref(&self, id: usize) -> Option<String> {
+        let cached = self.tool_result_cache.iter().find(|r| r.id == id)?;
+
+        if cached.tool_name == "web_fetch"
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cached.content)
+            && let Some(content) = parsed.get("content").and_then(|c| c.as_str())
+        {
+            return Some(content.to_string());
+        }
+
+        Some(cached.content.clone())
     }
 
     pub fn new_for_tests(root: &Path) -> Self {
