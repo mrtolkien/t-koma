@@ -26,7 +26,6 @@ impl TuiApp {
             PromptKind::DeleteGhostConfirmOne => "Type DELETE",
             PromptKind::DeleteGhostConfirmTwo => "Type ghost name",
             PromptKind::GateSearch => "Search logs (blank clears)",
-            PromptKind::SetOperatorAccessLevel => "Access level: puppet_master | standard",
             PromptKind::SetOperatorRateLimits => "Rate limits: 5m,1h or 'none'",
             PromptKind::KnowledgeSearch => "Search knowledge",
         };
