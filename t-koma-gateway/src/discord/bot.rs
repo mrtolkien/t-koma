@@ -14,7 +14,7 @@ use crate::state::{AppState, PendingGatewayAction, RateLimitDecision};
 
 use super::send::{
     WARNING_EMBED_COLOR, send_discord_message, send_gateway_embed, send_gateway_embed_colored,
-    send_interface_prompt, send_outbound_messages,
+    send_interface_prompt, send_outbound_messages, send_tool_calls_v2,
 };
 
 /// Discord bot handler
@@ -604,6 +604,30 @@ impl EventHandler for Bot {
         }
 
         let typing = msg.channel_id.start_typing(&ctx.http);
+
+        // Set up incremental tool call streaming when verbose mode is on
+        let verbose = self.state.is_verbose(&operator_id).await;
+        let (tool_tx, tool_rx): (
+            Option<tokio::sync::mpsc::UnboundedSender<Vec<crate::state::ToolCallSummary>>>,
+            Option<tokio::sync::mpsc::UnboundedReceiver<Vec<crate::state::ToolCallSummary>>>,
+        ) = if verbose {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
+
+        // Spawn a background task to send tool calls as they arrive
+        let tool_stream_handle = tool_rx.map(|mut rx| {
+            let http = ctx.http.clone();
+            let channel_id = msg.channel_id;
+            tokio::spawn(async move {
+                while let Some(calls) = rx.recv().await {
+                    let _ = send_tool_calls_v2(&http, channel_id, &calls).await;
+                }
+            })
+        });
+
         match operator_flow::run_chat_with_pending(
             self.state.as_ref(),
             Some("discord"),
@@ -612,10 +636,15 @@ impl EventHandler for Bot {
             &session.id,
             &operator_id,
             chat_content,
+            tool_tx.as_ref(),
         )
         .await
         {
             Ok(messages) => {
+                // Wait for all streamed tool calls to finish before sending the final response
+                if let Some(handle) = tool_stream_handle {
+                    let _ = handle.await;
+                }
                 send_outbound_messages(
                     self.state.as_ref(),
                     &ctx,
@@ -664,6 +693,16 @@ impl EventHandler for Bot {
                         .required(true),
                 ),
             CreateCommand::new("new").description("Start a new session with your ghost"),
+            CreateCommand::new("feedback")
+                .description("Send feedback to the operator")
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "text",
+                        "Your feedback message",
+                    )
+                    .required(true),
+                ),
         ];
 
         if let Err(e) = Command::set_global_commands(&ctx.http, commands).await {
@@ -946,6 +985,7 @@ impl Bot {
             new_session_id,
             operator_id,
             "hello",
+            None,
         )
         .await
         {

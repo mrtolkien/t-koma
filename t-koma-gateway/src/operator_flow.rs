@@ -77,6 +77,7 @@ pub fn gateway_error(text: impl Into<String>) -> GatewayMessage {
     gateway_message::text(GatewayMessageKind::Error, text)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_chat_with_pending(
     state: &AppState,
     interface: Option<&str>,
@@ -85,16 +86,26 @@ pub async fn run_chat_with_pending(
     session_id: &str,
     operator_id: &str,
     content: &str,
+    tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
 ) -> Result<Vec<OutboundMessage>, ChatError> {
+    let streamed = tool_call_tx.is_some();
+
     let result = match model_alias {
         Some(alias) => {
             state
-                .chat_with_model_alias_detailed(alias, ghost_name, session_id, operator_id, content)
+                .chat_with_model_alias_detailed(
+                    alias,
+                    ghost_name,
+                    session_id,
+                    operator_id,
+                    content,
+                    tool_call_tx,
+                )
                 .await
         }
         None => {
             state
-                .chat_detailed(ghost_name, session_id, operator_id, content)
+                .chat_detailed(ghost_name, session_id, operator_id, content, tool_call_tx)
                 .await
         }
     };
@@ -108,7 +119,8 @@ pub async fn run_chat_with_pending(
                     interface,
                 )));
             }
-            if !result.tool_calls.is_empty() && state.is_verbose(operator_id).await {
+            // Only batch tool calls if they weren't already streamed
+            if !streamed && !result.tool_calls.is_empty() && state.is_verbose(operator_id).await {
                 out.push(OutboundMessage::ToolCalls(result.tool_calls));
             }
             out.push(OutboundMessage::assistant(result.text));

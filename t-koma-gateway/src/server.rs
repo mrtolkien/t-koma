@@ -1058,6 +1058,7 @@ async fn handle_websocket(
                                 &target_session_id,
                                 &op_id,
                                 &content_for_chat,
+                                None,
                             )
                             .await
                             {

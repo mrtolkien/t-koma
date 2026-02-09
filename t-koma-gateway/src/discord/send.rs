@@ -120,7 +120,7 @@ pub async fn send_gateway_v2(
 const TOOL_CALL_COLOR: u32 = 0x4A_4A_52;
 
 /// Render tool call summaries as a muted v2 Container.
-async fn send_tool_calls_v2(
+pub(super) async fn send_tool_calls_v2(
     http: &Http,
     channel_id: ChannelId,
     calls: &[ToolCallSummary],

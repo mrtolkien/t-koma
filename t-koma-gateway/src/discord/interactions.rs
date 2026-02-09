@@ -190,6 +190,7 @@ impl Bot {
             match command.data.name.as_str() {
                 "log" => self.handle_log_command(&ctx, command).await,
                 "new" => self.handle_new_command(&ctx, command).await,
+                "feedback" => self.handle_feedback_command(&ctx, command).await,
                 _ => {}
             }
         }
@@ -358,6 +359,80 @@ impl Bot {
             &new_session.id,
         )
         .await;
+    }
+
+    /// Handle `/feedback` slash command: save operator feedback to disk.
+    async fn handle_feedback_command(
+        &self,
+        ctx: &Context,
+        command: &serenity::model::application::CommandInteraction,
+    ) {
+        let text = command
+            .data
+            .options
+            .first()
+            .and_then(|o| o.value.as_str())
+            .unwrap_or("");
+
+        if text.is_empty() {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("Feedback text cannot be empty.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        }
+
+        let external_id = command.user.id.to_string();
+        let operator_id = self
+            .resolve_operator_id(&external_id)
+            .await
+            .unwrap_or_else(|| format!("discord_{}", external_id));
+
+        let base = std::env::var("T_KOMA_DATA_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                std::env::var("XDG_DATA_HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|_| {
+                        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                            .join(".local/share")
+                    })
+                    .join("t-koma")
+            });
+        let feedback_dir = base.join("feedback");
+        let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%S");
+        let filename = format!("{}_{}.txt", timestamp, operator_id);
+
+        let reply = match tokio::fs::create_dir_all(&feedback_dir).await {
+            Ok(()) => match tokio::fs::write(feedback_dir.join(&filename), text).await {
+                Ok(()) => "Feedback saved — thank you!".to_string(),
+                Err(e) => {
+                    error!("Failed to write feedback file: {}", e);
+                    format!("Failed to save feedback: {}", e)
+                }
+            },
+            Err(e) => {
+                error!("Failed to create feedback directory: {}", e);
+                format!("Failed to save feedback: {}", e)
+            }
+        };
+
+        let _ = command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content(reply)
+                        .ephemeral(true),
+                ),
+            )
+            .await;
     }
 
     /// Look up the operator ID from a Discord user's external ID.
