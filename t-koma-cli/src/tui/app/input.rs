@@ -32,6 +32,12 @@ impl TuiApp {
             }
             KeyCode::Up | KeyCode::Char('k') => self.navigate_up().await,
             KeyCode::Down | KeyCode::Char('j') => self.navigate_down().await,
+            KeyCode::Char('u') if self.focus == FocusPane::Content => {
+                self.scroll_half_page_up();
+            }
+            KeyCode::Char('d') if self.focus == FocusPane::Content => {
+                self.scroll_half_page_down();
+            }
             KeyCode::Enter => self.activate().await,
             _ => self.handle_category_shortcuts(key).await,
         }
@@ -68,26 +74,77 @@ impl TuiApp {
         self.job_detail_scroll = 0;
     }
 
-    fn scroll_detail_up(&mut self) {
+    fn scroll_detail_up(&mut self, delta: u16) {
         match &self.content_view {
             ContentView::JobDetail { .. } => {
-                self.job_detail_scroll = self.job_detail_scroll.saturating_sub(1);
+                self.job_detail_scroll = self.job_detail_scroll.saturating_sub(delta);
             }
             ContentView::KnowledgeDetail { .. } => {
-                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_sub(1);
+                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_sub(delta);
             }
             _ => {}
         }
     }
 
-    fn scroll_detail_down(&mut self) {
+    fn scroll_detail_down(&mut self, delta: u16) {
         match &self.content_view {
             ContentView::JobDetail { .. } => {
-                self.job_detail_scroll = self.job_detail_scroll.saturating_add(1);
+                self.job_detail_scroll = self.job_detail_scroll.saturating_add(delta);
             }
             ContentView::KnowledgeDetail { .. } => {
-                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_add(1);
+                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_add(delta);
             }
+            _ => {}
+        }
+    }
+
+    fn half_page_height() -> u16 {
+        crossterm::terminal::size()
+            .map(|(_, h)| h.saturating_sub(9) / 2)
+            .unwrap_or(10)
+            .max(1)
+    }
+
+    fn scroll_half_page_up(&mut self) {
+        let delta = Self::half_page_height();
+        match &self.content_view {
+            ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
+                self.scroll_detail_up(delta);
+            }
+            ContentView::SessionMessages { .. } => {
+                self.session_view.scroll = self.session_view.scroll.saturating_sub(delta);
+            }
+            ContentView::List => match self.selected_category() {
+                Category::Config => {
+                    self.config_scroll = self.config_scroll.saturating_sub(delta);
+                }
+                Category::Gate => {
+                    self.gate_scroll = self.gate_scroll.saturating_sub(delta);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn scroll_half_page_down(&mut self) {
+        let delta = Self::half_page_height();
+        match &self.content_view {
+            ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
+                self.scroll_detail_down(delta);
+            }
+            ContentView::SessionMessages { .. } => {
+                self.session_view.scroll = self.session_view.scroll.saturating_add(delta);
+            }
+            ContentView::List => match self.selected_category() {
+                Category::Config => {
+                    self.config_scroll = self.config_scroll.saturating_add(delta);
+                }
+                Category::Gate => {
+                    self.gate_scroll = self.gate_scroll.saturating_add(delta);
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -147,7 +204,7 @@ impl TuiApp {
                     }
                 },
                 ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
-                    self.scroll_detail_up();
+                    self.scroll_detail_up(1);
                 }
                 ContentView::SessionMessages { .. } => {
                     self.session_view.scroll = self.session_view.scroll.saturating_sub(1);
@@ -205,7 +262,7 @@ impl TuiApp {
                     }
                 },
                 ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
-                    self.scroll_detail_down();
+                    self.scroll_detail_down(1);
                 }
                 ContentView::GhostSessions { .. } => {
                     if self.content_idx + 1 < self.session_view.sessions.len() {
@@ -493,7 +550,11 @@ impl TuiApp {
             }
             Category::Ghosts => self.refresh_ghosts().await,
             Category::Jobs => self.refresh_jobs(None).await,
-            Category::Knowledge => self.refresh_knowledge_recent().await,
+            Category::Knowledge => {
+                if self.knowledge_view.notes.is_empty() {
+                    self.refresh_knowledge_recent().await;
+                }
+            }
             Category::Config | Category::Gate => {}
         }
         self.refresh_metrics().await;
