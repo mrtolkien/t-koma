@@ -58,6 +58,9 @@ pub fn apply_gateway_selection(
     let entry = ModelConfig {
         provider,
         model: model_id,
+        base_url: None,
+        api_key_env: None,
+        routing: None,
         context_window: None,
     };
 
@@ -135,6 +138,43 @@ fn add_or_update_model(
         "Model ID",
         existing.as_ref().map(|e| e.model.as_str()),
     )?;
+    let base_url = match provider {
+        ProviderType::OpenAiCompatible => Some(prompt_text(
+            "Base URL",
+            existing.as_ref().and_then(|e| e.base_url.as_deref()),
+        )?),
+        ProviderType::OpenRouter => prompt_optional_text(
+            "Base URL (optional)",
+            existing.as_ref().and_then(|e| e.base_url.as_deref()),
+        )?,
+        ProviderType::Anthropic => None,
+    };
+    let api_key_env = match provider {
+        ProviderType::OpenRouter | ProviderType::OpenAiCompatible => prompt_optional_text(
+            "API key env var (optional)",
+            existing.as_ref().and_then(|e| e.api_key_env.as_deref()),
+        )?,
+        ProviderType::Anthropic => None,
+    };
+    let routing = if provider == ProviderType::OpenRouter {
+        let existing_routing = existing
+            .as_ref()
+            .and_then(|e| e.routing.as_ref())
+            .map(|v| v.join(","));
+        let routing_raw = prompt_optional_text(
+            "Routing providers comma-separated (optional)",
+            existing_routing.as_deref(),
+        )?;
+        routing_raw.map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+    } else {
+        None
+    };
     let suggested_alias = suggest_alias_from_model_id(&model);
     let alias = prompt_alias(existing_alias.as_deref().or(Some(suggested_alias.as_str())))?;
 
@@ -149,6 +189,9 @@ fn add_or_update_model(
         ModelConfig {
             provider,
             model,
+            base_url,
+            api_key_env,
+            routing,
             context_window: None,
         },
     );
@@ -184,7 +227,7 @@ fn prompt_provider(default: Option<ProviderType>) -> Result<ProviderType, Box<dy
     let providers = [
         ProviderType::Anthropic,
         ProviderType::OpenRouter,
-        ProviderType::LlamaCpp,
+        ProviderType::OpenAiCompatible,
     ];
     let default_index = default
         .and_then(|value| providers.iter().position(|p| *p == value))
@@ -197,10 +240,10 @@ fn prompt_provider(default: Option<ProviderType>) -> Result<ProviderType, Box<dy
     loop {
         match default {
             Some(value) => print!(
-                "Provider (anthropic/openrouter/llama_cpp) [default: {}]: ",
+                "Provider (anthropic/openrouter/openai_compatible) [default: {}]: ",
                 value
             ),
-            None => print!("Provider (anthropic/openrouter/llama_cpp): "),
+            None => print!("Provider (anthropic/openrouter/openai_compatible): "),
         }
         io::stdout().flush()?;
 
@@ -248,6 +291,31 @@ fn prompt_text(
         }
 
         return Ok(input.to_string());
+    }
+}
+
+fn prompt_optional_text(
+    label: &str,
+    default: Option<&str>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    loop {
+        match default {
+            Some(value) => print!("{} [default: {} | '-' to clear]: ", label, value),
+            None => print!("{} [Enter to skip]: ", label),
+        }
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim();
+
+        if input == "-" {
+            return Ok(None);
+        }
+        if input.is_empty() {
+            return Ok(default.map(ToString::to_string));
+        }
+        return Ok(Some(input.to_string()));
     }
 }
 

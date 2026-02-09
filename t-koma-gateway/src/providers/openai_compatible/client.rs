@@ -1,4 +1,4 @@
-//! OpenRouter API client with OpenAI-compatible format.
+//! OpenAI-compatible API client.
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -11,16 +11,14 @@ use crate::providers::provider::{
 };
 use crate::tools::Tool;
 
-/// OpenRouter API client
+/// OpenAI-compatible API client.
 #[derive(Clone)]
-pub struct OpenRouterClient {
+pub struct OpenAiCompatibleClient {
     http_client: reqwest::Client,
-    api_key: String,
+    api_key: Option<String>,
     model: String,
     base_url: String,
-    http_referer: Option<String>,
-    app_name: Option<String>,
-    routing: Option<Vec<String>>,
+    provider_name: String,
     dump_queries: bool,
 }
 
@@ -33,14 +31,7 @@ struct ChatCompletionsRequest {
     tools: Option<Vec<OpenAiToolDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    provider: Option<OpenRouterProviderRoutingRequest>,
     max_tokens: u32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct OpenRouterProviderRoutingRequest {
-    order: Vec<String>,
 }
 
 /// OpenAI-compatible message format
@@ -107,74 +98,17 @@ struct Choice {
 struct Usage {
     prompt_tokens: u32,
     completion_tokens: u32,
-    #[serde(default)]
-    cache_read_input_tokens: Option<u32>,
-    #[serde(default)]
-    cache_creation_input_tokens: Option<u32>,
-    #[serde(default)]
-    cached_tokens: Option<u32>,
-    #[serde(default)]
-    prompt_tokens_details: Option<TokenDetails>,
-    #[serde(default)]
-    input_tokens_details: Option<TokenDetails>,
     #[allow(dead_code)]
     total_tokens: u32,
 }
 
-#[derive(Debug, Deserialize)]
-struct TokenDetails {
-    #[serde(default)]
-    cached_tokens: Option<u32>,
-    #[serde(default)]
-    cache_read_input_tokens: Option<u32>,
-    #[serde(default)]
-    cache_creation_input_tokens: Option<u32>,
-    #[serde(default)]
-    cache_read: Option<u32>,
-    #[serde(default)]
-    cache_creation: Option<u32>,
-}
-
-/// OpenRouter API error response
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct OpenRouterError {
-    error: OpenRouterErrorDetail,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct OpenRouterErrorDetail {
-    message: String,
-    #[serde(rename = "type")]
-    error_type: String,
-}
-
-/// Model information from OpenRouter API
-#[derive(Debug, Clone, Deserialize)]
-pub struct OpenRouterModel {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    #[serde(rename = "context_length")]
-    pub context_length: Option<u32>,
-}
-
-/// Response from the models endpoint
-#[derive(Debug, Deserialize)]
-pub struct OpenRouterModelsResponse {
-    pub data: Vec<OpenRouterModel>,
-}
-
-impl OpenRouterClient {
-    /// Create a new OpenRouter client
+impl OpenAiCompatibleClient {
+    /// Create a new OpenAI-compatible client.
     pub fn new(
-        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+        api_key: Option<String>,
         model: impl Into<String>,
-        base_url: Option<String>,
-        http_referer: Option<String>,
-        app_name: Option<String>,
-        routing: Option<Vec<String>>,
+        provider_name: impl Into<String>,
     ) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -187,12 +121,10 @@ impl OpenRouterClient {
 
         Self {
             http_client,
-            api_key: api_key.into(),
+            api_key,
             model: model.into(),
-            base_url: base_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
-            http_referer,
-            app_name,
-            routing,
+            base_url: base_url.into(),
+            provider_name: provider_name.into(),
             dump_queries: false,
         }
     }
@@ -203,44 +135,32 @@ impl OpenRouterClient {
         self
     }
 
-    /// Update the model for this client
-    pub fn set_model(&mut self, model: impl Into<String>) {
-        self.model = model.into();
-    }
-
-    /// Build request headers with optional attribution
+    /// Build request headers with optional auth
     fn build_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-        let auth_value = format!("Bearer {}", self.api_key);
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&auth_value).expect("Invalid API key format"),
-        );
-
-        // Optional headers for OpenRouter rankings
-        if let Some(ref referer) = self.http_referer
-            && let Ok(value) = HeaderValue::from_str(referer)
-        {
-            headers.insert("HTTP-Referer", value);
-        }
-        if let Some(ref app_name) = self.app_name
-            && let Ok(value) = HeaderValue::from_str(app_name)
-        {
-            headers.insert("X-Title", value);
+        if let Some(api_key) = &self.api_key {
+            let auth_value = format!("Bearer {}", api_key);
+            if let Ok(header_value) = HeaderValue::from_str(&auth_value) {
+                headers.insert(AUTHORIZATION, header_value);
+            }
         }
 
         headers
     }
 
-    /// Send a simple single-turn message.
-    pub async fn send_message(
-        &self,
-        content: impl AsRef<str>,
-    ) -> Result<ProviderResponse, ProviderError> {
-        self.send_conversation(None, vec![], vec![], Some(content.as_ref()), None, None)
-            .await
+    fn normalized_base_url(&self) -> String {
+        self.base_url.trim_end_matches('/').to_string()
+    }
+
+    fn chat_completions_url(&self) -> String {
+        let base = self.normalized_base_url();
+        if base.ends_with("/v1") {
+            format!("{}/chat/completions", base)
+        } else {
+            format!("{}/v1/chat/completions", base)
+        }
     }
 
     /// Convert system blocks to a single system message
@@ -340,7 +260,6 @@ impl OpenRouterClient {
             messages.extend(tool_messages);
         }
 
-        // Add new message if provided
         if let Some(content) = new_message {
             messages.push(OpenAiMessage {
                 role: "user".to_string(),
@@ -380,14 +299,12 @@ impl OpenRouterClient {
             Some(choice) => {
                 let mut blocks = Vec::new();
 
-                // Add text content if present
                 if let Some(text) = choice.message.content
                     && !text.is_empty()
                 {
                     blocks.push(ProviderContentBlock::Text { text });
                 }
 
-                // Add tool calls
                 if let Some(tool_calls) = choice.message.tool_calls {
                     for tool_call in tool_calls {
                         if let Ok(input) = serde_json::from_str(&tool_call.function.arguments) {
@@ -412,55 +329,18 @@ impl OpenRouterClient {
             usage: response.usage.map(|u| ProviderUsage {
                 input_tokens: u.prompt_tokens,
                 output_tokens: u.completion_tokens,
-                cache_read_tokens: u.cache_read_tokens(),
-                cache_creation_tokens: u.cache_creation_tokens(),
+                cache_read_tokens: None,
+                cache_creation_tokens: None,
             }),
             stop_reason,
         }
     }
-
-    fn provider_routing_request(&self) -> Option<OpenRouterProviderRoutingRequest> {
-        let routing = self.routing.as_ref()?;
-        let order: Vec<String> = routing
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string)
-            .collect();
-        if order.is_empty() {
-            return None;
-        }
-        Some(OpenRouterProviderRoutingRequest { order })
-    }
-
-    /// Fetch available models from OpenRouter
-    pub async fn fetch_models(&self) -> Result<Vec<OpenRouterModel>, ProviderError> {
-        let url = format!("{}/models", self.base_url);
-
-        let response = self
-            .http_client
-            .get(&url)
-            .headers(self.build_headers())
-            .send()
-            .await?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(ProviderError::ApiError {
-                message: format!("HTTP {}: {}", status, error_text),
-            });
-        }
-
-        let models_response: OpenRouterModelsResponse = response.json().await?;
-        Ok(models_response.data)
-    }
 }
 
 #[async_trait::async_trait]
-impl Provider for OpenRouterClient {
+impl Provider for OpenAiCompatibleClient {
     fn name(&self) -> &str {
-        "openrouter"
+        &self.provider_name
     }
 
     fn model(&self) -> &str {
@@ -476,20 +356,16 @@ impl Provider for OpenRouterClient {
         _message_limit: Option<usize>,
         _tool_choice: Option<String>,
     ) -> Result<ProviderResponse, ProviderError> {
-        let url = format!("{}/chat/completions", self.base_url);
+        let url = self.chat_completions_url();
 
-        // Build messages
         let mut messages = Vec::new();
 
-        // Add system message if present
         if let Some(system_msg) = self.convert_system_blocks(system) {
             messages.push(system_msg);
         }
 
-        // Add history and new message
         messages.extend(self.convert_messages(history, new_message));
 
-        // Build tools
         let tool_definitions = if tools.is_empty() {
             None
         } else {
@@ -507,14 +383,14 @@ impl Provider for OpenRouterClient {
             messages,
             tools: tool_definitions,
             tool_choice,
-            provider: self.provider_routing_request(),
             max_tokens: 4096,
         };
 
         let dump = if self.dump_queries
             && let Ok(val) = serde_json::to_value(&request_body)
         {
-            crate::providers::query_dump::QueryDump::request("openrouter", &self.model, &val).await
+            crate::providers::query_dump::QueryDump::request(&self.provider_name, &self.model, &val)
+                .await
         } else {
             None
         };
@@ -553,162 +429,46 @@ impl Provider for OpenRouterClient {
     }
 }
 
-impl Usage {
-    fn cache_read_tokens(&self) -> Option<u32> {
-        self.cache_read_input_tokens
-            .or(self.cached_tokens)
-            .or_else(|| self.prompt_tokens_details.as_ref()?.cache_read_value())
-            .or_else(|| self.input_tokens_details.as_ref()?.cache_read_value())
-    }
-
-    fn cache_creation_tokens(&self) -> Option<u32> {
-        self.cache_creation_input_tokens
-            .or_else(|| self.prompt_tokens_details.as_ref()?.cache_creation_value())
-            .or_else(|| self.input_tokens_details.as_ref()?.cache_creation_value())
-    }
-}
-
-impl TokenDetails {
-    fn cache_read_value(&self) -> Option<u32> {
-        self.cache_read_input_tokens
-            .or(self.cached_tokens)
-            .or(self.cache_read)
-    }
-
-    fn cache_creation_value(&self) -> Option<u32> {
-        self.cache_creation_input_tokens.or(self.cache_creation)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_openrouter_client_creation() {
-        let client =
-            OpenRouterClient::new("test-key", "openrouter/model-a", None, None, None, None);
-        assert_eq!(client.model(), "openrouter/model-a");
-    }
-
-    #[test]
-    fn test_convert_tools() {
-        use crate::tools::{Tool, ToolContext};
-
-        struct TestTool;
-        #[async_trait::async_trait]
-        impl Tool for TestTool {
-            fn name(&self) -> &str {
-                "test_tool"
-            }
-            fn description(&self) -> &str {
-                "A test tool"
-            }
-            fn input_schema(&self) -> Value {
-                serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "param": {"type": "string"}
-                    }
-                })
-            }
-            async fn execute(
-                &self,
-                _args: Value,
-                _context: &mut ToolContext,
-            ) -> Result<String, String> {
-                Ok("ok".to_string())
-            }
-        }
-
-        let client = OpenRouterClient::new("test-key", "test-model", None, None, None, None);
-        let tools: Vec<&dyn Tool> = vec![&TestTool];
-        let openai_tools = client.convert_tools(&tools);
-
-        assert_eq!(openai_tools.len(), 1);
-        assert_eq!(openai_tools[0].r#type, "function");
-        assert_eq!(openai_tools[0].function.name, "test_tool");
-    }
-
-    #[test]
-    fn test_provider_routing_request_trims_and_serializes() {
-        let client = OpenRouterClient::new(
-            "test-key",
-            "test-model",
+    fn test_openai_compatible_client_creation() {
+        let client = OpenAiCompatibleClient::new(
+            "http://127.0.0.1:8080",
             None,
-            None,
-            None,
-            Some(vec![" anthropic ".to_string(), "".to_string()]),
+            "llama3.1",
+            "openai_compatible",
         );
-
-        let request = client.provider_routing_request().expect("routing present");
-        assert_eq!(request.order, vec!["anthropic".to_string()]);
+        assert_eq!(client.model(), "llama3.1");
     }
 
     #[test]
-    fn test_chat_request_includes_provider_when_configured() {
-        let client = OpenRouterClient::new(
-            "test-key",
-            "test-model",
+    fn test_chat_completions_url_without_v1_suffix() {
+        let client = OpenAiCompatibleClient::new(
+            "http://127.0.0.1:8080/",
             None,
-            None,
-            None,
-            Some(vec!["anthropic".to_string()]),
+            "llama3.1",
+            "openai_compatible",
         );
-
-        let body = ChatCompletionsRequest {
-            model: "test-model".to_string(),
-            messages: vec![],
-            tools: None,
-            tool_choice: None,
-            provider: client.provider_routing_request(),
-            max_tokens: 10,
-        };
-        let json = serde_json::to_value(body).unwrap();
-        assert_eq!(json["provider"]["order"], serde_json::json!(["anthropic"]));
+        assert_eq!(
+            client.chat_completions_url(),
+            "http://127.0.0.1:8080/v1/chat/completions"
+        );
     }
 
     #[test]
-    fn test_chat_request_omits_provider_when_not_configured() {
-        let body = ChatCompletionsRequest {
-            model: "test-model".to_string(),
-            messages: vec![],
-            tools: None,
-            tool_choice: None,
-            provider: None,
-            max_tokens: 10,
-        };
-        let json = serde_json::to_value(body).unwrap();
-        assert!(json.get("provider").is_none());
-    }
-
-    #[test]
-    fn test_cache_usage_parsing() {
-        let usage: Usage = serde_json::from_value(serde_json::json!({
-            "prompt_tokens": 100,
-            "completion_tokens": 20,
-            "total_tokens": 120,
-            "prompt_tokens_details": {
-                "cached_tokens": 60,
-                "cache_creation_input_tokens": 15
-            }
-        }))
-        .unwrap();
-
-        assert_eq!(usage.cache_read_tokens(), Some(60));
-        assert_eq!(usage.cache_creation_tokens(), Some(15));
-    }
-
-    #[test]
-    fn test_cache_usage_absent() {
-        let usage: Usage = serde_json::from_value(serde_json::json!({
-            "prompt_tokens": 100,
-            "completion_tokens": 20,
-            "total_tokens": 120
-        }))
-        .unwrap();
-
-        assert_eq!(usage.cache_read_tokens(), None);
-        assert_eq!(usage.cache_creation_tokens(), None);
+    fn test_chat_completions_url_with_v1_suffix() {
+        let client = OpenAiCompatibleClient::new(
+            "http://127.0.0.1:8080/v1",
+            None,
+            "llama3.1",
+            "openai_compatible",
+        );
+        assert_eq!(
+            client.chat_completions_url(),
+            "http://127.0.0.1:8080/v1/chat/completions"
+        );
     }
 }

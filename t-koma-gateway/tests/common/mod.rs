@@ -7,7 +7,7 @@ use t_koma_core::Config;
 use t_koma_db::{GhostDbPool, GhostRepository, KomaDbPool, Operator, OperatorRepository, Platform};
 use t_koma_gateway::providers::Provider;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
-use t_koma_gateway::providers::llama_cpp::LlamaCppClient;
+use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::state::{AppState, ModelEntry};
 
@@ -41,19 +41,16 @@ pub fn load_default_model() -> DefaultModelInfo {
         }
         "openrouter" => {
             let api_key = config
-                .openrouter_api_key()
-                .expect("OPENROUTER_API_KEY must be set for live tests");
+                .api_key_for_alias(&alias)
+                .expect("resolved openrouter key")
+                .expect("OpenRouter API key must be set for live tests");
             let client = OpenRouterClient::new(
                 api_key,
                 &model_config.model,
+                model_config.base_url.clone(),
                 config.settings.openrouter.http_referer.clone(),
                 config.settings.openrouter.app_name.clone(),
-                config
-                    .settings
-                    .openrouter
-                    .model_provider
-                    .get(&alias)
-                    .cloned(),
+                model_config.routing.clone(),
             );
             DefaultModelInfo {
                 alias,
@@ -62,15 +59,16 @@ pub fn load_default_model() -> DefaultModelInfo {
                 client: Arc::new(client),
             }
         }
-        "llama_cpp" => {
-            let base_url = config
-                .llama_cpp_base_url()
-                .map(ToOwned::to_owned)
-                .expect("llama_cpp.base_url must be set for llama_cpp provider");
-            let client = LlamaCppClient::new(
+        "openai_compatible" => {
+            let base_url = model_config
+                .base_url
+                .clone()
+                .expect("model.base_url must be set for openai_compatible provider");
+            let client = OpenAiCompatibleClient::new(
                 base_url,
-                config.llama_cpp_api_key().map(ToOwned::to_owned),
+                config.api_key_for_alias(&alias).ok().flatten(),
                 &model_config.model,
+                "openai_compatible",
             );
             DefaultModelInfo {
                 alias,

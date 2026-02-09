@@ -5,7 +5,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use t_koma_gateway::discord::start_discord_bot;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
-use t_koma_gateway::providers::llama_cpp::LlamaCppClient;
+use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::server;
 use t_koma_gateway::state::AppState;
@@ -76,56 +76,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "openrouter" => {
-                if let Some(api_key) = config.openrouter_api_key() {
-                    let http_referer = config.settings.openrouter.http_referer.clone();
-                    let app_name = config.settings.openrouter.app_name.clone();
-                    let client = OpenRouterClient::new(
-                        api_key,
-                        &model_config.model,
-                        http_referer,
-                        app_name,
-                        config
-                            .settings
-                            .openrouter
-                            .model_provider
-                            .get(alias)
-                            .cloned(),
-                    )
-                    .with_dump_queries(config.settings.logging.dump_queries);
-                    info!(
-                        "OpenRouter client created for alias '{}' with model: {}",
-                        alias, model_config.model
-                    );
-                    models.insert(
-                        alias.clone(),
-                        t_koma_gateway::state::ModelEntry {
-                            alias: alias.clone(),
-                            provider: model_config.provider.to_string(),
-                            model: model_config.model.clone(),
-                            client: Arc::new(client),
-                            context_window: model_config.context_window,
-                        },
-                    );
-                } else {
-                    info!(
-                        "Skipping model '{}' (openrouter) - no OPENROUTER_API_KEY configured",
-                        alias
-                    );
-                }
-            }
-            "llama_cpp" => {
-                let base_url = config
-                    .llama_cpp_base_url()
-                    .map(ToOwned::to_owned)
-                    .expect("llama_cpp.base_url must be validated by Config::load");
-                let client = LlamaCppClient::new(
-                    base_url,
-                    config.llama_cpp_api_key().map(ToOwned::to_owned),
+                let api_key = match config.api_key_for_alias(alias) {
+                    Ok(Some(key)) => key,
+                    Ok(None) => {
+                        info!(
+                            "Skipping model '{}' (openrouter) - no resolved API key configured",
+                            alias
+                        );
+                        continue;
+                    }
+                    Err(err) => {
+                        info!(
+                            "Skipping model '{}' (openrouter) - API key resolution error: {}",
+                            alias, err
+                        );
+                        continue;
+                    }
+                };
+                let http_referer = config.settings.openrouter.http_referer.clone();
+                let app_name = config.settings.openrouter.app_name.clone();
+                let client = OpenRouterClient::new(
+                    api_key,
                     &model_config.model,
+                    model_config.base_url.clone(),
+                    http_referer,
+                    app_name,
+                    model_config.routing.clone(),
                 )
                 .with_dump_queries(config.settings.logging.dump_queries);
                 info!(
-                    "llama.cpp client created for alias '{}' with model: {}",
+                    "OpenRouter client created for alias '{}' with model: {}",
+                    alias, model_config.model
+                );
+                models.insert(
+                    alias.clone(),
+                    t_koma_gateway::state::ModelEntry {
+                        alias: alias.clone(),
+                        provider: model_config.provider.to_string(),
+                        model: model_config.model.clone(),
+                        client: Arc::new(client),
+                        context_window: model_config.context_window,
+                    },
+                );
+            }
+            "openai_compatible" => {
+                let base_url = model_config
+                    .base_url
+                    .clone()
+                    .expect("openai_compatible model.base_url must be validated by Config::load");
+                let api_key = match config.api_key_for_alias(alias) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        info!(
+                            "Skipping model '{}' (openai_compatible) - API key resolution error: {}",
+                            alias, err
+                        );
+                        continue;
+                    }
+                };
+                let client = OpenAiCompatibleClient::new(
+                    base_url,
+                    api_key,
+                    &model_config.model,
+                    "openai_compatible",
+                )
+                .with_dump_queries(config.settings.logging.dump_queries);
+                info!(
+                    "OpenAI-compatible client created for alias '{}' with model: {}",
                     alias, model_config.model
                 );
                 models.insert(

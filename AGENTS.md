@@ -100,11 +100,11 @@ Make extensive use of MCPs available to you:
   Editor").
 - Heartbeat uses the optional `heartbeat_model` alias in config; when unset it
   falls back to `default_model`.
-- OpenRouter upstream routing is configured in `[openrouter.model_provider]`
-  keyed by model alias (for example `[openrouter.model_provider.kimi25]` with
-  `order = ["provider-slug"]` and optional `allow_fallbacks`).
-- llama.cpp uses `[llama_cpp]` config with `base_url`, while model name stays
-  in `[models.<alias>]`; optional auth uses `LLAMA_CPP_API_KEY` from env.
+- OpenRouter upstream routing is configured per model with
+  `routing = ["provider-slug"]` on `[models.<alias>]`.
+- OpenAI-compatible providers use per-model fields on `[models.<alias>]`:
+  `provider = "openai_compatible"` and `base_url = "http://host:port[/v1]"`.
+  Optional auth uses `OPENAI_API_KEY` by default or model-level `api_key_env`.
 
 ### Locality of Concern
 
@@ -215,7 +215,7 @@ scheduler state owned by `AppState`.
   orchestration (chat dispatch, approval/continuation flow, session lifecycle
   side effects).
 - `t-koma-gateway/src/providers/`: provider adapters only (Anthropic,
-  OpenRouter). No transport logic here.
+  OpenRouter, OpenAI-compatible). No transport logic here.
 - `t-koma-gateway/src/prompt/`: prompt composition/rendering only.
 - `t-koma-gateway/src/tools/`: tool implementations and tool manager only.
 - `t-koma-gateway/src/server.rs` and `t-koma-gateway/src/discord.rs`: transport
@@ -598,6 +598,7 @@ Detailed how-tos are in `vibe/knowledge/`:
 - Anthropic/OpenRouter specifics: `vibe/knowledge/anthropic_claude_api.md`,
   `vibe/knowledge/openrouter.md`
 - sqlite-vec notes: `vibe/knowledge/sqlite-vec.md`
+- OpenAI-compatible provider: `vibe/knowledge/openai_compatible_provider.md`
 - Knowledge system: `t-koma-knowledge/knowledge/prompts/knowledge_system.md`
 - Operator access levels: `vibe/knowledge/operator_access_levels.md`
 

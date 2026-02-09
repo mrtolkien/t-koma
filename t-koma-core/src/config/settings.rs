@@ -21,7 +21,7 @@ const DEFAULT_CONFIG_TOML: &str = r#"# t-koma configuration file
 # Secrets (API keys) are loaded from environment variables:
 #   - ANTHROPIC_API_KEY
 #   - OPENROUTER_API_KEY
-#   - LLAMA_CPP_API_KEY (optional)
+#   - OPENAI_API_KEY (optional, for openai_compatible models)
 #   - DISCORD_BOT_TOKEN
 
 # Default model alias (must exist under [models])
@@ -34,9 +34,9 @@ default_model = ""
 # [models.example]
 # provider = "openrouter"
 # model = "your-model-id"
-# [openrouter.model_provider.example]
-# order = ["anthropic"]
-# allow_fallbacks = false
+# base_url = "https://openrouter.ai/api/v1"
+# api_key_env = "OPENROUTER_API_KEY"
+# routing = ["anthropic"]
 
 [gateway]
 host = "127.0.0.1"
@@ -51,9 +51,6 @@ level = "info"
 file_enabled = false
 # file_path = "/var/log/t-koma.log"
 # dump_queries = true
-
-[llama_cpp]
-# base_url = "http://127.0.0.1:8080"
 
 [tools.web]
 enabled = true
@@ -122,10 +119,6 @@ pub struct Settings {
     #[serde(default)]
     pub openrouter: OpenRouterSettings,
 
-    /// llama.cpp-specific settings
-    #[serde(default)]
-    pub llama_cpp: LlamaCppSettings,
-
     /// Tooling configuration
     #[serde(default)]
     pub tools: ToolsSettings,
@@ -138,7 +131,7 @@ pub struct Settings {
 /// Model configuration entry
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelConfig {
-    /// Provider type (e.g. "anthropic", "openrouter", "llama_cpp")
+    /// Provider type (e.g. "anthropic", "openrouter", "openai_compatible")
     #[serde(
         deserialize_with = "deserialize_model_provider",
         serialize_with = "serialize_model_provider"
@@ -146,19 +139,18 @@ pub struct ModelConfig {
     pub provider: ProviderType,
     /// Model identifier
     pub model: String,
+    /// Base URL for OpenAI-compatible providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// Optional env var name used to resolve provider API key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_env: Option<String>,
+    /// Optional OpenRouter upstream provider routing order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<Vec<String>>,
     /// Override the built-in context window lookup (in tokens).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u32>,
-}
-
-/// OpenRouter upstream provider-routing options.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OpenRouterProviderRoutingSettings {
-    /// Ordered list of OpenRouter upstream provider slugs.
-    pub order: Vec<String>,
-
-    /// Whether OpenRouter may fall back to providers outside `order`.
-    pub allow_fallbacks: Option<bool>,
 }
 
 /// OpenRouter-specific settings
@@ -169,17 +161,6 @@ pub struct OpenRouterSettings {
 
     /// App name for OpenRouter rankings
     pub app_name: Option<String>,
-
-    /// Optional upstream provider routing keyed by model alias.
-    #[serde(default)]
-    pub model_provider: BTreeMap<String, OpenRouterProviderRoutingSettings>,
-}
-
-/// llama.cpp settings
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct LlamaCppSettings {
-    /// Base URL for llama.cpp OpenAI-compatible server
-    pub base_url: Option<String>,
 }
 
 /// Gateway server settings
@@ -639,8 +620,6 @@ mod tests {
 
         assert!(settings.openrouter.http_referer.is_none());
         assert!(settings.openrouter.app_name.is_none());
-        assert!(settings.openrouter.model_provider.is_empty());
-        assert!(settings.llama_cpp.base_url.is_none());
 
         assert!(!settings.tools.web.enabled);
         assert!(!settings.tools.web.search.enabled);
@@ -681,17 +660,13 @@ heartbeat_model = "alpha"
 [models.kimi25]
 provider = "openrouter"
 model = "moonshotai/kimi-k2.5"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+routing = ["anthropic"]
 
 [openrouter]
 http_referer = "https://example.com"
 app_name = "Example App"
-
-[openrouter.model_provider.kimi25]
-order = ["anthropic"]
-allow_fallbacks = false
-
-[llama_cpp]
-base_url = "http://127.0.0.1:8080"
 
 [models.alpha]
 provider = "anthropic"
@@ -735,9 +710,12 @@ cache_ttl_minutes = 2
             settings.models.get("kimi25").unwrap().model,
             "moonshotai/kimi-k2.5"
         );
-        let routing = settings.openrouter.model_provider.get("kimi25").unwrap();
-        assert_eq!(routing.order, vec!["anthropic".to_string()]);
-        assert_eq!(routing.allow_fallbacks, Some(false));
+        let routing = settings
+            .models
+            .get("kimi25")
+            .and_then(|m| m.routing.as_ref())
+            .expect("openrouter routing");
+        assert_eq!(routing, &vec!["anthropic".to_string()]);
         assert_eq!(
             settings.models.get("alpha").unwrap().provider,
             ProviderType::Anthropic
@@ -749,10 +727,6 @@ cache_ttl_minutes = 2
         assert_eq!(
             settings.openrouter.app_name,
             Some("Example App".to_string())
-        );
-        assert_eq!(
-            settings.llama_cpp.base_url,
-            Some("http://127.0.0.1:8080".to_string())
         );
 
         assert_eq!(settings.gateway.host, "0.0.0.0");
@@ -795,14 +769,10 @@ host = "0.0.0.0"
             ModelConfig {
                 provider: ProviderType::OpenRouter,
                 model: "moonshotai/kimi-k2.5".to_string(),
+                base_url: Some("https://openrouter.ai/api/v1".to_string()),
+                api_key_env: Some("OPENROUTER_API_KEY".to_string()),
+                routing: Some(vec!["anthropic".to_string()]),
                 context_window: None,
-            },
-        );
-        settings.openrouter.model_provider.insert(
-            "kimi25".to_string(),
-            OpenRouterProviderRoutingSettings {
-                order: vec!["anthropic".to_string()],
-                allow_fallbacks: Some(false),
             },
         );
         settings.default_model = "kimi25".to_string();
@@ -824,9 +794,12 @@ host = "0.0.0.0"
             loaded.models.get("kimi25").unwrap().model,
             "moonshotai/kimi-k2.5"
         );
-        let routing = loaded.openrouter.model_provider.get("kimi25").unwrap();
-        assert_eq!(routing.order, vec!["anthropic".to_string()]);
-        assert_eq!(routing.allow_fallbacks, Some(false));
+        let routing = loaded
+            .models
+            .get("kimi25")
+            .and_then(|m| m.routing.as_ref())
+            .expect("openrouter routing");
+        assert_eq!(routing, &vec!["anthropic".to_string()]);
         assert_eq!(loaded.gateway.port, 4000);
 
         let _ = fs::remove_file(path);

@@ -16,7 +16,7 @@ pub enum MessageRole {
 pub enum ProviderType {
     Anthropic,
     OpenRouter,
-    LlamaCpp,
+    OpenAiCompatible,
 }
 
 impl ProviderType {
@@ -24,7 +24,7 @@ impl ProviderType {
         match self {
             ProviderType::Anthropic => "anthropic",
             ProviderType::OpenRouter => "openrouter",
-            ProviderType::LlamaCpp => "llama_cpp",
+            ProviderType::OpenAiCompatible => "openai_compatible",
         }
     }
 }
@@ -42,7 +42,9 @@ impl std::str::FromStr for ProviderType {
         match s.to_lowercase().as_str() {
             "anthropic" => Ok(ProviderType::Anthropic),
             "openrouter" | "open_router" => Ok(ProviderType::OpenRouter),
-            "llama_cpp" | "llamacpp" | "llama.cpp" => Ok(ProviderType::LlamaCpp),
+            "openai_compatible" | "openai-compatible" | "openaicompatible" => {
+                Ok(ProviderType::OpenAiCompatible)
+            }
             _ => Err(format!("Unknown provider: {}", s)),
         }
     }
