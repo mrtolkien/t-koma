@@ -537,18 +537,22 @@ impl AppState {
         message: &str,
     ) -> Result<String, ChatError> {
         let result = self
-            .chat_detailed(ghost_name, session_id, operator_id, message)
+            .chat_detailed(ghost_name, session_id, operator_id, message, None)
             .await?;
         Ok(result.text)
     }
 
     /// Send a chat message and get the AI response plus metadata.
+    ///
+    /// If `tool_call_tx` is provided, tool call summaries are streamed
+    /// incrementally during the tool loop.
     pub async fn chat_detailed(
         &self,
         ghost_name: &str,
         session_id: &str,
         operator_id: &str,
         message: &str,
+        tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<ChatResult, ChatError> {
         let chat_key = Self::chat_key(operator_id, ghost_name, session_id);
         if self.is_chat_in_flight(&chat_key).await {
@@ -601,6 +605,7 @@ impl AppState {
                 session_id,
                 operator_id,
                 &message,
+                tool_call_tx,
             )
             .await;
         self.clear_chat_in_flight(&chat_key).await;
@@ -667,6 +672,7 @@ impl AppState {
                 session_id,
                 operator_id,
                 message,
+                None,
             )
             .await?;
         Ok(result.text)
@@ -680,6 +686,7 @@ impl AppState {
         session_id: &str,
         operator_id: &str,
         message: &str,
+        tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<ChatResult, ChatError> {
         let chat_key = Self::chat_key(operator_id, ghost_name, session_id);
         if self.is_chat_in_flight(&chat_key).await {
@@ -736,6 +743,7 @@ impl AppState {
                 session_id,
                 operator_id,
                 &message,
+                tool_call_tx,
             )
             .await;
         self.clear_chat_in_flight(&chat_key).await;

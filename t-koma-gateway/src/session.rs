@@ -412,6 +412,7 @@ impl SessionChat {
         session_id: &str,
         operator_id: &str,
         message: &str,
+        tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
         // Verify session exists and belongs to operator
         let session = SessionRepository::get_by_id(ghost_db.pool(), session_id)
@@ -471,6 +472,7 @@ impl SessionChat {
             api_messages,
             None,
             DEFAULT_TOOL_LOOP_LIMIT,
+            tool_call_tx,
         )
         .await
     }
@@ -701,6 +703,9 @@ impl SessionChat {
     /// Internal method: Send conversation to the provider with full tool use loop.
     ///
     /// Returns the final text response and a log of all tool calls executed.
+    ///
+    /// If `tool_call_tx` is provided, tool call summaries are sent incrementally
+    /// after each iteration instead of only being returned at the end.
     #[allow(clippy::too_many_arguments)]
     async fn send_with_tool_loop(
         &self,
@@ -716,9 +721,11 @@ impl SessionChat {
         api_messages: Vec<ChatMessage>,
         new_message: Option<&str>,
         max_iterations: usize,
+        tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
         let tools = self.tool_manager.get_tools();
         let mut tool_call_log: Vec<ToolCallSummary> = Vec::new();
+        let mut prev_tool_count: usize = 0;
 
         // Initial request to the provider
         let mut response = provider
@@ -778,6 +785,15 @@ impl SessionChat {
                 }
                 Err(e) => return Err(e),
             };
+
+            // Stream new tool calls to the transport layer if a sender is provided
+            if let Some(tx) = &tool_call_tx {
+                let new_calls = tool_call_log[prev_tool_count..].to_vec();
+                if !new_calls.is_empty() {
+                    let _ = tx.send(new_calls);
+                }
+                prev_tool_count = tool_call_log.len();
+            }
 
             // Save tool results to database
             self.save_tool_results(ghost_db, session_id, &tool_results)
@@ -1100,6 +1116,7 @@ your reply — do not respond without saving first."
                 api_messages,
                 None,
                 max_iterations,
+                None,
             )
             .await?;
         Ok(text)
