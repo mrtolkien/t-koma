@@ -261,7 +261,7 @@ impl EventHandler for Bot {
         let content = msg.content.clone();
         let clean_content = content.trim();
 
-        if clean_content.is_empty() {
+        if clean_content.is_empty() && msg.attachments.is_empty() {
             return;
         }
 
@@ -538,6 +538,15 @@ impl EventHandler for Bot {
             return;
         }
 
+        // Process file attachments: download to ghost workspace and prepend context
+        let chat_content = if !msg.attachments.is_empty() {
+            let uploaded = download_attachments(&msg.attachments, ghost_db.workspace_path()).await;
+            build_message_with_attachments(clean_content, &uploaded)
+        } else {
+            clean_content.to_string()
+        };
+        let chat_content = chat_content.as_str();
+
         self.state
             .log(crate::LogEntry::Routing {
                 platform: "discord".to_string(),
@@ -600,7 +609,7 @@ impl EventHandler for Bot {
             &ghost_name,
             &session.id,
             &operator_id,
-            clean_content,
+            chat_content,
         )
         .await
         {
@@ -918,5 +927,92 @@ impl Bot {
             }
         }
         drop(typing);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// File upload handling
+// ---------------------------------------------------------------------------
+
+struct UploadedFile {
+    path: std::path::PathBuf,
+    filename: String,
+    size: u64,
+}
+
+async fn download_attachments(
+    attachments: &[serenity::model::channel::Attachment],
+    workspace_path: &std::path::Path,
+) -> Vec<UploadedFile> {
+    let upload_dir = workspace_path.join("uploads").join("discord");
+    if let Err(e) = tokio::fs::create_dir_all(&upload_dir).await {
+        error!("Failed to create upload dir: {}", e);
+        return Vec::new();
+    }
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let client = reqwest::Client::new();
+    let mut uploaded = Vec::new();
+
+    for attachment in attachments {
+        let dest_name = format!("{}_{}", timestamp, attachment.filename);
+        let dest_path = upload_dir.join(&dest_name);
+
+        match client.get(&attachment.url).send().await {
+            Ok(resp) => match resp.bytes().await {
+                Ok(bytes) => {
+                    let size = bytes.len() as u64;
+                    if let Err(e) = tokio::fs::write(&dest_path, &bytes).await {
+                        error!("Failed to write attachment {}: {}", dest_name, e);
+                        continue;
+                    }
+                    uploaded.push(UploadedFile {
+                        path: dest_path,
+                        filename: attachment.filename.clone(),
+                        size,
+                    });
+                }
+                Err(e) => error!(
+                    "Failed to download attachment body {}: {}",
+                    attachment.filename, e
+                ),
+            },
+            Err(e) => error!("Failed to fetch attachment {}: {}", attachment.filename, e),
+        }
+    }
+
+    uploaded
+}
+
+fn format_file_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+fn build_message_with_attachments(text_content: &str, uploads: &[UploadedFile]) -> String {
+    if uploads.is_empty() {
+        return text_content.to_string();
+    }
+
+    let mut lines = vec!["[Attached files]".to_string()];
+    for file in uploads {
+        lines.push(format!(
+            "- {} ({}) — {}",
+            file.path.display(),
+            format_file_size(file.size),
+            file.filename,
+        ));
+    }
+
+    let attachment_block = lines.join("\n");
+    if text_content.is_empty() {
+        format!("{}\n\n(file attached)", attachment_block)
+    } else {
+        format!("{}\n\n{}", attachment_block, text_content)
     }
 }
