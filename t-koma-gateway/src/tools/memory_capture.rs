@@ -18,7 +18,7 @@ impl Tool for MemoryCaptureTool {
     }
 
     fn description(&self) -> &str {
-        "Capture raw information to your private inbox for later curation during reflection."
+        "Save information to your inbox. Call this alongside your response whenever you learned something new."
     }
 
     fn input_schema(&self) -> Value {

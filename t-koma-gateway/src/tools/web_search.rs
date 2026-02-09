@@ -76,7 +76,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web using Brave Search and return structured results."
+        "Search the web for current information. Save useful results as references with reference_write."
     }
 
     fn input_schema(&self) -> Value {
