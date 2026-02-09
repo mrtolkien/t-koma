@@ -213,15 +213,18 @@ fn format_messages(messages: &[t_koma_db::Message]) -> String {
             MessageRole::Operator => "OPERATOR",
             MessageRole::Ghost => "GHOST",
         };
+        let ts = chrono::DateTime::from_timestamp(msg.created_at, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| msg.created_at.to_string());
         for block in &msg.content {
             match block {
                 ContentBlock::Text { text } => {
-                    out.push_str(&format!("**{}**: {}\n\n", role, text));
+                    out.push_str(&format!("**{}** [{}]: {}\n\n", role, ts, text));
                 }
                 ContentBlock::ToolUse { name, input, .. } => {
                     out.push_str(&format!(
-                        "**{}** [tool_use: {} — {}]\n\n",
-                        role, name, input
+                        "**{}** [{}] [tool_use: {} — {}]\n\n",
+                        role, ts, name, input
                     ));
                 }
                 ContentBlock::ToolResult {
