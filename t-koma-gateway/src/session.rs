@@ -945,9 +945,9 @@ impl SessionChat {
         if web_tool_used {
             tool_results.push(DbContentBlock::Text {
                 text: "[System Reminder] You just used a web tool. Per your instructions, \
-you MUST call reference_write to save valuable content and/or memory_capture \
-to capture facts BEFORE responding to the operator. Bundle these calls with \
-your reply — do not respond without saving first."
+you MUST call reference_write to save valuable content BEFORE responding to \
+the operator. Use content_ref to reference cached results. Bundle these calls \
+with your reply — do not respond without saving first."
                     .to_string(),
             });
         }

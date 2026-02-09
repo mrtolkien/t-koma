@@ -6,10 +6,10 @@ use super::{
     Tool, ToolContext, ToolVisibility, change_directory::ChangeDirectoryTool,
     create_file::CreateFileTool, file_edit::FileEditTool, find_files::FindFilesTool,
     knowledge_get::KnowledgeGetTool, knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool,
-    load_skill::LoadSkillTool, memory_capture::MemoryCaptureTool, note_write::NoteWriteTool,
-    read_file::ReadFileTool, reference_import::ReferenceImportTool,
-    reference_manage::ReferenceManageTool, reference_write::ReferenceWriteTool, search::SearchTool,
-    shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
+    load_skill::LoadSkillTool, note_write::NoteWriteTool, read_file::ReadFileTool,
+    reference_import::ReferenceImportTool, reference_manage::ReferenceManageTool,
+    reference_write::ReferenceWriteTool, search::SearchTool, shell::ShellTool,
+    web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
 /// Central manager for all AI tools
@@ -40,7 +40,6 @@ impl ToolManager {
             Box::new(WebFetchTool),
             Box::new(KnowledgeSearchTool),
             Box::new(KnowledgeGetTool),
-            Box::new(MemoryCaptureTool),
             Box::new(NoteWriteTool),
             Box::new(ReferenceWriteTool),
             Box::new(ReferenceImportTool),
