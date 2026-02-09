@@ -6,7 +6,7 @@ use tracing::warn;
 
 use crate::content::ids;
 use crate::operator_flow::OutboundMessage;
-use crate::state::{AppState, PendingGatewayAction};
+use crate::state::{AppState, PendingGatewayAction, ToolCallSummary};
 
 use super::components_v2::{
     action_row_to_json, container, group_into_v2_messages, send_v2_message, text_display,
@@ -75,6 +75,44 @@ pub async fn send_gateway_v2(
         Err(e) => {
             warn!("v2 gateway message failed, falling back to embed: {}", e);
             send_gateway_embed_http(http, channel_id, content, action_rows, color).await
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v2 tool call summaries (verbose mode)
+// ---------------------------------------------------------------------------
+
+/// Muted accent color for tool call visibility containers.
+const TOOL_CALL_COLOR: u32 = 0x4A_4A_52;
+
+/// Render tool call summaries as a muted v2 Container.
+async fn send_tool_calls_v2(
+    http: &Http,
+    channel_id: ChannelId,
+    calls: &[ToolCallSummary],
+) -> serenity::Result<()> {
+    if calls.is_empty() {
+        return Ok(());
+    }
+
+    let mut lines = Vec::with_capacity(calls.len());
+    for call in calls {
+        let arrow = if call.is_error { "⚠" } else { "→" };
+        lines.push(format!(
+            "`{}({})` {} {}",
+            call.name, call.input_preview, arrow, call.output_preview
+        ));
+    }
+
+    let inner = vec![text_display(&lines.join("\n"))];
+    let message_components = vec![container(inner, Some(TOOL_CALL_COLOR))];
+
+    match send_v2_message(http, channel_id, &message_components).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            warn!("v2 tool call message failed: {}", e);
+            Ok(())
         }
     }
 }
@@ -382,6 +420,9 @@ pub async fn send_outbound_messages(
                     *msg,
                 )
                 .await;
+            }
+            OutboundMessage::ToolCalls(calls) => {
+                let _ = send_tool_calls_v2(&ctx.http, channel_id, &calls).await;
             }
         }
     }

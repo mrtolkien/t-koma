@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use serenity::async_trait;
+use serenity::builder::{CreateCommand, CreateCommandOption};
+use serenity::model::application::{Command, CommandOptionType};
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::prelude::*;
@@ -648,9 +650,25 @@ impl EventHandler for Bot {
         self.handle_interaction(ctx, interaction).await;
     }
 
-    /// Bot is ready
-    async fn ready(&self, _: Context, ready: Ready) {
+    /// Bot is ready — register slash commands
+    async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Discord bot connected as {}", ready.user.name);
+
+        let commands = vec![
+            CreateCommand::new("log")
+                .description("Toggle tool call visibility")
+                .add_option(
+                    CreateCommandOption::new(CommandOptionType::String, "mode", "Logging mode")
+                        .add_string_choice("Verbose", "verbose")
+                        .add_string_choice("Quiet", "quiet")
+                        .required(true),
+                ),
+            CreateCommand::new("new").description("Start a new session with your ghost"),
+        ];
+
+        if let Err(e) = Command::set_global_commands(&ctx.http, commands).await {
+            error!("Failed to register slash commands: {}", e);
+        }
     }
 }
 

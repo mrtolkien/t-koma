@@ -13,6 +13,7 @@ use crate::prompt::render::{SystemBlock, build_system_prompt};
 use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderResponse, extract_all_text, has_tool_uses,
 };
+use crate::state::ToolCallSummary;
 use crate::system_info;
 use crate::tools::context::{ApprovalReason, is_within_workspace};
 use crate::tools::{ToolContext, ToolManager};
@@ -411,7 +412,7 @@ impl SessionChat {
         session_id: &str,
         operator_id: &str,
         message: &str,
-    ) -> Result<String, ChatError> {
+    ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
         // Verify session exists and belongs to operator
         let session = SessionRepository::get_by_id(ghost_db.pool(), session_id)
             .await?
@@ -457,24 +458,21 @@ impl SessionChat {
             .await?;
 
         // Send to provider with tool loop
-        let response = self
-            .send_with_tool_loop(
-                ghost_db,
-                koma_db,
-                provider,
-                provider_name,
-                model,
-                context_window_override,
-                session_id,
-                operator_id,
-                system_blocks,
-                api_messages,
-                None,
-                DEFAULT_TOOL_LOOP_LIMIT,
-            )
-            .await?;
-
-        Ok(response)
+        self.send_with_tool_loop(
+            ghost_db,
+            koma_db,
+            provider,
+            provider_name,
+            model,
+            context_window_override,
+            session_id,
+            operator_id,
+            system_blocks,
+            api_messages,
+            None,
+            DEFAULT_TOOL_LOOP_LIMIT,
+        )
+        .await
     }
 
     /// Run a background job conversation without persisting to session messages.
@@ -635,12 +633,14 @@ impl SessionChat {
             // Execute tools
             let tool_uses = collect_pending_tool_uses(&response);
             let mut tool_results = Vec::new();
+            let mut _job_tool_log = Vec::new();
             self.execute_tool_uses(
                 session_id,
                 &tool_uses,
                 koma_db,
                 &mut tool_context,
                 &mut tool_results,
+                &mut _job_tool_log,
             )
             .await?;
 
@@ -698,7 +698,9 @@ impl SessionChat {
         Ok(text)
     }
 
-    /// Internal method: Send conversation to the provider with full tool use loop
+    /// Internal method: Send conversation to the provider with full tool use loop.
+    ///
+    /// Returns the final text response and a log of all tool calls executed.
     #[allow(clippy::too_many_arguments)]
     async fn send_with_tool_loop(
         &self,
@@ -714,8 +716,9 @@ impl SessionChat {
         api_messages: Vec<ChatMessage>,
         new_message: Option<&str>,
         max_iterations: usize,
-    ) -> Result<String, ChatError> {
+    ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
         let tools = self.tool_manager.get_tools();
+        let mut tool_call_log: Vec<ToolCallSummary> = Vec::new();
 
         // Initial request to the provider
         let mut response = provider
@@ -760,7 +763,13 @@ impl SessionChat {
 
             // Execute tools and get results
             let tool_results = match self
-                .execute_tools_from_response(session_id, &response, koma_db, &mut tool_context)
+                .execute_tools_from_response(
+                    session_id,
+                    &response,
+                    koma_db,
+                    &mut tool_context,
+                    &mut tool_call_log,
+                )
                 .await
             {
                 Ok(results) => results,
@@ -806,7 +815,7 @@ impl SessionChat {
             .finalize_response(ghost_db, session_id, provider_name, model, &response)
             .await?;
 
-        Ok(text)
+        Ok((text, tool_call_log))
     }
 
     /// Save a ghost response (with tool_use blocks) to the database
@@ -830,13 +839,14 @@ impl SessionChat {
         Ok(())
     }
 
-    /// Execute all tool_use blocks from a response and return the results
+    /// Execute all tool_use blocks from a response and return the results.
     async fn execute_tools_from_response(
         &self,
         session_id: &str,
         response: &ProviderResponse,
         koma_db: &KomaDbPool,
         tool_context: &mut ToolContext,
+        tool_call_log: &mut Vec<ToolCallSummary>,
     ) -> Result<Vec<DbContentBlock>, ChatError> {
         let tool_uses = collect_pending_tool_uses(response);
 
@@ -847,6 +857,7 @@ impl SessionChat {
             koma_db,
             tool_context,
             &mut tool_results,
+            tool_call_log,
         )
         .await?;
 
@@ -860,6 +871,7 @@ impl SessionChat {
         koma_db: &KomaDbPool,
         tool_context: &mut ToolContext,
         tool_results: &mut Vec<DbContentBlock>,
+        tool_call_log: &mut Vec<ToolCallSummary>,
     ) -> Result<(), ChatError> {
         for (index, tool_use) in tool_uses.iter().enumerate() {
             info!(
@@ -867,13 +879,15 @@ impl SessionChat {
                 session_id, tool_use.name, tool_use.id
             );
 
+            let input_preview = build_input_preview(&tool_use.input);
+
             let result = self
                 .tool_manager
                 .execute_with_context(&tool_use.name, tool_use.input.clone(), tool_context)
                 .await;
 
-            let content = match result {
-                Ok(output) => output,
+            let (content, is_error) = match result {
+                Ok(output) => (output, false),
                 Err(e) => {
                     if let Some(reason) = ApprovalReason::parse(&e) {
                         return Err(ChatError::ToolApprovalRequired(PendingToolApproval {
@@ -882,9 +896,16 @@ impl SessionChat {
                             reason,
                         }));
                     }
-                    format!("Error: {}", e)
+                    (format!("Error: {}", e), true)
                 }
             };
+
+            tool_call_log.push(ToolCallSummary {
+                name: tool_use.name.clone(),
+                input_preview,
+                output_preview: truncate_preview(&content, 100),
+                is_error,
+            });
 
             tool_results.push(DbContentBlock::ToolResult {
                 tool_use_id: tool_use.id.clone(),
@@ -922,12 +943,14 @@ impl SessionChat {
                 tool_context.apply_approval(&pending.reason);
                 self.persist_tool_context(koma_db, &mut tool_context)
                     .await?;
+                let mut _approval_tool_log = Vec::new();
                 self.execute_tool_uses(
                     session_id,
                     &pending.pending_tool_uses,
                     koma_db,
                     &mut tool_context,
                     &mut tool_results,
+                    &mut _approval_tool_log,
                 )
                 .await?;
             }
@@ -983,12 +1006,14 @@ impl SessionChat {
             .load_tool_context(koma_db, ghost_db, operator_id)
             .await?;
         let mut tool_results = Vec::new();
+        let mut _resume_tool_log = Vec::new();
         self.execute_tool_uses(
             session_id,
             &pending.pending_tool_uses,
             koma_db,
             &mut tool_context,
             &mut tool_results,
+            &mut _resume_tool_log,
         )
         .await?;
 
@@ -1041,21 +1066,23 @@ impl SessionChat {
             )
             .await?;
 
-        self.send_with_tool_loop(
-            ghost_db,
-            koma_db,
-            provider,
-            provider_name,
-            model,
-            context_window_override,
-            session_id,
-            operator_id,
-            system_blocks,
-            api_messages,
-            None,
-            max_iterations,
-        )
-        .await
+        let (text, _tool_calls) = self
+            .send_with_tool_loop(
+                ghost_db,
+                koma_db,
+                provider,
+                provider_name,
+                model,
+                context_window_override,
+                session_id,
+                operator_id,
+                system_blocks,
+                api_messages,
+                None,
+                max_iterations,
+            )
+            .await?;
+        Ok(text)
     }
 
     async fn load_tool_context(
@@ -1421,6 +1448,39 @@ impl SessionChat {
 impl Default for SessionChat {
     fn default() -> Self {
         Self::new(None, vec![], CompactionConfig::default())
+    }
+}
+
+/// Build a compact key=value preview of tool input JSON (~80 chars max).
+fn build_input_preview(input: &Value) -> String {
+    let Some(obj) = input.as_object() else {
+        let s = input.to_string();
+        return truncate_preview(&s, 80);
+    };
+
+    let mut parts = Vec::new();
+    for (key, val) in obj {
+        let v = match val {
+            Value::String(s) => truncate_preview(s, 30),
+            Value::Null => "null".to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.to_string(),
+            _ => {
+                let s = val.to_string();
+                truncate_preview(&s, 30)
+            }
+        };
+        parts.push(format!("{key}={v}"));
+    }
+
+    truncate_preview(&parts.join(", "), 80)
+}
+
+fn truncate_preview(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max.saturating_sub(1)])
     }
 }
 

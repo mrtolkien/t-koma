@@ -1,10 +1,15 @@
-use serenity::builder::{CreateActionRow, CreateInputText, CreateInteractionResponse, CreateModal};
+use serenity::builder::{
+    CreateActionRow, CreateInputText, CreateInteractionResponse, CreateInteractionResponseMessage,
+    CreateModal,
+};
 use serenity::model::application::{InputTextStyle, Interaction};
 use serenity::prelude::*;
+use tracing::error;
 
 use crate::state::PendingGatewayAction;
 
 use super::bot::{Bot, handle_interface_choice, run_action_intent};
+use super::send::{send_gateway_embed, send_outbound_messages};
 
 /// Extend `Bot` with the `interaction_create` handler via a partial EventHandler.
 ///
@@ -181,5 +186,223 @@ impl Bot {
             )
             .await;
         }
+
+        if let Some(command) = interaction.as_command() {
+            match command.data.name.as_str() {
+                "log" => self.handle_log_command(&ctx, command).await,
+                "new" => self.handle_new_command(&ctx, command).await,
+                _ => {}
+            }
+        }
+    }
+
+    /// Handle `/log` slash command: toggle tool call verbose mode.
+    async fn handle_log_command(
+        &self,
+        ctx: &Context,
+        command: &serenity::model::application::CommandInteraction,
+    ) {
+        let mode = command
+            .data
+            .options
+            .first()
+            .and_then(|o| o.value.as_str())
+            .unwrap_or("quiet");
+
+        let external_id = command.user.id.to_string();
+        let Some(operator_id) = self.resolve_operator_id(&external_id).await else {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("No operator found for your account.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        };
+
+        let enabled = mode == "verbose";
+        self.state.set_verbose(&operator_id, enabled).await;
+
+        let reply = if enabled {
+            "Verbose mode **enabled** — tool calls will be shown before responses."
+        } else {
+            "Verbose mode **disabled** — tool calls are hidden."
+        };
+        let _ = command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content(reply)
+                        .ephemeral(true),
+                ),
+            )
+            .await;
+    }
+
+    /// Handle `/new` slash command: start a new ghost session.
+    async fn handle_new_command(
+        &self,
+        ctx: &Context,
+        command: &serenity::model::application::CommandInteraction,
+    ) {
+        let external_id = command.user.id.to_string();
+        let Some(operator_id) = self.resolve_operator_id(&external_id).await else {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("No operator found for your account.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        };
+
+        let Some(ghost_name) = self.state.get_active_ghost(&operator_id).await else {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("No active ghost. Send a message first to select one.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        };
+
+        let ghost_db = match self.state.get_or_init_ghost_db(&ghost_name).await {
+            Ok(db) => db,
+            Err(e) => {
+                error!("Failed to init ghost DB: {}", e);
+                let _ = command
+                    .create_response(
+                        &ctx.http,
+                        CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new()
+                                .content("Failed to initialize ghost storage.")
+                                .ephemeral(true),
+                        ),
+                    )
+                    .await;
+                return;
+            }
+        };
+
+        let current_session =
+            match t_koma_db::SessionRepository::get_or_create_active(ghost_db.pool(), &operator_id)
+                .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to get current session: {}", e);
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content("Failed to access session.")
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+            };
+
+        let new_session =
+            match t_koma_db::SessionRepository::create(ghost_db.pool(), &operator_id).await {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to create new session: {}", e);
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content("Failed to create new session.")
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+            };
+
+        crate::operator_flow::spawn_reflection_for_previous_session(
+            &self.state,
+            &ghost_name,
+            &operator_id,
+            &current_session.id,
+        );
+
+        // Acknowledge immediately — the ghost response may take a while
+        let _ = command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("Starting new session...")
+                        .ephemeral(true),
+                ),
+            )
+            .await;
+
+        match crate::operator_flow::run_chat_with_pending(
+            self.state.as_ref(),
+            Some("discord"),
+            None,
+            &ghost_name,
+            &new_session.id,
+            &operator_id,
+            "hello",
+        )
+        .await
+        {
+            Ok(messages) => {
+                send_outbound_messages(
+                    self.state.as_ref(),
+                    ctx,
+                    command.channel_id,
+                    &external_id,
+                    &operator_id,
+                    &ghost_name,
+                    &new_session.id,
+                    messages,
+                )
+                .await;
+            }
+            Err(e) => {
+                error!("[session:{}] Chat error: {}", new_session.id, e);
+                let _ = send_gateway_embed(
+                    ctx,
+                    command.channel_id,
+                    &super::render_message("error-processing-request", &[]),
+                    None,
+                )
+                .await;
+            }
+        }
+    }
+
+    /// Look up the operator ID from a Discord user's external ID.
+    async fn resolve_operator_id(&self, external_id: &str) -> Option<String> {
+        let iface = t_koma_db::InterfaceRepository::get_by_external_id(
+            self.state.koma_db.pool(),
+            t_koma_db::Platform::Discord,
+            external_id,
+        )
+        .await
+        .ok()
+        .flatten()?;
+        Some(iface.operator_id)
     }
 }
