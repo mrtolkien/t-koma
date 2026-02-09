@@ -58,6 +58,53 @@ fn ws_info_response(text: impl Into<String>) -> t_koma_core::WsResponse {
     ))
 }
 
+fn knowledge_results_to_dto(
+    kr: &t_koma_knowledge::models::KnowledgeSearchResult,
+) -> Vec<t_koma_core::KnowledgeResultInfo> {
+    let mut infos = Vec::new();
+    for r in &kr.notes {
+        infos.push(t_koma_core::KnowledgeResultInfo {
+            id: r.summary.id.clone(),
+            title: r.summary.title.clone(),
+            entry_type: r.summary.entry_type.clone(),
+            scope: format!("{:?}", r.summary.scope),
+            snippet: r.summary.snippet.clone(),
+            tags: r.tags.clone(),
+        });
+    }
+    for r in &kr.diary {
+        infos.push(t_koma_core::KnowledgeResultInfo {
+            id: r.note_id.clone(),
+            title: r.date.clone(),
+            entry_type: "Diary".to_string(),
+            scope: "GhostDiary".to_string(),
+            snippet: r.snippet.clone(),
+            tags: Vec::new(),
+        });
+    }
+    for r in &kr.topics {
+        infos.push(t_koma_core::KnowledgeResultInfo {
+            id: r.topic_id.clone(),
+            title: r.title.clone(),
+            entry_type: "ReferenceTopic".to_string(),
+            scope: "SharedReference".to_string(),
+            snippet: r.snippet.clone(),
+            tags: r.tags.clone(),
+        });
+    }
+    for r in &kr.references.results {
+        infos.push(t_koma_core::KnowledgeResultInfo {
+            id: r.summary.id.clone(),
+            title: r.summary.title.clone(),
+            entry_type: r.summary.entry_type.clone(),
+            scope: format!("{:?}", r.summary.scope),
+            snippet: r.summary.snippet.clone(),
+            tags: r.tags.clone(),
+        });
+    }
+    infos
+}
+
 fn ws_from_outbound(message: OutboundMessage) -> t_koma_core::WsResponse {
     match message {
         OutboundMessage::AssistantText(text) => ws_text_response(text),
@@ -301,6 +348,17 @@ async fn handle_websocket(
         match t_koma_db::OperatorRepository::get_by_id(state.koma_db.pool(), operator_id).await {
             Ok(Some(op)) => Some(op.status),
             _ => None,
+        }
+    }
+
+    async fn require_puppet_master(state: &AppState, operator_id: &str) -> Result<(), String> {
+        match t_koma_db::OperatorRepository::get_by_id(state.koma_db.pool(), operator_id).await {
+            Ok(Some(op)) if op.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster => {
+                Ok(())
+            }
+            Ok(Some(_)) => Err("This command requires Puppet Master access".to_string()),
+            Ok(None) => Err("Operator not found".to_string()),
+            Err(e) => Err(format!("Failed to check access level: {}", e)),
         }
     }
 
@@ -552,6 +610,131 @@ async fn handle_websocket(
                                 .await;
                             continue;
                         }
+                        WsMessage::SearchKnowledge { .. }
+                        | WsMessage::ListRecentNotes { .. }
+                        | WsMessage::GetKnowledgeEntry { .. }
+                        | WsMessage::GetSchedulerState
+                            if require_puppet_master(&state, &op_id).await.is_err() =>
+                        {
+                            let error_response = ws_error_response(
+                                "This command requires Puppet Master access".to_string(),
+                            );
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&error_response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        WsMessage::SearchKnowledge {
+                            ghost_name: gn,
+                            query,
+                            max_results,
+                        } => {
+                            let ghost = gn.or_else(|| active_ghost.clone()).unwrap_or_default();
+                            let search_query = t_koma_knowledge::models::KnowledgeSearchQuery {
+                                query: query.clone(),
+                                categories: None,
+                                scope: t_koma_knowledge::models::OwnershipScope::All,
+                                topic: None,
+                                archetype: None,
+                                options: t_koma_knowledge::models::SearchOptions {
+                                    max_results: max_results.or(Some(20)),
+                                    ..Default::default()
+                                },
+                            };
+                            let results = state
+                                .knowledge_engine()
+                                .knowledge_search(&ghost, search_query)
+                                .await;
+                            let response = match results {
+                                Ok(kr) => {
+                                    let infos = knowledge_results_to_dto(&kr);
+                                    WsResponse::KnowledgeSearchResults { results: infos }
+                                }
+                                Err(e) => {
+                                    ws_error_response(format!("Knowledge search failed: {}", e))
+                                }
+                            };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        WsMessage::ListRecentNotes { limit } => {
+                            let lim = limit.unwrap_or(50);
+                            let response =
+                                match state.knowledge_engine().list_recent_notes(lim).await {
+                                    Ok(notes) => {
+                                        let infos: Vec<t_koma_core::KnowledgeResultInfo> = notes
+                                            .into_iter()
+                                            .map(|n| t_koma_core::KnowledgeResultInfo {
+                                                id: n.id,
+                                                title: n.title,
+                                                entry_type: n.entry_type,
+                                                scope: format!("{:?}", n.scope),
+                                                snippet: n.snippet,
+                                                tags: Vec::new(),
+                                            })
+                                            .collect();
+                                        WsResponse::RecentNotes { notes: infos }
+                                    }
+                                    Err(e) => {
+                                        ws_error_response(format!("List notes failed: {}", e))
+                                    }
+                                };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        WsMessage::GetKnowledgeEntry { id, max_chars } => {
+                            let ghost = active_ghost.clone().unwrap_or_default();
+                            let query = t_koma_knowledge::models::KnowledgeGetQuery {
+                                id: Some(id),
+                                topic: None,
+                                path: None,
+                                max_chars,
+                            };
+                            let response =
+                                match state.knowledge_engine().knowledge_get(&ghost, query).await {
+                                    Ok(doc) => WsResponse::KnowledgeEntry {
+                                        id: doc.id,
+                                        title: doc.title,
+                                        entry_type: doc.entry_type,
+                                        body: doc.body,
+                                    },
+                                    Err(e) => ws_error_response(format!("Get entry failed: {}", e)),
+                                };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
+                        WsMessage::GetSchedulerState => {
+                            let all = state.scheduler_state().await;
+                            let entries: Vec<t_koma_core::SchedulerEntryInfo> = all
+                                .into_iter()
+                                .map(|(kind, key, next_due)| t_koma_core::SchedulerEntryInfo {
+                                    kind: format!("{:?}", kind),
+                                    key,
+                                    next_due,
+                                })
+                                .collect();
+                            let response = WsResponse::SchedulerState { entries };
+                            let _ = sender
+                                .send(Message::Text(
+                                    serde_json::to_string(&response).unwrap().into(),
+                                ))
+                                .await;
+                            continue;
+                        }
                         WsMessage::RestartGateway => {
                             match state.restart_gateway().await {
                                 Ok(()) => {
@@ -745,6 +928,10 @@ async fn handle_websocket(
                         WsMessage::SelectProvider { .. }
                         | WsMessage::ListAvailableModels { .. }
                         | WsMessage::RestartGateway
+                        | WsMessage::SearchKnowledge { .. }
+                        | WsMessage::ListRecentNotes { .. }
+                        | WsMessage::GetKnowledgeEntry { .. }
+                        | WsMessage::GetSchedulerState
                         | WsMessage::Ping => {}
                         WsMessage::Chat {
                             ghost_name,

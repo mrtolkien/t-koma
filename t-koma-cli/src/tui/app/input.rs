@@ -2,10 +2,18 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::tui::state::{Category, FocusPane, GateFilter};
 
-use super::{TuiApp, state::PromptKind};
+use super::{
+    TuiApp,
+    state::{ContentView, PromptKind},
+};
 
 impl TuiApp {
     pub(super) async fn handle_key(&mut self, key: KeyEvent) {
+        if self.modal.is_some() {
+            self.handle_modal_key(key).await;
+            return;
+        }
+
         if self.prompt.kind.is_some() {
             self.handle_prompt_key(key).await;
             return;
@@ -14,7 +22,7 @@ impl TuiApp {
         match key.code {
             KeyCode::Char('q') => self.should_exit = true,
             KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => self.should_exit = true,
-            KeyCode::Esc => self.should_exit = true,
+            KeyCode::Esc => self.handle_esc(),
             KeyCode::Tab => self.focus = self.focus.next(self.selected_category().has_options()),
             KeyCode::Left | KeyCode::Char('h') => {
                 self.focus = self.focus.prev(self.selected_category().has_options())
@@ -25,7 +33,89 @@ impl TuiApp {
             KeyCode::Up | KeyCode::Char('k') => self.navigate_up().await,
             KeyCode::Down | KeyCode::Char('j') => self.navigate_down().await,
             KeyCode::Enter => self.activate().await,
-            _ => self.handle_gate_shortcuts(key).await,
+            _ => self.handle_category_shortcuts(key).await,
+        }
+    }
+
+    fn handle_esc(&mut self) {
+        if self.content_view != ContentView::List {
+            self.pop_content_view();
+            return;
+        }
+        self.should_exit = true;
+    }
+
+    fn pop_content_view(&mut self) {
+        let parent = match std::mem::take(&mut self.content_view) {
+            ContentView::SessionMessages { ghost_name, .. } => {
+                let ghost_id = self
+                    .ghosts
+                    .iter()
+                    .find(|g| g.ghost.name == ghost_name)
+                    .map(|g| g.ghost.id.clone())
+                    .unwrap_or_default();
+                ContentView::GhostSessions {
+                    ghost_id,
+                    ghost_name,
+                }
+            }
+            _ => ContentView::List,
+        };
+        self.content_view = parent;
+        self.content_idx = 0;
+        self.session_view.scroll = 0;
+        self.knowledge_view.scroll = 0;
+        self.job_detail_scroll = 0;
+    }
+
+    fn scroll_detail_up(&mut self) {
+        match &self.content_view {
+            ContentView::JobDetail { .. } => {
+                self.job_detail_scroll = self.job_detail_scroll.saturating_sub(1);
+            }
+            ContentView::KnowledgeDetail { .. } => {
+                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    fn scroll_detail_down(&mut self) {
+        match &self.content_view {
+            ContentView::JobDetail { .. } => {
+                self.job_detail_scroll = self.job_detail_scroll.saturating_add(1);
+            }
+            ContentView::KnowledgeDetail { .. } => {
+                self.knowledge_view.scroll = self.knowledge_view.scroll.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_modal_key(&mut self, key: KeyEvent) {
+        let Some(modal) = &mut self.modal else {
+            return;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.modal = None;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if modal.selected_idx > 0 {
+                    modal.selected_idx -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if modal.selected_idx + 1 < modal.items.len() {
+                    modal.selected_idx += 1;
+                }
+            }
+            KeyCode::Enter => {
+                let modal = self.modal.take().unwrap();
+                self.handle_modal_selection(modal).await;
+            }
+            _ => {}
         }
     }
 
@@ -36,6 +126,7 @@ impl TuiApp {
                     self.category_idx -= 1;
                     self.options_idx = 0;
                     self.content_idx = 0;
+                    self.content_view = ContentView::List;
                     self.sync_selection().await;
                 }
             }
@@ -45,9 +136,22 @@ impl TuiApp {
                     self.sync_selection().await;
                 }
             }
-            FocusPane::Content => match self.selected_category() {
-                Category::Config => self.config_scroll = self.config_scroll.saturating_sub(1),
-                Category::Gate => self.gate_scroll = self.gate_scroll.saturating_sub(1),
+            FocusPane::Content => match &self.content_view {
+                ContentView::List => match self.selected_category() {
+                    Category::Config => self.config_scroll = self.config_scroll.saturating_sub(1),
+                    Category::Gate => self.gate_scroll = self.gate_scroll.saturating_sub(1),
+                    _ => {
+                        if self.content_idx > 0 {
+                            self.content_idx -= 1;
+                        }
+                    }
+                },
+                ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
+                    self.scroll_detail_up();
+                }
+                ContentView::SessionMessages { .. } => {
+                    self.session_view.scroll = self.session_view.scroll.saturating_sub(1);
+                }
                 _ => {
                     if self.content_idx > 0 {
                         self.content_idx -= 1;
@@ -64,6 +168,7 @@ impl TuiApp {
                     self.category_idx += 1;
                     self.options_idx = 0;
                     self.content_idx = 0;
+                    self.content_view = ContentView::List;
                     self.sync_selection().await;
                 }
             }
@@ -74,18 +179,41 @@ impl TuiApp {
                     self.sync_selection().await;
                 }
             }
-            FocusPane::Content => match self.selected_category() {
-                Category::Config => self.config_scroll = self.config_scroll.saturating_add(1),
-                Category::Gate => self.gate_scroll = self.gate_scroll.saturating_add(1),
-                Category::Operators => {
-                    if self.content_idx + 1 < self.operators.len() {
+            FocusPane::Content => match &self.content_view {
+                ContentView::List => match self.selected_category() {
+                    Category::Config => self.config_scroll = self.config_scroll.saturating_add(1),
+                    Category::Gate => self.gate_scroll = self.gate_scroll.saturating_add(1),
+                    Category::Operators => {
+                        if self.content_idx + 1 < self.operators.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                    Category::Ghosts => {
+                        if self.content_idx + 1 < self.ghosts.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                    Category::Jobs => {
+                        if self.content_idx + 1 < self.job_view.summaries.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                    Category::Knowledge => {
+                        if self.content_idx + 1 < self.knowledge_view.notes.len() {
+                            self.content_idx += 1;
+                        }
+                    }
+                },
+                ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
+                    self.scroll_detail_down();
+                }
+                ContentView::GhostSessions { .. } => {
+                    if self.content_idx + 1 < self.session_view.sessions.len() {
                         self.content_idx += 1;
                     }
                 }
-                Category::Ghosts => {
-                    if self.content_idx + 1 < self.ghosts.len() {
-                        self.content_idx += 1;
-                    }
+                ContentView::SessionMessages { .. } => {
+                    self.session_view.scroll = self.session_view.scroll.saturating_add(1);
                 }
             },
         }
@@ -101,13 +229,34 @@ impl TuiApp {
                 };
             }
             FocusPane::Options => self.activate_option().await,
-            FocusPane::Content => {
-                if self.selected_category() == Category::Operators
-                    && self.operator_view == super::state::OperatorView::Pending
-                {
-                    self.approve_selected_operator().await;
-                }
+            FocusPane::Content => self.activate_content().await,
+        }
+    }
+
+    async fn activate_content(&mut self) {
+        match &self.content_view {
+            ContentView::GhostSessions { .. } => {
+                self.drill_into_session_messages().await;
+                return;
             }
+            ContentView::List => {}
+            _ => return,
+        }
+
+        match self.selected_category() {
+            Category::Operators if self.operator_view == super::state::OperatorView::Pending => {
+                self.approve_selected_operator().await;
+            }
+            Category::Ghosts if self.options_idx == 0 => {
+                self.drill_into_ghost_sessions().await;
+            }
+            Category::Jobs => {
+                self.drill_into_job().await;
+            }
+            Category::Knowledge => {
+                self.drill_into_knowledge_entry().await;
+            }
+            _ => {}
         }
     }
 
@@ -144,10 +293,10 @@ impl TuiApp {
                 }
                 3 => {
                     if let Some(op) = self.operators.get(self.content_idx) {
-                        self.begin_prompt(
-                            PromptKind::SetOperatorAccessLevel,
-                            None,
-                            Some(op.id.clone()),
+                        self.open_access_level_modal(
+                            op.id.clone(),
+                            op.name.clone(),
+                            op.access_level,
                         );
                     } else {
                         self.status = "No operator selected".to_string();
@@ -190,9 +339,12 @@ impl TuiApp {
                 _ => {}
             },
             Category::Ghosts => match self.options_idx {
-                0 => self.refresh_ghosts().await,
-                1 => self.begin_prompt(PromptKind::NewGhost, None, None),
-                2 => {
+                0 => {
+                    self.drill_into_ghost_sessions().await;
+                }
+                1 => self.refresh_ghosts().await,
+                2 => self.begin_prompt(PromptKind::NewGhost, None, None),
+                3 => {
                     if let Some(name) = self
                         .ghosts
                         .get(self.content_idx)
@@ -205,13 +357,25 @@ impl TuiApp {
                 }
                 _ => {}
             },
+            Category::Jobs => match self.options_idx {
+                0 => self.refresh_jobs(None).await,
+                idx => {
+                    let ghost_id = self.ghosts.get(idx - 1).map(|g| g.ghost.id.clone());
+                    self.refresh_jobs(ghost_id.as_deref()).await;
+                }
+            },
+            Category::Knowledge => match self.options_idx {
+                0 => self.refresh_knowledge_recent().await,
+                1 => self.begin_prompt(PromptKind::KnowledgeSearch, None, None),
+                _ => {}
+            },
             Category::Gate => {}
         }
 
         self.refresh_metrics().await;
     }
 
-    async fn handle_gate_shortcuts(&mut self, key: KeyEvent) {
+    async fn handle_category_shortcuts(&mut self, key: KeyEvent) {
         if self.selected_category() != Category::Gate {
             if self.selected_category() == Category::Operators
                 && self.focus == FocusPane::Content
@@ -300,19 +464,15 @@ impl TuiApp {
                     Some(PromptKind::GateSearch) => {
                         self.gate_search = if input.is_empty() { None } else { Some(input) };
                     }
-                    Some(PromptKind::SetOperatorAccessLevel) => {
-                        if let Some(operator_id) = target_operator_id {
-                            self.set_operator_access_level(&operator_id, &input).await;
-                        } else {
-                            self.status = "No operator selected".to_string();
-                        }
-                    }
                     Some(PromptKind::SetOperatorRateLimits) => {
                         if let Some(operator_id) = target_operator_id {
                             self.set_operator_rate_limits(&operator_id, &input).await;
                         } else {
                             self.status = "No operator selected".to_string();
                         }
+                    }
+                    Some(PromptKind::KnowledgeSearch) => {
+                        self.search_knowledge(&input).await;
                     }
                     None => {}
                 }
@@ -332,8 +492,9 @@ impl TuiApp {
                 self.refresh_operators().await;
             }
             Category::Ghosts => self.refresh_ghosts().await,
-            Category::Config => {}
-            Category::Gate => {}
+            Category::Jobs => self.refresh_jobs(None).await,
+            Category::Knowledge => self.refresh_knowledge_recent().await,
+            Category::Config | Category::Gate => {}
         }
         self.refresh_metrics().await;
     }

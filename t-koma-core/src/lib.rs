@@ -17,6 +17,7 @@ pub use config::{
 // Message re-exports
 pub use message::{
     ChatMessage, GatewayAction, GatewayActionStyle, GatewayChoice, GatewayInputKind,
-    GatewayInputRequest, GatewayMessage, GatewayMessageKind, GatewayMessageText, MessageRole,
-    ModelInfo, ProviderType, WsMessage, WsResponse,
+    GatewayInputRequest, GatewayMessage, GatewayMessageKind, GatewayMessageText,
+    KnowledgeResultInfo, MessageRole, ModelInfo, ProviderType, SchedulerEntryInfo, WsMessage,
+    WsResponse,
 };

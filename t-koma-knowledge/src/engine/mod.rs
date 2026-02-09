@@ -9,10 +9,10 @@ use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
     DiaryQuery, DiarySearchResult, KnowledgeGetQuery, KnowledgeScope, KnowledgeSearchQuery,
     KnowledgeSearchResult, MatchedTopic, NoteCreateRequest, NoteDocument, NoteQuery, NoteResult,
-    NoteUpdateRequest, NoteWriteResult, OwnershipScope, ReferenceFileStatus, ReferenceQuery,
-    ReferenceSaveRequest, ReferenceSaveResult, ReferenceSearchOutput, ReferenceSearchResult,
-    SearchCategory, TopicCreateRequest, TopicCreateResult, TopicListEntry, TopicSearchResult,
-    TopicUpdateRequest, WriteScope,
+    NoteSummary, NoteUpdateRequest, NoteWriteResult, OwnershipScope, ReferenceFileStatus,
+    ReferenceQuery, ReferenceSaveRequest, ReferenceSaveResult, ReferenceSearchOutput,
+    ReferenceSearchResult, SearchCategory, TopicCreateRequest, TopicCreateResult, TopicListEntry,
+    TopicSearchResult, TopicUpdateRequest, WriteScope,
 };
 use crate::paths::knowledge_db_path;
 use crate::storage::KnowledgeStore;
@@ -608,6 +608,38 @@ impl KnowledgeEngine {
         }
 
         Err(KnowledgeError::UnknownNote(id.to_string()))
+    }
+
+    /// List recently updated notes across all scopes (no embeddings needed).
+    pub async fn list_recent_notes(&self, limit: usize) -> KnowledgeResult<Vec<NoteSummary>> {
+        let rows =
+            sqlx::query_as::<_, (String, String, String, Option<String>, String, i64, String)>(
+                "SELECT n.id, n.title, n.note_type, n.archetype, n.path, n.trust_score, n.scope
+             FROM notes n
+             WHERE n.type_valid = 1
+             ORDER BY n.updated_at DESC
+             LIMIT ?",
+            )
+            .bind(limit as i64)
+            .fetch_all(self.pool())
+            .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, title, entry_type, archetype, path, trust_score, scope)| NoteSummary {
+                    id,
+                    title,
+                    entry_type,
+                    archetype,
+                    path: path.into(),
+                    scope: scope.parse().unwrap_or(KnowledgeScope::SharedNote),
+                    trust_score,
+                    score: 0.0,
+                    snippet: String::new(),
+                },
+            )
+            .collect())
     }
 
     async fn maybe_reconcile(
