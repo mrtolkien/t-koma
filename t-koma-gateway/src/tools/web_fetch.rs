@@ -4,6 +4,23 @@ use serde_json::{Value, json};
 use crate::tools::{Tool, ToolContext};
 use crate::web::fetch::{FetchError, WebFetchRequest, WebFetchService, http::HttpFetchProvider};
 
+/// Generate a filename from a URL for web-cache dedup.
+pub(crate) fn url_to_cache_filename(url: &str, ext: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let slug: String = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .chars()
+        .take(60)
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .to_lowercase();
+    let mut hasher = std::hash::DefaultHasher::new();
+    url.hash(&mut hasher);
+    let hash = hasher.finish();
+    format!("{}-{:08x}.{}", slug, hash as u32, ext)
+}
+
 #[derive(Debug, Deserialize)]
 struct WebFetchInput {
     url: String,
@@ -50,7 +67,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch a web page as text or markdown. You MUST save valuable results with reference_write."
+        "Fetch a web page as text or markdown. Results are automatically saved for reference."
     }
 
     fn input_schema(&self) -> Value {
@@ -87,13 +104,20 @@ impl Tool for WebFetchTool {
             std::time::Duration::from_secs(settings.tools.web.fetch.cache_ttl_minutes * 60),
         );
 
+        let url = input.url;
         let request = WebFetchRequest {
-            url: input.url,
+            url: url.clone(),
             mode: input.mode,
             max_chars: input.max_chars,
         };
 
         let response = service.fetch(request).await.map_err(Self::format_error)?;
+
+        // Auto-save fetched content to _web-cache reference topic
+        let filename = url_to_cache_filename(&url, "md");
+        context
+            .auto_save_web_result(&url, &response.content, &filename)
+            .await;
 
         let serialized = serde_json::to_string(&response).map_err(|e| e.to_string())?;
         let ref_id = context.cache_tool_result("web_fetch", &serialized);
