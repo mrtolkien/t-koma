@@ -595,3 +595,87 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
         ))),
     }
 }
+
+/// Delete a reference file by note ID.
+///
+/// Unlike `note_delete` which searches note/diary scopes only, this does a
+/// direct lookup by ID in the `notes` table (scope-agnostic) and verifies
+/// the entry is a reference type before deleting.
+pub(crate) async fn reference_file_delete(
+    engine: &KnowledgeEngine,
+    note_id: &str,
+) -> KnowledgeResult<()> {
+    let pool = engine.pool();
+
+    // Direct lookup — no scope filter, just find the row by ID
+    let row =
+        sqlx::query_as::<_, (String, String)>("SELECT path, scope FROM notes WHERE id = ? LIMIT 1")
+            .bind(note_id)
+            .fetch_optional(pool)
+            .await?;
+
+    let (path, scope) = row.ok_or_else(|| KnowledgeError::UnknownNote(note_id.to_string()))?;
+
+    if !scope.contains("reference") {
+        return Err(KnowledgeError::AccessDenied(format!(
+            "note '{}' is not a reference (scope={}), use note_write to delete notes",
+            note_id, scope
+        )));
+    }
+
+    // Delete file from disk
+    let path = std::path::PathBuf::from(&path);
+    if path.exists() {
+        tokio::fs::remove_file(&path).await?;
+    }
+
+    // Delete from DB: chunks (FTS + vec), tags, links, reference_files, then notes
+    let existing_chunk_ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM chunks WHERE note_id = ?")
+        .bind(note_id)
+        .fetch_all(pool)
+        .await?;
+
+    sqlx::query("DELETE FROM chunks WHERE note_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM chunk_fts WHERE note_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    if !existing_chunk_ids.is_empty() {
+        let placeholders = existing_chunk_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("DELETE FROM chunk_vec WHERE rowid IN ({})", placeholders);
+        let mut q = sqlx::query(&sql);
+        for (chunk_id,) in &existing_chunk_ids {
+            q = q.bind(chunk_id);
+        }
+        q.execute(pool).await?;
+    }
+    sqlx::query("DELETE FROM note_tags WHERE note_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM note_links WHERE source_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("UPDATE note_links SET target_id = NULL WHERE target_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM reference_files WHERE note_id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM notes WHERE id = ?")
+        .bind(note_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}

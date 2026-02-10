@@ -199,6 +199,11 @@ impl KnowledgeEngine {
         reference::reference_file_set_status(self, note_id, status, reason).await
     }
 
+    /// Delete a reference file by note ID (scope-agnostic).
+    pub async fn reference_file_delete(&self, note_id: &str) -> KnowledgeResult<()> {
+        reference::reference_file_delete(self, note_id).await
+    }
+
     /// Get a reference file by note_id or by topic + file_path.
     pub async fn reference_get(
         &self,

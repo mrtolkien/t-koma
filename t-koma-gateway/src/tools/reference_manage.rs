@@ -141,7 +141,7 @@ async fn execute_delete(
         let note_id = resolve_file_id(engine, &input).await?;
 
         engine
-            .note_delete("", &note_id)
+            .reference_file_delete(&note_id)
             .await
             .map_err(|e| e.to_string())?;
 
