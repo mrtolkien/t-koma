@@ -12,7 +12,8 @@ use crate::chat::prompt_cache::{PromptCacheManager, hash_context};
 use crate::prompt::SystemPrompt;
 use crate::prompt::render::{SystemBlock, build_system_prompt};
 use crate::providers::provider::{
-    Provider, ProviderContentBlock, ProviderResponse, extract_all_text, has_tool_uses,
+    Provider, ProviderContentBlock, ProviderError, ProviderResponse, extract_all_text,
+    has_tool_uses,
 };
 use crate::state::ToolCallSummary;
 use crate::system_info;
@@ -619,17 +620,14 @@ impl SessionChat {
         let mut api_messages: Vec<ChatMessage> = session_history.to_vec();
         api_messages.extend(build_transcript_messages(transcript));
 
-        let mut response = provider
-            .send_conversation(
-                Some(system_blocks.clone()),
-                api_messages,
-                tools.clone(),
-                None,
-                None,
-                None,
-            )
-            .await
-            .map_err(|e| ChatError::Api(e.to_string()))?;
+        let mut response = send_with_retry(
+            provider,
+            Some(system_blocks.clone()),
+            api_messages,
+            tools.clone(),
+        )
+        .await
+        .map_err(|e| ChatError::Api(e.to_string()))?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
         let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
@@ -685,17 +683,14 @@ impl SessionChat {
             let mut api_messages: Vec<ChatMessage> = session_history.to_vec();
             api_messages.extend(build_transcript_messages(transcript));
 
-            response = provider
-                .send_conversation(
-                    Some(system_blocks.clone()),
-                    api_messages,
-                    tools.clone(),
-                    None,
-                    None,
-                    None,
-                )
-                .await
-                .map_err(|e| ChatError::Api(e.to_string()))?;
+            response = send_with_retry(
+                provider,
+                Some(system_blocks.clone()),
+                api_messages,
+                tools.clone(),
+            )
+            .await
+            .map_err(|e| ChatError::Api(e.to_string()))?;
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
 
@@ -1633,4 +1628,48 @@ fn collect_pending_tool_uses(response: &ProviderResponse) -> Vec<PendingToolUse>
             _ => None,
         })
         .collect()
+}
+
+/// Retry a provider `send_conversation` call with exponential backoff.
+///
+/// Used only in background job loops (reflection, heartbeat) where transient
+/// failures (overloaded, 5xx, 429) should not immediately abort the job.
+/// Interactive chat does NOT retry — fast feedback is more important there.
+const JOB_RETRY_ATTEMPTS: u32 = 3;
+const JOB_RETRY_BASE_SECS: u64 = 2;
+
+async fn send_with_retry(
+    provider: &dyn Provider,
+    system: Option<Vec<SystemBlock>>,
+    history: Vec<ChatMessage>,
+    tools: Vec<&dyn crate::tools::Tool>,
+) -> Result<ProviderResponse, ProviderError> {
+    let mut last_err = None;
+    for attempt in 0..JOB_RETRY_ATTEMPTS {
+        match provider
+            .send_conversation(
+                system.clone(),
+                history.clone(),
+                tools.clone(),
+                None,
+                None,
+                None,
+            )
+            .await
+        {
+            Ok(response) => return Ok(response),
+            Err(e) if e.is_retryable() && attempt + 1 < JOB_RETRY_ATTEMPTS => {
+                let delay = JOB_RETRY_BASE_SECS * 2u64.pow(attempt);
+                warn!(
+                    "Retryable provider error (attempt {}/{}), retrying in {delay}s: {e}",
+                    attempt + 1,
+                    JOB_RETRY_ATTEMPTS
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                last_err = Some(e);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last_err.unwrap())
 }

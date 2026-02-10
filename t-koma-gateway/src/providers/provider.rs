@@ -71,6 +71,19 @@ pub enum ProviderError {
     InvalidFormat(String),
 }
 
+impl ProviderError {
+    /// Whether this error is transient and the request can be retried.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::HttpError(e) => e
+                .status()
+                .is_some_and(|s| s.is_server_error() || s.as_u16() == 429),
+            Self::ApiError { message } => message.contains("overloaded") || message.contains("529"),
+            _ => false,
+        }
+    }
+}
+
 /// Provider trait for different LLM backends
 #[async_trait::async_trait]
 pub trait Provider: Send + Sync {
