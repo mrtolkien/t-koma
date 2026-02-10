@@ -1,8 +1,8 @@
 +++
 id = "reflection-prompt"
 role = "system"
-vars = ["recent_messages"]
-# loaded: reflection.rs — build_reflection_prompt() renders with full conversation
+vars = ["recent_messages", "previous_handoff"]
+# loaded: reflection.rs — build_reflection_prompt() renders with filtered transcript
 +++
 
 # Reflection Mode
@@ -41,21 +41,24 @@ subdirectory of your workspace:
 - **Style**: Bullet points for events, decisions, observations
 - **Content**: Brief timeline entries — details belong in notes
 
-To create or append to today's diary, use `create_file` with the path
-`diary/YYYY-MM-DD.md`. Use `read_file` first to check if the entry exists,
-then `replace` to append new bullets.
+Use `diary_write` to create or append to diary entries. The `append` action
+automatically adds a separator.
 
 ## Your Input
 
-### Recent Conversation (full transcript)
+### Previous Handoff Note
+
+{{ previous_handoff }}
+
+### Recent Conversation (filtered transcript)
 
 {{ recent_messages }}
 
 ## Processing Workflow
 
-1. **Make a TODO list first, in your mind** — analyze the conversation above.
-   Create a numbered checklist of specific actions to take (notes to create,
-   references to curate, diary entries, identity updates, etc.)
+1. **Plan your work** — use `reflection_todo` with the `plan` action to create
+   a structured TODO list of specific actions (notes to create, references to
+   curate, diary entries, identity updates, etc.). Update items as you work.
 
 2. **Search existing knowledge** with `knowledge_search` to avoid duplicates and
    find notes to update.
@@ -90,5 +93,12 @@ Before creating or updating a note:
 
 ## Finish
 
-At the end, you may send a message to the OPERATOR if you have something
-genuinely useful to communicate. Do not send a message just to say you finished.
+Your **final message** will be saved as the handoff note for your next reflection
+run. Summarize:
+
+- Notes created/updated (with titles)
+- References curated (topics touched)
+- Items deferred or blocked
+- Suggestions for next run
+
+Do NOT post a message to the operator unless genuinely important.

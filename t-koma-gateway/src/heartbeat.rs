@@ -248,6 +248,8 @@ async fn run_heartbeat_for_session(
             operator_id,
             prompt.trim(),
             true, // load session history — ghost needs conversation context
+            None, // use default (chat) tool manager
+            None, // no job handle needed for heartbeat
         )
         .await
 }
