@@ -904,9 +904,6 @@ impl SessionChat {
         Ok(tool_results)
     }
 
-    /// Tools that trigger a knowledge save reminder after execution
-    const WEB_TOOLS: &[&str] = &["web_search", "web_fetch"];
-
     async fn execute_tool_uses(
         &self,
         session_id: &str,
@@ -916,17 +913,11 @@ impl SessionChat {
         tool_results: &mut Vec<DbContentBlock>,
         tool_call_log: &mut Vec<ToolCallSummary>,
     ) -> Result<(), ChatError> {
-        let mut web_tool_used = false;
-
         for (index, tool_use) in tool_uses.iter().enumerate() {
             info!(
                 "[session:{}] Executing tool: {} (id: {})",
                 session_id, tool_use.name, tool_use.id
             );
-
-            if Self::WEB_TOOLS.contains(&tool_use.name.as_str()) {
-                web_tool_used = true;
-            }
 
             let input_preview = build_input_preview(&tool_use.input);
 
@@ -963,17 +954,6 @@ impl SessionChat {
             });
 
             self.persist_tool_context(pool, tool_context).await?;
-        }
-
-        // Inject reminder if web tools were used
-        if web_tool_used {
-            tool_results.push(DbContentBlock::Text {
-                text: "[System Reminder] You just used a web tool. Per your instructions, \
-you MUST call reference_write to save valuable content BEFORE responding to \
-the operator. Use content_ref to reference cached results. Bundle these calls \
-with your reply — do not respond without saving first."
-                    .to_string(),
-            });
         }
 
         Ok(())

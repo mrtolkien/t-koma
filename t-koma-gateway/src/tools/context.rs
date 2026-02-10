@@ -241,6 +241,34 @@ impl ToolContext {
         Some(cached.content.clone())
     }
 
+    /// Auto-save a web result to the `_web-cache` reference topic.
+    ///
+    /// Best-effort: logs on error, never propagates. The content becomes
+    /// immediately searchable via `knowledge_search`.
+    pub async fn auto_save_web_result(&self, url: &str, content: &str, filename: &str) {
+        let Some(engine) = &self.knowledge_engine else {
+            return;
+        };
+
+        let request = t_koma_knowledge::models::ReferenceSaveRequest {
+            topic: "_web-cache".to_string(),
+            path: filename.to_string(),
+            content: content.to_string(),
+            source_url: Some(url.to_string()),
+            role: Some(t_koma_knowledge::models::SourceRole::Docs),
+            title: None,
+            collection_title: None,
+            collection_description: None,
+            collection_tags: None,
+            tags: None,
+            topic_description: Some("Auto-saved web content awaiting curation".to_string()),
+        };
+
+        if let Err(err) = engine.reference_save(&self.ghost_name, request).await {
+            tracing::debug!("auto-save web result to _web-cache failed: {err}");
+        }
+    }
+
     pub fn new_for_tests(root: &Path) -> Self {
         Self {
             ghost_name: "test-ghost".to_string(),
