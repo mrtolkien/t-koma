@@ -251,9 +251,23 @@ async fn run_reflection(
 /// Format recent messages as a filtered conversation transcript for reflection.
 ///
 /// Keeps text blocks from both roles. For tool use, emits a one-liner with
-/// the tool name and first relevant argument (URL, query, etc.). Strips
-/// verbose tool results to reduce token usage.
+/// the tool name and first relevant argument (URL, query, etc.). Tool results
+/// are stripped except for web_fetch status codes (helps reflection know which
+/// fetches failed without searching for them).
 fn format_chat_transcript(messages: &[t_koma_db::Message]) -> String {
+    use std::collections::HashMap;
+
+    // First pass: build tool_use_id → tool_name map
+    let mut tool_names: HashMap<String, String> = HashMap::new();
+    for msg in messages {
+        for block in &msg.content {
+            if let ContentBlock::ToolUse { id, name, .. } = block {
+                tool_names.insert(id.clone(), name.clone());
+            }
+        }
+    }
+
+    // Second pass: emit transcript with selective tool result metadata
     let mut out = String::new();
     for msg in messages {
         let role = match msg.role {
@@ -272,12 +286,46 @@ fn format_chat_transcript(messages: &[t_koma_db::Message]) -> String {
                     let summary = extract_tool_summary(name, input);
                     out.push_str(&format!("→ Used {}({})\n\n", name, summary));
                 }
-                // Strip tool results entirely — reflection doesn't need verbose output
-                ContentBlock::ToolResult { .. } => {}
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    ..
+                } => {
+                    let tool = tool_names
+                        .get(tool_use_id)
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    if let Some(annotation) = extract_result_annotation(tool, content) {
+                        out.push_str(&format!("  ↳ {}\n\n", annotation));
+                    }
+                    // All other tool results are stripped
+                }
             }
         }
     }
     out
+}
+
+/// Extract a brief annotation from a tool result for the filtered transcript.
+///
+/// Returns `Some(annotation)` only for tools where the result metadata is useful
+/// to reflection (e.g., HTTP status for web_fetch). Returns `None` for everything
+/// else — the full result is intentionally stripped to save tokens.
+fn extract_result_annotation(tool_name: &str, content: &str) -> Option<String> {
+    match tool_name {
+        "web_fetch" => {
+            // Content is `[Result #N] {"provider":...,"status":NNN,...}`
+            let json_start = content.find('{')?;
+            let parsed: serde_json::Value = serde_json::from_str(&content[json_start..]).ok()?;
+            let status = parsed.get("status")?.as_u64()?;
+            if !(200..300).contains(&status) {
+                Some(format!("web_fetch returned status {}", status))
+            } else {
+                None // Don't annotate successful fetches — reflection already knows they're cached
+            }
+        }
+        _ => None,
+    }
 }
 
 /// Extract a concise summary from tool input for the transcript.

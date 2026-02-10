@@ -403,7 +403,10 @@ pub(crate) async fn hydrate_summaries_boosted(
         };
 
         if let Some((id, title, entry_type, archetype, path, trust_score, scope, content)) = row {
-            let snippet = content.chars().take(200).collect::<String>();
+            let snippet = strip_context_prefix(&content)
+                .chars()
+                .take(200)
+                .collect::<String>();
             let trust_boost = 1.0 + (trust_score as f32 / 20.0);
             let type_boost = match entry_type.as_str() {
                 "ReferenceDocs" => doc_boost,
@@ -429,6 +432,21 @@ pub(crate) async fn hydrate_summaries_boosted(
     }
 
     Ok(summaries)
+}
+
+/// Strip the `[context]` prefix that the indexer prepends to chunk content.
+///
+/// Chunks are stored as `[topic-name]\n\ncontent…` or `[collection: desc]\n\ncontent…`
+/// for embedding relevance, but snippets shown to the ghost shouldn't include
+/// this metadata — it confuses LLMs into thinking it's part of the source content.
+fn strip_context_prefix(chunk_content: &str) -> &str {
+    if chunk_content.starts_with('[') {
+        if let Some(after_bracket) = chunk_content.find("]\n") {
+            let rest = &chunk_content[after_bracket + 2..];
+            return rest.trim_start_matches('\n');
+        }
+    }
+    chunk_content
 }
 
 /// Resolve ownership scope to note-only scopes (no diary, no references).

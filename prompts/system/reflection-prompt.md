@@ -87,7 +87,10 @@ Ghosts maintain three identity files in their workspace root:
 - **SOUL.md**: Evolving self-model, communication style, and preferences.
   Updated during reflection when significant self-awareness insights emerge.
 - **USER.md**: Accumulated knowledge about the operator (preferences, context,
-  communication style). Updated when new operator information is captured.
+  communication style). Updated when new operator information is captured. This
+  is the primary store for operator knowledge — do not also create a separate
+  `person` note for your operator unless the information is too complex for a
+  single file (e.g., multiple operators, detailed organizational context).
 
 ### Scope
 
@@ -190,3 +193,8 @@ reflection run. Summarize:
 - References = source preservation. Notes = your interpretation. Never rewrite
   source material in references.
 - Empty the `_web-cache` completely — any remaining item is a mistake.
+- `knowledge_get` returns the true source content in its `body` field. Search
+  snippets may contain index metadata — always use `knowledge_get` for content
+  you'll pass to `reference_write`.
+- Non-2xx web_fetch results (403 blocks, timeouts) are NOT auto-saved. If the
+  transcript shows a failed fetch, don't search for it in `_web-cache`.
