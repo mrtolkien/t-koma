@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::tools::{Tool, ToolContext, ToolVisibility};
+use crate::tools::{Tool, ToolContext};
 
 #[derive(Debug, Deserialize)]
 struct ReferenceManageInput {
@@ -26,10 +26,6 @@ impl Tool for ReferenceManageTool {
 
     fn description(&self) -> &str {
         "Update or delete reference files and topic metadata. Use for curation: change file status, update topic descriptions/tags, or remove bad references."
-    }
-
-    fn visibility(&self) -> ToolVisibility {
-        ToolVisibility::BackgroundOnly
     }
 
     fn input_schema(&self) -> Value {
