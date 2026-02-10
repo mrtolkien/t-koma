@@ -17,7 +17,7 @@ use crate::providers::provider::{
 use crate::state::ToolCallSummary;
 use crate::system_info;
 use crate::tools::context::{ApprovalReason, is_within_workspace};
-use crate::tools::{ToolContext, ToolManager};
+use crate::tools::{JobHandle, ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
     ContentBlock as DbContentBlock, GhostRepository, KomaDbPool, MessageRole, OperatorRepository,
@@ -383,6 +383,11 @@ impl SessionChat {
         }
     }
 
+    /// Skill search paths (for constructing alternate ToolManagers).
+    pub fn skill_paths(&self) -> &[std::path::PathBuf] {
+        &self.skill_paths
+    }
+
     /// Send an operator message and get the GHOST response
     ///
     /// This method handles the ENTIRE conversation flow:
@@ -495,6 +500,12 @@ impl SessionChat {
     /// When `load_session_history` is true, the existing session messages are
     /// loaded as read-only context for the LLM (e.g. heartbeat needs
     /// conversation context).
+    ///
+    /// `tool_manager_override`: when `Some`, use this tool manager instead of
+    /// `self.tool_manager` (e.g. reflection passes its own set).
+    ///
+    /// `job_handle`: when `Some`, inject into ToolContext so background-only
+    /// tools like `reflection_todo` can persist state mid-run.
     #[allow(clippy::too_many_arguments)]
     pub async fn chat_job(
         &self,
@@ -508,6 +519,8 @@ impl SessionChat {
         operator_id: &str,
         prompt: &str,
         load_session_history: bool,
+        tool_manager_override: Option<&ToolManager>,
+        job_handle: Option<JobHandle>,
     ) -> Result<JobChatResult, ChatError> {
         // Verify session exists
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
@@ -552,6 +565,8 @@ impl SessionChat {
             model: None,
         }];
 
+        let tm = tool_manager_override.unwrap_or(&self.tool_manager);
+
         let text = self
             .send_job_with_tool_loop(
                 pool,
@@ -565,6 +580,8 @@ impl SessionChat {
                 &session_history,
                 &mut transcript,
                 DEFAULT_TOOL_LOOP_LIMIT,
+                tm,
+                job_handle,
             )
             .await?;
 
@@ -593,8 +610,10 @@ impl SessionChat {
         session_history: &[ChatMessage],
         transcript: &mut Vec<TranscriptEntry>,
         max_iterations: usize,
+        tool_manager: &ToolManager,
+        job_handle: Option<JobHandle>,
     ) -> Result<String, ChatError> {
-        let tools = self.tool_manager.get_tools();
+        let tools = tool_manager.get_tools();
 
         // Build initial API messages: session history + transcript so far
         let mut api_messages: Vec<ChatMessage> = session_history.to_vec();
@@ -614,6 +633,7 @@ impl SessionChat {
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
         let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
+        tool_context.job_handle = job_handle;
 
         for iteration in 0..max_iterations {
             if !has_tool_uses(&response) {
@@ -643,13 +663,14 @@ impl SessionChat {
             let tool_uses = collect_pending_tool_uses(&response);
             let mut tool_results = Vec::new();
             let mut _job_tool_log = Vec::new();
-            self.execute_tool_uses(
+            self.execute_tool_uses_with(
                 session_id,
                 &tool_uses,
                 pool,
                 &mut tool_context,
                 &mut tool_results,
                 &mut _job_tool_log,
+                tool_manager,
             )
             .await?;
 
@@ -913,6 +934,29 @@ impl SessionChat {
         tool_results: &mut Vec<DbContentBlock>,
         tool_call_log: &mut Vec<ToolCallSummary>,
     ) -> Result<(), ChatError> {
+        self.execute_tool_uses_with(
+            session_id,
+            tool_uses,
+            pool,
+            tool_context,
+            tool_results,
+            tool_call_log,
+            &self.tool_manager,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_tool_uses_with(
+        &self,
+        session_id: &str,
+        tool_uses: &[PendingToolUse],
+        pool: &KomaDbPool,
+        tool_context: &mut ToolContext,
+        tool_results: &mut Vec<DbContentBlock>,
+        tool_call_log: &mut Vec<ToolCallSummary>,
+        tool_manager: &ToolManager,
+    ) -> Result<(), ChatError> {
         for (index, tool_use) in tool_uses.iter().enumerate() {
             info!(
                 "[session:{}] Executing tool: {} (id: {})",
@@ -921,8 +965,7 @@ impl SessionChat {
 
             let input_preview = build_input_preview(&tool_use.input);
 
-            let result = self
-                .tool_manager
+            let result = tool_manager
                 .execute_with_context(&tool_use.name, tool_use.input.clone(), tool_context)
                 .await;
 

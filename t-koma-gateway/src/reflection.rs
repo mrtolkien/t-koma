@@ -1,10 +1,9 @@
 //! Reflection job: curate conversation insights into structured knowledge.
 //!
 //! After heartbeat completes for a session, the reflection runner checks if
-//! there are new messages since the last reflection. If so, it builds a prompt
-//! with the full conversation transcript and sends it through `chat_job()` so
-//! the ghost can create/update notes, curate references, and update identity
-//! files without polluting the session history.
+//! there are new messages since the last reflection. If so, it builds a
+//! filtered transcript and sends it through `chat_job()` with a dedicated
+//! reflection tool manager and a `JobHandle` for real-time TODO persistence.
 
 use std::sync::Arc;
 
@@ -13,6 +12,7 @@ use tracing::{info, warn};
 
 use crate::scheduler::JobKind;
 use crate::state::{AppState, LogEntry};
+use crate::tools::{JobHandle, ToolManager};
 use t_koma_db::{
     ContentBlock, JobKind as DbJobKind, JobLog, JobLogRepository, MessageRole, SessionRepository,
 };
@@ -99,8 +99,8 @@ async fn run_reflection(
 
     let pool = state.koma_db.pool();
 
-    // Find the timestamp of the last successful reflection for this session.
-    let last_reflection_ts = match JobLogRepository::latest_ok(
+    // Find the last successful reflection for handoff note + timestamp.
+    let last_reflection = match JobLogRepository::latest_ok(
         pool,
         ghost_id,
         session_id,
@@ -108,10 +108,20 @@ async fn run_reflection(
     )
     .await
     {
-        Ok(Some(log)) => log.finished_at.unwrap_or(log.started_at),
-        Ok(None) => 0, // never reflected — process everything
+        Ok(log) => log,
         Err(_) => return,
     };
+
+    let last_reflection_ts = last_reflection
+        .as_ref()
+        .map(|log| log.finished_at.unwrap_or(log.started_at))
+        .unwrap_or(0);
+
+    let previous_handoff = last_reflection
+        .as_ref()
+        .and_then(|log| log.handoff_note.as_deref())
+        .unwrap_or("(No previous handoff note — this is the first reflection run.)")
+        .to_string();
 
     // Check if new messages exist since last reflection.
     let recent_messages =
@@ -127,8 +137,21 @@ async fn run_reflection(
         ghost_name
     );
 
-    // Build and run the reflection prompt
-    let prompt = build_reflection_prompt(&recent_messages);
+    // INSERT job log early so TUI can see "in progress"
+    let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
+    let job_log_id = job_log.id.clone();
+
+    if let Err(err) = JobLogRepository::insert_started(pool, &job_log).await {
+        warn!("reflection: failed to insert started job log: {err}");
+        return;
+    }
+
+    // Build reflection tool manager and job handle
+    let reflection_tm = ToolManager::new_reflection(state.session_chat.skill_paths().to_vec());
+    let job_handle = JobHandle::new(pool.clone(), job_log_id.clone());
+
+    // Build the filtered transcript prompt
+    let prompt = build_reflection_prompt(&recent_messages, &previous_handoff);
 
     let model = if let Some(alias) = heartbeat_model_alias {
         state
@@ -154,6 +177,8 @@ async fn run_reflection(
             operator_id,
             &prompt,
             false, // recent messages are embedded in the prompt
+            Some(&reflection_tm),
+            Some(job_handle),
         )
         .await;
 
@@ -168,12 +193,19 @@ async fn run_reflection(
     match result {
         Ok(job_result) => {
             let status = format!("processed {} messages", recent_messages.len());
-            let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
-            job_log.transcript = job_result.transcript;
-            job_log.finish(&status);
+            // Extract handoff note from the final response text
+            let handoff_note = Some(job_result.response_text.as_str());
 
-            if let Err(err) = JobLogRepository::insert(pool, &job_log).await {
-                warn!("reflection: failed to write job log for {ghost_name}:{session_id}: {err}");
+            if let Err(err) = JobLogRepository::finish(
+                pool,
+                &job_log_id,
+                &status,
+                &job_result.transcript,
+                handoff_note,
+            )
+            .await
+            {
+                warn!("reflection: failed to finish job log for {ghost_name}:{session_id}: {err}");
             }
 
             state
@@ -186,10 +218,15 @@ async fn run_reflection(
         }
         Err(err) => {
             let status = format!("error: {err}");
-            let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
+            // Still finish the job log even on error
             job_log.finish(&status);
 
-            let _ = JobLogRepository::insert(pool, &job_log).await;
+            if let Err(e) =
+                JobLogRepository::finish(pool, &job_log_id, &status, &job_log.transcript, None)
+                    .await
+            {
+                warn!("reflection: failed to finish error job log: {e}");
+            }
 
             state
                 .log(LogEntry::Reflection {
@@ -202,11 +239,12 @@ async fn run_reflection(
     }
 }
 
-/// Format recent messages as a full conversation transcript for reflection.
+/// Format recent messages as a filtered conversation transcript for reflection.
 ///
-/// Includes complete tool use inputs and untruncated tool results so that
-/// reflection has the same information the ghost had during the conversation.
-fn format_messages(messages: &[t_koma_db::Message]) -> String {
+/// Keeps text blocks from both roles. For tool use, emits a one-liner with
+/// the tool name and first relevant argument (URL, query, etc.). Strips
+/// verbose tool results to reduce token usage.
+fn format_chat_transcript(messages: &[t_koma_db::Message]) -> String {
     let mut out = String::new();
     for msg in messages {
         let role = match msg.role {
@@ -222,40 +260,74 @@ fn format_messages(messages: &[t_koma_db::Message]) -> String {
                     out.push_str(&format!("**{}** [{}]: {}\n\n", role, ts, text));
                 }
                 ContentBlock::ToolUse { name, input, .. } => {
-                    out.push_str(&format!(
-                        "**{}** [{}] [tool_use: {} — {}]\n\n",
-                        role, ts, name, input
-                    ));
+                    let summary = extract_tool_summary(name, input);
+                    out.push_str(&format!("→ Used {}({})\n\n", name, summary));
                 }
-                ContentBlock::ToolResult {
-                    content, is_error, ..
-                } => {
-                    let label = if is_error == &Some(true) {
-                        "tool_error"
-                    } else {
-                        "tool_result"
-                    };
-                    out.push_str(&format!("[{}: {}]\n\n", label, content));
-                }
+                // Strip tool results entirely — reflection doesn't need verbose output
+                ContentBlock::ToolResult { .. } => {}
             }
         }
     }
     out
 }
 
-fn build_reflection_prompt(messages: &[t_koma_db::Message]) -> String {
-    let recent_messages = format_messages(messages);
+/// Extract a concise summary from tool input for the transcript.
+fn extract_tool_summary(tool_name: &str, input: &serde_json::Value) -> String {
+    match tool_name {
+        "web_fetch" => input
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("…")
+            .to_string(),
+        "web_search" => input
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("…")
+            .to_string(),
+        "knowledge_search" => input
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("…")
+            .to_string(),
+        "knowledge_get" => input
+            .get("id")
+            .or_else(|| input.get("topic"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("…")
+            .to_string(),
+        "read_file" => input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("…")
+            .to_string(),
+        _ => {
+            let s = input.to_string();
+            if s.len() > 80 {
+                format!("{}…", &s[..s.floor_char_boundary(80)])
+            } else {
+                s
+            }
+        }
+    }
+}
+
+fn build_reflection_prompt(messages: &[t_koma_db::Message], previous_handoff: &str) -> String {
+    let recent_messages = format_chat_transcript(messages);
 
     crate::content::prompt_text(
         crate::content::ids::PROMPT_REFLECTION,
         None,
-        &[("recent_messages", &recent_messages)],
+        &[
+            ("recent_messages", &recent_messages),
+            ("previous_handoff", previous_handoff),
+        ],
     )
     .unwrap_or_else(|e| {
         tracing::warn!("Failed to render reflection prompt: {e}, using fallback");
         format!(
             "You are in reflection mode. Process the following conversation into \
-             structured knowledge.\n\n## Recent Conversation\n\n{recent_messages}"
+             structured knowledge.\n\n## Previous Handoff\n\n{previous_handoff}\n\n\
+             ## Recent Conversation\n\n{recent_messages}"
         )
     })
 }
