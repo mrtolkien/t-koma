@@ -133,7 +133,7 @@ Make extensive use of MCPs available to you:
 
 - SQLite storage for operators, ghosts, interfaces, sessions, and messages lives
   under the platform data dir and ghost workspaces.
-- Reference schemas: `t-koma-db/schema.sql`, `t-koma-db/ghost_schema.sql`.
+- Schema defined in SQLx migrations: `t-koma-db/migrations/`.
 - SQLite runtime bootstrap lives in `t-koma-db/src/sqlite_runtime.rs`
   (sqlite-vec init, pool options, PRAGMAs).
 
