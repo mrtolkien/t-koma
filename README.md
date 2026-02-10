@@ -207,9 +207,22 @@ cargo test --features live-tests
 # Run clippy
 cargo clippy --all-targets --all-features
 
-# Format code
-cargo fmt
+# Format all code (Rust, Markdown, SQL)
+just fmt                     # Format everything
+
+# Or format individually:
+just fmt-rust                # Rust code only
+just fmt-md                  # Markdown only
+just fmt-sql                 # SQL only
+
+# Check formatting without modifying files
+just check-fmt
+
+# Full CI pipeline (format check + clippy + tests)
+just ci
 ```
+
+See [FORMATTING.md](./FORMATTING.md) for detailed formatting documentation.
 
 ## Architecture
 

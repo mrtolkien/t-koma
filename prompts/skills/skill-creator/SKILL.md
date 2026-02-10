@@ -18,6 +18,7 @@ A skill is a self-contained directory with instructions, scripts, and resources 
 ## When to Create a Skill
 
 Create a skill when:
+
 - You have domain-specific knowledge to codify
 - You want to provide reusable workflows
 - You need to package scripts for common operations
@@ -52,12 +53,14 @@ metadata:
 ```
 
 **Naming Rules:**
+
 - 1-64 characters
 - Lowercase letters, numbers, hyphens only
 - No starting/ending hyphens
 - No consecutive hyphens
 
 **Description Tips:**
+
 - Explain WHAT the skill does
 - Explain WHEN to use it
 - Include keywords for discovery
@@ -154,13 +157,16 @@ Place static resources in `assets/`:
 
 Reference other files using relative paths:
 
-```markdown
+````markdown
 See [the reference guide](references/REFERENCE.md) for details.
 
 Run the extraction script:
+
 ```bash
 ./scripts/extract.py
 ```
+````
+
 ```
 
 ## Validation
@@ -176,14 +182,16 @@ Before using a skill:
 ## Example: Complete Skill
 
 ```
+
 prompts/skills/data-extraction/
 ├── SKILL.md
 ├── scripts/
-│   ├── extract_csv.py
-│   └── clean_data.py
+│ ├── extract_csv.py
+│ └── clean_data.py
 └── references/
-    └── DATA_FORMATS.md
-```
+└── DATA_FORMATS.md
+
+````
 
 **SKILL.md:**
 
@@ -224,9 +232,10 @@ Extract and clean data from various file formats.
 
 ```bash
 ./scripts/extract_csv.py data/input.csv --output output.json
-```
+````
 
 See [references/DATA_FORMATS.md](references/DATA_FORMATS.md) for format details.
+
 ```
 
 ## Tips for Success
@@ -242,3 +251,4 @@ See [references/DATA_FORMATS.md](references/DATA_FORMATS.md) for format details.
 
 - [Agent Skills Specification](https://agentskills.io/specification)
 - [Agent Skills Home](https://agentskills.io/home)
+```

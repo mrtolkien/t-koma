@@ -15,6 +15,10 @@
 Thumbs.db
 /target
 
+# Node.js dependencies
+node_modules/
+package-lock.json
+
 # Other
 .bacon-locations
 /vibe/ongoing
@@ -22,3 +26,6 @@ Thumbs.db
 /feat
 /private-scripts
 /e2e-output
+
+# dprint cache
+.dprint

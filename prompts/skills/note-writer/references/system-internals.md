@@ -62,19 +62,19 @@ Links can target any shared note or reference topic by title.
 
 ### Front Matter Fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | yes | Unique note ID (UUID) |
-| `title` | yes | Human-readable title |
-| `archetype` | no | Optional semantic classification (lowercase). One of: `person`, `concept`, `decision`, `event`, `place`, `project`, `organization`, `procedure`, `media`, `quote` |
-| `created_at` | yes | ISO 8601 timestamp |
-| `trust_score` | yes | 0-10, higher = more trusted |
-| `created_by.ghost` | yes | Ghost that created the note |
-| `created_by.model` | yes | Model used |
-| `tags` | no | String array for categorization |
-| `parent` | no | ID of parent note (for hierarchy) |
-| `version` | no | Integer version counter |
-| `source` | no | Provenance array (URLs, "user stated", etc.) |
+| Field              | Required | Description                                                                                                                                                       |
+| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | yes      | Unique note ID (UUID)                                                                                                                                             |
+| `title`            | yes      | Human-readable title                                                                                                                                              |
+| `archetype`        | no       | Optional semantic classification (lowercase). One of: `person`, `concept`, `decision`, `event`, `place`, `project`, `organization`, `procedure`, `media`, `quote` |
+| `created_at`       | yes      | ISO 8601 timestamp                                                                                                                                                |
+| `trust_score`      | yes      | 0-10, higher = more trusted                                                                                                                                       |
+| `created_by.ghost` | yes      | Ghost that created the note                                                                                                                                       |
+| `created_by.model` | yes      | Model used                                                                                                                                                        |
+| `tags`             | no       | String array for categorization                                                                                                                                   |
+| `parent`           | no       | ID of parent note (for hierarchy)                                                                                                                                 |
+| `version`          | no       | Integer version counter                                                                                                                                           |
+| `source`           | no       | Provenance array (URLs, "user stated", etc.)                                                                                                                      |
 
 ## Diary Format
 
@@ -92,6 +92,7 @@ Format: `{unix-timestamp}-{slug}.md`. Optional provenance comment at top:
 
 ```markdown
 <!-- source: https://example.com/docs -->
+
 Raw captured content here...
 ```
 
@@ -133,13 +134,13 @@ role = "docs"
 
 ## Storage Scopes
 
-| Scope | `owner_ghost` | Visibility |
-|-------|---------------|------------|
-| SharedNote | `NULL` | All ghosts |
-| SharedReference | `NULL` | All ghosts |
-| GhostNote | ghost name | Owner only |
-| GhostReference | ghost name | Owner only |
-| GhostDiary | ghost name | Owner only |
+| Scope           | `owner_ghost` | Visibility |
+| --------------- | ------------- | ---------- |
+| SharedNote      | `NULL`        | All ghosts |
+| SharedReference | `NULL`        | All ghosts |
+| GhostNote       | ghost name    | Owner only |
+| GhostReference  | ghost name    | Owner only |
+| GhostDiary      | ghost name    | Owner only |
 
 Cross-scope rule: ghost notes can link to shared notes and reference topics via
 `[[Title]]` wiki links. Shared notes never see private data.

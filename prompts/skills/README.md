@@ -34,7 +34,6 @@ metadata:
   author: your-name
   version: "1.0"
 ---
-
 # Skill Title
 
 Detailed instructions for the agent...
