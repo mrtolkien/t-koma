@@ -1,0 +1,911 @@
+#!/usr/bin/env rust-script
+//! E2E Knowledge Test - Full system integration test
+//!
+//! This script exercises the complete T-KOMA system end-to-end:
+//! - Creates operator and ghost
+//! - Runs a conversation
+//! - Triggers reflection
+//! - Outputs detailed JSON report
+//!
+//! Usage:
+//!   cargo run --example e2e_knowledge_test -- <MODEL_ALIAS>
+//!
+//! Example:
+//!   cargo run --example e2e_knowledge_test -- kimi25
+//!
+//! The model must be defined in ~/.config/t-koma/config.toml:
+//!   [models.kimi25]
+//!   provider = "openrouter"
+//!   model = "moonshotai/kimi-k2.5"
+//!
+//! Required environment:
+//!   API keys for the provider (e.g., OPENROUTER_API_KEY)
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
+
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+
+// Import from workspace crates
+use t_koma_core::config::{Config, KnowledgeSettings, SearchDefaults};
+use t_koma_core::message::ProviderType;
+use t_koma_db::{
+    ContentBlock, GhostRepository, JobKind, JobLogRepository, KomaDbPool, Message, MessageRole,
+    OperatorAccessLevel, OperatorRepository, Platform, SessionRepository, TranscriptEntry,
+};
+use t_koma_gateway::chat::compaction::CompactionConfig;
+use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
+use t_koma_gateway::providers::openrouter::OpenRouterClient;
+use t_koma_gateway::state::{AppState, ModelEntry};
+
+/// Terminal styling
+mod style {
+    pub const RESET: &str = "\x1b[0m";
+    pub const BOLD: &str = "\x1b[1m";
+    pub const DIM: &str = "\x1b[2m";
+    pub const CYAN: &str = "\x1b[36m";
+    pub const GREEN: &str = "\x1b[32m";
+    pub const YELLOW: &str = "\x1b[33m";
+    pub const MAGENTA: &str = "\x1b[35m";
+    pub const RED: &str = "\x1b[31m";
+    pub const BLUE: &str = "\x1b[34m";
+}
+
+/// Test configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestConfig {
+    operator_name: String,
+    ghost_name: String,
+    output_dir: PathBuf,
+    temp_dir: PathBuf,
+}
+
+impl Default for TestConfig {
+    fn default() -> Self {
+        let output_dir = std::env::var("E2E_OUTPUT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("e2e-output"));
+
+        Self {
+            operator_name: "OMEGA".to_string(),
+            ghost_name: "CLANKER".to_string(),
+            output_dir,
+            temp_dir: std::env::temp_dir().join(format!("e2e-{}", uuid::Uuid::new_v4())),
+        }
+    }
+}
+
+/// Complete test report
+#[derive(Debug, Serialize, Deserialize)]
+struct TestReport {
+    started_at: String,
+    completed_at: String,
+    duration_seconds: f64,
+    config: TestConfig,
+    model_used: String,
+    operator: OperatorInfo,
+    ghost: GhostInfo,
+    session: SessionInfo,
+    /// Full conversation with tool calls and content blocks
+    conversation: Vec<DetailedMessage>,
+    /// Reflection with full transcript
+    reflection: Option<DetailedReflection>,
+    /// All files in data directory (ghost workspace + shared)
+    data_files: Vec<DataFile>,
+    usage: UsageStats,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OperatorInfo {
+    id: String,
+    name: String,
+    platform: String,
+    access_level: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GhostInfo {
+    id: String,
+    name: String,
+    workspace_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SessionInfo {
+    id: String,
+    created_at: String,
+    message_count: usize,
+}
+
+/// Detailed message with full content blocks (includes tool calls)
+#[derive(Debug, Serialize, Deserialize)]
+struct DetailedMessage {
+    role: String,
+    /// All content blocks including text, tool_use, tool_result
+    content: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+}
+
+/// Detailed reflection with full transcript
+#[derive(Debug, Serialize, Deserialize)]
+struct DetailedReflection {
+    job_id: String,
+    status: String,
+    started_at: String,
+    finished_at: String,
+    /// Full transcript with all content blocks
+    transcript: Vec<TranscriptEntryDetailed>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TranscriptEntryDetailed {
+    role: String,
+    content: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DataFile {
+    path: String,
+    size_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct UsageStats {
+    total_messages: usize,
+    operator_messages: usize,
+    ghost_messages: usize,
+}
+
+// UI helpers
+fn header(title: &str) {
+    let width = 70;
+    println!("\n{}{}{}", style::CYAN, style::BOLD, "━".repeat(width));
+    println!("  {}", title);
+    println!("{}{}{}\n", "━".repeat(width), style::RESET, style::RESET);
+}
+
+fn step(n: u8, total: u8, msg: &str) {
+    println!(
+        "{}[{}/{}]{} {}{}",
+        style::CYAN,
+        n,
+        total,
+        style::RESET,
+        style::BOLD,
+        msg
+    );
+    println!();
+}
+
+fn success(msg: &str) {
+    println!("{}✓{} {}\n", style::GREEN, style::RESET, msg);
+}
+
+fn info(label: &str, value: &str) {
+    println!("  {}:{} {}", style::DIM, style::RESET, label);
+    println!("    {}{}", style::CYAN, value);
+    println!("{}", style::RESET);
+}
+
+fn chat_msg(_role: &str, content: &str, is_ghost: bool) {
+    let color = if is_ghost {
+        style::MAGENTA
+    } else {
+        style::BLUE
+    };
+    let label = if is_ghost { "GHOST" } else { "OPERATOR" };
+
+    println!(
+        "{}{}[{}]{} {}",
+        color,
+        style::BOLD,
+        label,
+        style::RESET,
+        style::DIM
+    );
+
+    for line in content.lines() {
+        let mut current = String::new();
+        for word in line.split_whitespace() {
+            if current.len() + word.len() + 1 > 60 {
+                println!("  {}", current);
+                current = word.to_string();
+            } else {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(word);
+            }
+        }
+        if !current.is_empty() {
+            println!("  {}", current);
+        }
+    }
+    println!("{}", style::RESET);
+    println!();
+}
+
+/// Parse command line arguments to get model alias
+fn parse_args() -> String {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        eprintln!(
+            "\n{}Error: Model alias required{}\n",
+            style::RED,
+            style::RESET
+        );
+        eprintln!("Usage: cargo run --example e2e_knowledge_test -- <MODEL_ALIAS>\n");
+        eprintln!("Example: cargo run --example e2e_knowledge_test -- kimi25\n");
+        std::process::exit(1);
+    }
+    args[1].clone()
+}
+
+/// Convert ContentBlock to JSON Value for serialization
+fn content_block_to_json(block: &ContentBlock) -> serde_json::Value {
+    match block {
+        ContentBlock::Text { text } => {
+            serde_json::json!({"type": "text", "text": text})
+        }
+        ContentBlock::ToolUse { id, name, input } => {
+            serde_json::json!({
+                "type": "tool_use",
+                "id": id,
+                "name": name,
+                "input": input
+            })
+        }
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => {
+            serde_json::json!({
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": content,
+                "is_error": is_error
+            })
+        }
+    }
+}
+
+/// Convert TranscriptEntry to detailed JSON
+fn transcript_entry_to_detailed(entry: &TranscriptEntry) -> TranscriptEntryDetailed {
+    TranscriptEntryDetailed {
+        role: match entry.role {
+            MessageRole::Operator => "operator".to_string(),
+            MessageRole::Ghost => "ghost".to_string(),
+        },
+        content: entry.content.iter().map(content_block_to_json).collect(),
+        model: entry.model.clone(),
+    }
+}
+
+/// Convert Message to detailed message
+fn message_to_detailed(msg: &Message, default_model: &str) -> DetailedMessage {
+    DetailedMessage {
+        role: match msg.role {
+            MessageRole::Operator => "operator".to_string(),
+            MessageRole::Ghost => "ghost".to_string(),
+        },
+        content: msg.content.iter().map(content_block_to_json).collect(),
+        model: msg
+            .model
+            .clone()
+            .or_else(|| Some(default_model.to_string())),
+    }
+}
+
+/// Load real config and create model registry from it
+fn create_models_from_config(model_alias: &str) -> (HashMap<String, ModelEntry>, String) {
+    // Load the real config from ~/.config/t-koma/config.toml
+    let config = Config::load().unwrap_or_else(|e| {
+        eprintln!(
+            "\n{}Error: Failed to load config{}\n",
+            style::RED,
+            style::RESET
+        );
+        eprintln!("Make sure ~/.config/t-koma/config.toml exists\n");
+        eprintln!("Error details: {}\n", e);
+        std::process::exit(1);
+    });
+
+    // Get the model config for the requested alias
+    let model_config = config.model_config(model_alias).unwrap_or_else(|| {
+        eprintln!(
+            "\n{}Error: Model '{}' not found in config{}\n",
+            style::RED,
+            model_alias,
+            style::RESET
+        );
+        eprintln!("Available models:\n");
+        for alias in config.settings.models.keys() {
+            eprintln!("  - {}", alias);
+        }
+        eprintln!();
+        std::process::exit(1);
+    });
+
+    // Get API key for this model
+    let api_key = config.api_key_for_alias(model_alias).unwrap_or_else(|e| {
+        eprintln!(
+            "\n{}Error: No API key for model '{}'{}\n",
+            style::RED,
+            model_alias,
+            style::RESET
+        );
+        eprintln!("Error: {}\n", e);
+        std::process::exit(1);
+    });
+
+    let api_key = api_key.unwrap_or_else(|| {
+        eprintln!(
+            "\n{}Error: No API key configured for model '{}'{}\n",
+            style::RED,
+            model_alias,
+            style::RESET
+        );
+        std::process::exit(1);
+    });
+
+    let mut models = HashMap::new();
+
+    // Create the provider client based on the config
+    let client: Arc<dyn t_koma_gateway::providers::provider::Provider> = match model_config.provider
+    {
+        ProviderType::Anthropic => Arc::new(AnthropicClient::new(api_key, &model_config.model)),
+        ProviderType::OpenRouter => Arc::new(OpenRouterClient::new(
+            api_key,
+            &model_config.model,
+            model_config.base_url.clone(),
+            config.settings.openrouter.http_referer.clone(),
+            config.settings.openrouter.app_name.clone(),
+            model_config.routing.clone(),
+        )),
+        ProviderType::OpenAiCompatible => {
+            let base_url = model_config.base_url.clone().unwrap_or_else(|| {
+                eprintln!(
+                    "\n{}Error: openai_compatible model requires base_url{}\n",
+                    style::RED,
+                    style::RESET
+                );
+                std::process::exit(1);
+            });
+            Arc::new(OpenAiCompatibleClient::new(
+                base_url,
+                Some(api_key),
+                &model_config.model,
+                "openai_compatible",
+            ))
+        }
+    };
+
+    models.insert(
+        model_alias.to_string(),
+        ModelEntry {
+            alias: model_alias.to_string(),
+            provider: model_config.provider.to_string(),
+            model: model_config.model.clone(),
+            client,
+            context_window: model_config.context_window,
+        },
+    );
+
+    println!(
+        "{}Using model:{}{} {} ({} via {})\n",
+        style::GREEN,
+        style::RESET,
+        style::CYAN,
+        model_alias,
+        model_config.model,
+        model_config.provider
+    );
+
+    (models, model_alias.to_string())
+}
+
+// Setup
+async fn setup_env(config: &TestConfig, model_alias: &str) -> (Arc<AppState>, KomaDbPool) {
+    fs::create_dir_all(&config.temp_dir).expect("Failed to create temp dir");
+
+    unsafe {
+        std::env::set_var("T_KOMA_DATA_DIR", &config.temp_dir);
+    }
+
+    let koma_db = create_db().await;
+    let (models, default_alias) = create_models_from_config(model_alias);
+
+    let knowledge_settings = KnowledgeSettings {
+        knowledge_db_path_override: Some(config.temp_dir.join("knowledge.sqlite3")),
+        embedding_dim: Some(8),
+        embedding_url: "http://127.0.0.1:1".to_string(),
+        reconcile_seconds: 999_999,
+        data_root_override: Some(config.temp_dir.clone()),
+        embedding_batch: 1,
+        embedding_model: "qwen3-embedding:8b".to_string(),
+        search: SearchDefaults::default(),
+    };
+
+    let knowledge_engine = Arc::new(
+        t_koma_knowledge::KnowledgeEngine::open(knowledge_settings)
+            .await
+            .expect("Failed to open knowledge engine"),
+    );
+
+    let state = Arc::new(AppState::new(
+        default_alias,
+        models,
+        koma_db.clone(),
+        knowledge_engine,
+        vec![],
+        CompactionConfig {
+            threshold: 0.85,
+            keep_window: 20,
+            mask_preview_chars: 100,
+        },
+    ));
+
+    (state, koma_db)
+}
+
+async fn create_db() -> KomaDbPool {
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect("sqlite::memory:")
+        .await
+        .expect("Failed to create pool");
+
+    sqlx::migrate!("../t-koma-db/migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
+
+    KomaDbPool::from_pool(pool)
+}
+
+// Test execution
+async fn create_entities(
+    pool: &KomaDbPool,
+    config: &TestConfig,
+) -> (t_koma_db::Operator, t_koma_db::Ghost) {
+    let operator = OperatorRepository::create_new(
+        pool.pool(),
+        &config.operator_name,
+        Platform::Cli,
+        OperatorAccessLevel::PuppetMaster,
+    )
+    .await
+    .expect("Failed to create operator");
+
+    let operator = OperatorRepository::approve(pool.pool(), &operator.id)
+        .await
+        .expect("Failed to approve operator");
+
+    let ghost = GhostRepository::create(pool.pool(), &operator.id, &config.ghost_name)
+        .await
+        .expect("Failed to create ghost");
+
+    success(&format!(
+        "Created operator: {} ({})",
+        operator.name, operator.id
+    ));
+    success(&format!("Created ghost: {} ({})", ghost.name, ghost.id));
+
+    // Initialize ghost workspace - per AGENTS.md, SOUL.md should be minimal
+    let workspace = t_koma_db::ghosts::ghost_workspace_path(&ghost.name).unwrap();
+    fs::create_dir_all(&workspace).unwrap();
+
+    // Per AGENTS.md: Ghost initialization should only set the name
+    let soul = format!("I am called {}.\n", ghost.name);
+    fs::write(workspace.join("SOUL.md"), &soul).unwrap();
+    success("Initialized ghost workspace");
+
+    (operator, ghost)
+}
+
+/// Run the conversation and capture full messages from DB
+async fn run_conversation(
+    state: &AppState,
+    pool: &KomaDbPool,
+    operator: &t_koma_db::Operator,
+    ghost: &t_koma_db::Ghost,
+) -> Vec<DetailedMessage> {
+    let session = SessionRepository::create(pool.pool(), &ghost.id, &operator.id)
+        .await
+        .expect("Failed to create session");
+
+    success(&format!("Created session: {}", session.id));
+    state.set_active_ghost(&operator.id, &ghost.name).await;
+
+    let default_model = state.default_model().model.clone();
+
+    // Message 1
+    chat_msg("OMEGA", "Hello, my name is OMEGA.", false);
+    state
+        .chat(
+            &ghost.name,
+            &session.id,
+            &operator.id,
+            "Hello, my name is OMEGA.",
+        )
+        .await
+        .expect("Chat failed");
+
+    // Fetch all messages from DB after chat (includes tool calls)
+    let messages_after_1 = SessionRepository::list_messages(pool.pool(), &session.id)
+        .await
+        .expect("Failed to list messages");
+
+    // Print ghost response for UI
+    if let Some(last) = messages_after_1.last() {
+        if last.role == MessageRole::Ghost {
+            if let Some(ContentBlock::Text { text }) = last.content.first() {
+                chat_msg(&ghost.name, text, true);
+            }
+        }
+    }
+
+    // Message 2
+    let q = "I want to buy a new 3d printer. Enclosed, for home use. What do you recommend?";
+    chat_msg("OMEGA", q, false);
+    state
+        .chat(&ghost.name, &session.id, &operator.id, q)
+        .await
+        .expect("Chat failed");
+
+    // Fetch all messages from DB after second chat
+    let messages_after_2 = SessionRepository::list_messages(pool.pool(), &session.id)
+        .await
+        .expect("Failed to list messages");
+
+    // Print ghost response for UI
+    if let Some(last) = messages_after_2.last() {
+        if last.role == MessageRole::Ghost {
+            if let Some(ContentBlock::Text { text }) = last.content.first() {
+                chat_msg(&ghost.name, text, true);
+            }
+        }
+    }
+
+    // Convert all messages to detailed format
+    messages_after_2
+        .iter()
+        .map(|m| message_to_detailed(m, &default_model))
+        .collect()
+}
+
+/// Run reflection and capture full transcript
+async fn run_reflection(
+    state: &Arc<AppState>,
+    pool: &KomaDbPool,
+    operator: &t_koma_db::Operator,
+    ghost: &t_koma_db::Ghost,
+) -> Option<DetailedReflection> {
+    use t_koma_gateway::reflection::run_reflection_now;
+
+    let started = Utc::now();
+    let session = SessionRepository::get_active(pool.pool(), &ghost.id, &operator.id)
+        .await
+        .ok()
+        .flatten()
+        .expect("No active session");
+
+    run_reflection_now(
+        state,
+        &ghost.name,
+        &ghost.id,
+        &session.id,
+        &operator.id,
+        None,
+    )
+    .await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Get the full job log with transcript
+    let logs = JobLogRepository::list_for_ghost(pool.pool(), &ghost.id, 5)
+        .await
+        .ok()?;
+    let log = logs.iter().find(|l| l.job_kind == JobKind::Reflection)?;
+
+    // Fetch full log with transcript
+    let full_log = JobLogRepository::get(pool.pool(), &log.id)
+        .await
+        .ok()
+        .flatten()?;
+
+    success(&format!(
+        "Reflection completed: {}",
+        log.status.as_deref().unwrap_or("unknown")
+    ));
+
+    Some(DetailedReflection {
+        job_id: log.id.clone(),
+        status: log.status.clone().unwrap_or_default(),
+        started_at: started.to_rfc3339(),
+        finished_at: Utc::now().to_rfc3339(),
+        transcript: full_log
+            .transcript
+            .iter()
+            .map(transcript_entry_to_detailed)
+            .collect(),
+    })
+}
+
+/// Collect ALL files from data root (includes ghost workspace + shared notes/references)
+fn collect_data_files(data_root: &PathBuf) -> Vec<DataFile> {
+    let mut files = Vec::new();
+
+    if data_root.exists() {
+        for entry in walkdir::WalkDir::new(data_root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if entry.file_type().is_file() {
+                let path = entry.path();
+                let rel_path = path.strip_prefix(data_root).unwrap_or(path);
+                let path_str = rel_path.to_string_lossy().to_string();
+
+                let metadata = fs::metadata(path).ok();
+                let size = metadata.map(|m| m.len()).unwrap_or(0);
+
+                // Preview for markdown files
+                let preview = if path_str.ends_with(".md") {
+                    fs::read_to_string(path)
+                        .ok()
+                        .map(|c| c.chars().take(200).collect())
+                } else {
+                    None
+                };
+
+                files.push(DataFile {
+                    path: path_str,
+                    size_bytes: size,
+                    preview,
+                });
+            }
+        }
+    }
+
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files
+}
+
+/// Generate and write report
+fn write_report(
+    config: &TestConfig,
+    model_used: &str,
+    operator: &t_koma_db::Operator,
+    ghost: &t_koma_db::Ghost,
+    session: &t_koma_db::Session,
+    conversation: Vec<DetailedMessage>,
+    reflection: Option<DetailedReflection>,
+    data_files: Vec<DataFile>,
+    started: Instant,
+) -> PathBuf {
+    fs::create_dir_all(&config.output_dir).expect("Failed to create output dir");
+
+    let usage = UsageStats {
+        total_messages: conversation.len(),
+        operator_messages: conversation.iter().filter(|m| m.role == "operator").count(),
+        ghost_messages: conversation.iter().filter(|m| m.role == "ghost").count(),
+    };
+
+    let report = TestReport {
+        started_at: (Utc::now()
+            - chrono::Duration::milliseconds(started.elapsed().as_millis() as i64))
+        .to_rfc3339(),
+        completed_at: Utc::now().to_rfc3339(),
+        duration_seconds: started.elapsed().as_secs_f64(),
+        config: config.clone(),
+        model_used: model_used.to_string(),
+        operator: OperatorInfo {
+            id: operator.id.clone(),
+            name: operator.name.clone(),
+            platform: "cli".to_string(),
+            access_level: "puppet_master".to_string(),
+        },
+        ghost: GhostInfo {
+            id: ghost.id.clone(),
+            name: ghost.name.clone(),
+            workspace_path: t_koma_db::ghosts::ghost_workspace_path(&ghost.name)
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+        },
+        session: SessionInfo {
+            id: session.id.clone(),
+            created_at: Utc::now().to_rfc3339(),
+            message_count: conversation.len(),
+        },
+        conversation,
+        reflection,
+        data_files,
+        usage,
+    };
+
+    let path = config
+        .output_dir
+        .join(format!("e2e-report-{}.json", ghost.id));
+    fs::write(&path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+    path
+}
+
+/// Print final summary
+fn print_summary(path: &PathBuf, ghost: &t_koma_db::Ghost, data_root: &PathBuf) {
+    let report: TestReport = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+
+    header("E2E TEST COMPLETE");
+
+    println!(
+        "{}📊 Report:{}{} {}",
+        style::CYAN,
+        style::RESET,
+        style::BOLD,
+        path.display()
+    );
+    println!(
+        "{}⏱️  Duration:{}{} {:.2}s\n",
+        style::YELLOW,
+        style::RESET,
+        style::BOLD,
+        report.duration_seconds
+    );
+
+    println!(
+        "{}💬 Conversation:{}{}",
+        style::MAGENTA,
+        style::RESET,
+        style::BOLD
+    );
+    println!("   Operator: {} messages", report.usage.operator_messages);
+    println!("   Ghost: {} messages\n", report.usage.ghost_messages);
+
+    // Count tool uses
+    let tool_uses: usize = report
+        .conversation
+        .iter()
+        .map(|m| {
+            m.content
+                .iter()
+                .filter(|b| b.get("type") == Some(&serde_json::json!("tool_use")))
+                .count()
+        })
+        .sum();
+    println!("   Tool calls: {}\n", tool_uses);
+
+    println!(
+        "{}📝 Data Files:{}{}",
+        style::GREEN,
+        style::RESET,
+        style::BOLD
+    );
+    println!("   Total files: {}", report.data_files.len());
+
+    let ghost_files = report
+        .data_files
+        .iter()
+        .filter(|f| f.path.starts_with(&format!("ghosts/{}/", ghost.name)))
+        .count();
+    let shared_files = report
+        .data_files
+        .iter()
+        .filter(|f| f.path.starts_with("shared/"))
+        .count();
+    println!("   Ghost workspace: {}", ghost_files);
+    println!("   Shared: {}\n", shared_files);
+
+    if let Some(refl) = &report.reflection {
+        println!(
+            "{}🔄 Reflection:{}{}",
+            style::YELLOW,
+            style::RESET,
+            style::BOLD
+        );
+        println!("   Status: {}", refl.status);
+        println!("   Transcript entries: {}\n", refl.transcript.len());
+    }
+
+    // Copy entire data directory for inspection
+    let data_dst = path.parent().unwrap().join(format!("data-{}", ghost.id));
+    if data_root.exists() {
+        copy_dir(data_root, &data_dst).ok();
+        println!(
+            "{}📁 Data directory:{}{} {}",
+            style::CYAN,
+            style::RESET,
+            style::BOLD,
+            data_dst.display()
+        );
+    }
+
+    println!("\n{}", style::RESET);
+    println!("{}", "━".repeat(70));
+    println!(
+        "\n  Inspect: {}cat {} | jq .conversation{}",
+        style::CYAN,
+        path.display(),
+        style::RESET
+    );
+    println!();
+}
+
+fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let s = entry.path();
+        let d = dst.join(entry.file_name());
+        if s.is_dir() {
+            copy_dir(&s, &d)?;
+        } else {
+            fs::copy(&s, &d)?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    t_koma_core::load_dotenv();
+
+    let model_alias = parse_args();
+    let started = Instant::now();
+    let config = TestConfig::default();
+
+    header("E2E KNOWLEDGE TEST");
+    info("Model", &model_alias);
+    info("Operator", &config.operator_name);
+    info("Ghost", &config.ghost_name);
+    info("Output", &config.output_dir.to_string_lossy());
+
+    step(1, 5, "Setting up environment");
+    let (state, pool) = setup_env(&config, &model_alias).await;
+    success("Environment ready");
+
+    step(2, 5, "Creating entities");
+    let (operator, ghost) = create_entities(&pool, &config).await;
+
+    step(3, 5, "Running conversation");
+    let conversation = run_conversation(&state, &pool, &operator, &ghost).await;
+
+    step(4, 5, "Running reflection");
+    let reflection = run_reflection(&state, &pool, &operator, &ghost).await;
+
+    step(5, 5, "Generating report");
+    let session = SessionRepository::get_active(&pool.pool(), &ghost.id, &operator.id)
+        .await
+        .ok()
+        .flatten()
+        .expect("No active session");
+
+    // Collect ALL files from data root (not just ghost workspace)
+    let data_files = collect_data_files(&config.temp_dir);
+
+    let path = write_report(
+        &config,
+        &model_alias,
+        &operator,
+        &ghost,
+        &session,
+        conversation,
+        reflection,
+        data_files,
+        started,
+    );
+    success("Report generated");
+
+    print_summary(&path, &ghost, &config.temp_dir);
+}

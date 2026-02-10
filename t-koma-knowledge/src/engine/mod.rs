@@ -659,24 +659,20 @@ impl KnowledgeEngine {
     pub async fn index_stats(&self) -> KnowledgeResult<IndexStats> {
         let pool = self.pool();
 
-        let (total_notes,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM notes")
-                .fetch_one(pool)
-                .await?;
+        let (total_notes,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM notes")
+            .fetch_one(pool)
+            .await?;
 
-        let (total_chunks,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM chunks")
-                .fetch_one(pool)
-                .await?;
+        let (total_chunks,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM chunks")
+            .fetch_one(pool)
+            .await?;
 
         // chunk_vec may not exist if embeddings are disabled
-        let total_embeddings: i64 = sqlx::query_as::<_, (i64,)>(
-            "SELECT COUNT(*) FROM chunk_vec",
-        )
-        .fetch_one(pool)
-        .await
-        .map(|(c,)| c)
-        .unwrap_or(0);
+        let total_embeddings: i64 = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM chunk_vec")
+            .fetch_one(pool)
+            .await
+            .map(|(c,)| c)
+            .unwrap_or(0);
 
         let recent = sqlx::query_as::<_, (String, String, String, String)>(
             "SELECT title, entry_type, scope, updated_at FROM notes ORDER BY updated_at DESC LIMIT 10",

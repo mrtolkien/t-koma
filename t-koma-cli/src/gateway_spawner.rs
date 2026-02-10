@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 async fn is_gateway_running(ws_url: &str) -> bool {
     // Extract host and port from ws:// URL
     let http_url = ws_url.replace("ws://", "http://").replace("/ws", "/health");
-    
+
     match reqwest::get(&http_url).await {
         Ok(response) => response.status().is_success(),
         Err(_) => false,
@@ -16,18 +16,20 @@ async fn is_gateway_running(ws_url: &str) -> bool {
 }
 
 /// Spawn the gateway as a child process if not already running
-pub async fn ensure_gateway_running(ws_url: &str) -> Result<Option<tokio::process::Child>, GatewaySpawnError> {
+pub async fn ensure_gateway_running(
+    ws_url: &str,
+) -> Result<Option<tokio::process::Child>, GatewaySpawnError> {
     // First check if gateway is already running
     if is_gateway_running(ws_url).await {
         info!("Gateway is already running at {}", ws_url);
         return Ok(None);
     }
-    
+
     info!("Gateway not running, attempting to start...");
-    
+
     // Try to spawn the gateway
     let child = spawn_gateway().await?;
-    
+
     // Wait for gateway to be ready (up to 10 seconds)
     for i in 0..50 {
         sleep(Duration::from_millis(200)).await;
@@ -36,7 +38,7 @@ pub async fn ensure_gateway_running(ws_url: &str) -> Result<Option<tokio::proces
             return Ok(Some(child));
         }
     }
-    
+
     // If we get here, gateway didn't start properly
     error!("Gateway failed to start within timeout");
     Err(GatewaySpawnError::StartupTimeout)
@@ -50,16 +52,16 @@ async fn spawn_gateway() -> Result<tokio::process::Child, GatewaySpawnError> {
         "./target/debug/t-koma-gateway".to_string(),
         "t-koma-gateway".to_string(), // Assume it's in PATH
     ];
-    
+
     for path in &possible_paths {
         info!("Trying to spawn gateway from: {}", path);
-        
+
         let result = Command::new(path)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn();
-            
+
         match result {
             Ok(child) => {
                 info!("Spawned gateway process (PID: {:?})", child.id());
@@ -70,7 +72,7 @@ async fn spawn_gateway() -> Result<tokio::process::Child, GatewaySpawnError> {
             }
         }
     }
-    
+
     error!("Could not spawn gateway from any known location");
     Err(GatewaySpawnError::SpawnFailed)
 }

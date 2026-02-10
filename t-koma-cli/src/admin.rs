@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 
 use chrono::{TimeZone, Utc};
-use t_koma_db::{KomaDbPool, Platform, OperatorRepository, OperatorStatus};
+use t_koma_db::{KomaDbPool, OperatorRepository, OperatorStatus, Platform};
 
 /// Run the admin interactive mode
 pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,9 +29,13 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Show pending operators
-        let pending_list =
-            match OperatorRepository::list_by_status(db.pool(), OperatorStatus::Pending, None).await
-            {
+        let pending_list = match OperatorRepository::list_by_status(
+            db.pool(),
+            OperatorStatus::Pending,
+            None,
+        )
+        .await
+        {
             Ok(list) => list,
             Err(e) => {
                 eprintln!("Error loading pending operators: {}", e);
@@ -50,9 +54,7 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                     .timestamp_opt(operator.created_at, 0)
                     .single()
                     .unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap());
-                let mins_ago = Utc::now()
-                    .signed_duration_since(created_at)
-                    .num_minutes();
+                let mins_ago = Utc::now().signed_duration_since(created_at).num_minutes();
                 let platform = format!("{:?}", operator.platform).to_lowercase();
                 println!(
                     "  {}. @{} [{}] (ID: {}) - {} min ago",
@@ -64,7 +66,9 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
-            println!("\nEnter number to approve, 'd <num>' to deny, 'r' to refresh, 'l' to list approved, 'D' for denied list, 'q' to quit");
+            println!(
+                "\nEnter number to approve, 'd <num>' to deny, 'r' to refresh, 'l' to list approved, 'D' for denied list, 'q' to quit"
+            );
         }
 
         print!("\nadmin> ");
@@ -147,7 +151,9 @@ pub async fn run_admin_mode() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(_) => {
                         println!("✓ Approved @{} (ID: {})", operator_name, operator_id);
                         if operator.platform == Platform::Discord {
-                            println!("  They'll receive a welcome message on their next interaction.");
+                            println!(
+                                "  They'll receive a welcome message on their next interaction."
+                            );
                         }
                     }
                     Err(e) => {
@@ -175,7 +181,10 @@ async fn list_by_status(db: &KomaDbPool, status: OperatorStatus, label: &str) {
     }
 
     println!("\n=== {} Operators ===\n", label);
-    println!("{:<20} {:<12} {:<20} {:<12} Updated At", "Name", "Platform", "ID", "Welcomed");
+    println!(
+        "{:<20} {:<12} {:<20} {:<12} Updated At",
+        "Name", "Platform", "ID", "Welcomed"
+    );
     println!("{:-<80}", "");
 
     for operator in operators {

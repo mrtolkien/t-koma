@@ -543,7 +543,11 @@ async fn handle_websocket(
                     if let WsMessage::ListRecentNotes { ghost_name, limit } = &other_message {
                         let ghost = ghost_name.clone().unwrap_or_default();
                         let lim = limit.unwrap_or(50);
-                        let response = match state.knowledge_engine().list_recent_notes(&ghost, lim).await {
+                        let response = match state
+                            .knowledge_engine()
+                            .list_recent_notes(&ghost, lim)
+                            .await
+                        {
                             Ok(notes) => {
                                 let infos: Vec<t_koma_core::KnowledgeResultInfo> = notes
                                     .into_iter()

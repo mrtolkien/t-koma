@@ -34,21 +34,15 @@ impl App {
     pub(crate) async fn handle_ws_message(&mut self, msg: WsResponse) {
         match msg {
             WsResponse::Response {
-                id,
-                message,
-                done,
-                ..
+                id, message, done, ..
             } => {
                 let content = message.text_fallback;
                 if done {
                     if let Some(existing) = self.messages_mut().iter_mut().find(|m| m.id == id) {
                         existing.content = content;
                     } else {
-                        self.messages_mut().push(ChatMessage::new(
-                            id,
-                            MessageRole::Ghost,
-                            content,
-                        ));
+                        self.messages_mut()
+                            .push(ChatMessage::new(id, MessageRole::Ghost, content));
                     }
                 }
             }

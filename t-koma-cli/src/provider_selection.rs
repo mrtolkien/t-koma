@@ -362,9 +362,7 @@ async fn wait_for_provider_confirmation(
             Ok(Some(WsResponse::Response { message, .. }))
                 if message.kind == GatewayMessageKind::Error =>
             {
-                return Err(
-                    format!("Provider selection failed: {}", message.text_fallback).into()
-                );
+                return Err(format!("Provider selection failed: {}", message.text_fallback).into());
             }
             Ok(Some(_)) => {
                 // Unexpected message type, continue waiting
