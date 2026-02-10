@@ -37,6 +37,7 @@ use t_koma_db::{
     ContentBlock, GhostRepository, JobKind, JobLogRepository, KomaDbPool, Message, MessageRole,
     OperatorAccessLevel, OperatorRepository, Platform, SessionRepository, TranscriptEntry,
 };
+use t_koma_knowledge::{KnowledgeSearchQuery, KnowledgeSearchResult, OwnershipScope};
 use t_koma_gateway::chat::compaction::CompactionConfig;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
@@ -95,6 +96,8 @@ struct TestReport {
     conversation: Vec<DetailedMessage>,
     /// Reflection with full transcript
     reflection: Option<DetailedReflection>,
+    /// Direct knowledge search verification
+    knowledge_verification: Option<KnowledgeVerification>,
     /// All files in data directory (ghost workspace + shared)
     data_files: Vec<DataFile>,
     usage: UsageStats,
@@ -157,6 +160,58 @@ struct DataFile {
     size_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     preview: Option<String>,
+}
+
+/// Knowledge search verification result
+#[derive(Debug, Serialize, Deserialize)]
+struct KnowledgeVerification {
+    /// The query extracted from the ghost's first knowledge_search tool call
+    query_used: String,
+    /// Number of notes returned
+    notes_count: usize,
+    /// Number of diary entries returned
+    diary_count: usize,
+    /// Number of reference results returned
+    references_count: usize,
+    /// Number of topics returned
+    topics_count: usize,
+    /// Total results across all categories
+    total_results: usize,
+    /// Snippet previews of top results
+    top_results: Vec<String>,
+}
+
+impl KnowledgeVerification {
+    fn from_results(query: String, results: &KnowledgeSearchResult) -> Self {
+        let notes_count = results.notes.len();
+        let diary_count = results.diary.len();
+        let references_count = results.references.results.len();
+        let topics_count = results.topics.len();
+
+        let mut top_results = Vec::new();
+        for n in results.notes.iter().take(3) {
+            top_results.push(format!("[note] {}: {}", n.summary.title, n.summary.snippet));
+        }
+        for d in results.diary.iter().take(2) {
+            top_results.push(format!("[diary] {}: {}", d.date, d.snippet));
+        }
+        for r in results.references.results.iter().take(3) {
+            top_results.push(format!("[ref] {}: {}", r.summary.title, r.summary.snippet));
+        }
+        for t in results.topics.iter().take(2) {
+            top_results.push(format!("[topic] {}", t.title));
+        }
+
+        Self {
+            query_used: query,
+            notes_count,
+            diary_count,
+            references_count,
+            topics_count,
+            total_results: notes_count + diary_count + references_count + topics_count,
+            top_results,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -644,6 +699,82 @@ async fn run_reflection(
     })
 }
 
+/// Extract the query text from the first knowledge_search tool call in the conversation
+fn extract_knowledge_query(messages: &[Message]) -> Option<String> {
+    for msg in messages {
+        for block in &msg.content {
+            if let ContentBlock::ToolUse { name, input, .. } = block
+                && name == "knowledge_search"
+            {
+                return input.get("query").and_then(|v| v.as_str()).map(String::from);
+            }
+        }
+    }
+    None
+}
+
+/// Verify knowledge search by replaying the ghost's query directly against the engine
+async fn verify_knowledge_search(
+    state: &AppState,
+    pool: &KomaDbPool,
+    ghost: &t_koma_db::Ghost,
+    operator: &t_koma_db::Operator,
+) -> Option<KnowledgeVerification> {
+    let session = SessionRepository::get_active(pool.pool(), &ghost.id, &operator.id)
+        .await
+        .ok()
+        .flatten()?;
+
+    let messages = SessionRepository::list_messages(pool.pool(), &session.id)
+        .await
+        .ok()?;
+
+    let query_text = match extract_knowledge_query(&messages) {
+        Some(q) => q,
+        None => {
+            println!(
+                "{}⚠{} Ghost never called knowledge_search — skipping verification\n",
+                style::YELLOW,
+                style::RESET
+            );
+            return None;
+        }
+    };
+
+    info("Replaying query", &query_text);
+
+    let query = KnowledgeSearchQuery {
+        query: query_text.clone(),
+        categories: None,
+        scope: OwnershipScope::All,
+        topic: None,
+        archetype: None,
+        options: Default::default(),
+    };
+
+    let results = state
+        .knowledge_engine()
+        .knowledge_search(&ghost.name, query)
+        .await
+        .ok()?;
+
+    let verification = KnowledgeVerification::from_results(query_text, &results);
+
+    println!(
+        "{}🔍 Knowledge search returned:{} {} results\n",
+        style::GREEN,
+        style::RESET,
+        verification.total_results
+    );
+
+    for preview in &verification.top_results {
+        println!("  {}•{} {}", style::DIM, style::RESET, preview);
+    }
+    println!();
+
+    Some(verification)
+}
+
 /// Collect ALL files from data root (includes ghost workspace + shared notes/references)
 fn collect_data_files(data_root: &PathBuf) -> Vec<DataFile> {
     let mut files = Vec::new();
@@ -692,6 +823,7 @@ fn write_report(
     session: &t_koma_db::Session,
     conversation: Vec<DetailedMessage>,
     reflection: Option<DetailedReflection>,
+    knowledge_verification: Option<KnowledgeVerification>,
     data_files: Vec<DataFile>,
     started: Instant,
 ) -> PathBuf {
@@ -732,6 +864,7 @@ fn write_report(
         },
         conversation,
         reflection,
+        knowledge_verification,
         data_files,
         usage,
     };
@@ -818,6 +951,21 @@ fn print_summary(path: &PathBuf, ghost: &t_koma_db::Ghost, data_root: &PathBuf) 
         println!("   Transcript entries: {}\n", refl.transcript.len());
     }
 
+    if let Some(kv) = &report.knowledge_verification {
+        println!(
+            "{}🔍 Knowledge Verification:{}{}",
+            style::GREEN,
+            style::RESET,
+            style::BOLD
+        );
+        println!("   Query: \"{}\"", kv.query_used);
+        println!("   Total results: {}", kv.total_results);
+        println!(
+            "   Breakdown: {} notes, {} diary, {} refs, {} topics\n",
+            kv.notes_count, kv.diary_count, kv.references_count, kv.topics_count
+        );
+    }
+
     // Copy entire data directory for inspection
     let data_dst = path.parent().unwrap().join(format!("data-{}", ghost.id));
     if data_root.exists() {
@@ -871,20 +1019,24 @@ async fn main() {
     info("Ghost", &config.ghost_name);
     info("Output", &config.output_dir.to_string_lossy());
 
-    step(1, 5, "Setting up environment");
+    step(1, 6, "Setting up environment");
     let (state, pool) = setup_env(&config, &model_alias).await;
     success("Environment ready");
 
-    step(2, 5, "Creating entities");
+    step(2, 6, "Creating entities");
     let (operator, ghost) = create_entities(&pool, &config).await;
 
-    step(3, 5, "Running conversation");
+    step(3, 6, "Running conversation");
     let conversation = run_conversation(&state, &pool, &operator, &ghost).await;
 
-    step(4, 5, "Running reflection");
+    step(4, 6, "Running reflection");
     let reflection = run_reflection(&state, &pool, &operator, &ghost).await;
 
-    step(5, 5, "Generating report");
+    step(5, 6, "Verifying knowledge search");
+    let knowledge_verification =
+        verify_knowledge_search(&state, &pool, &ghost, &operator).await;
+
+    step(6, 6, "Generating report");
     let session = SessionRepository::get_active(&pool.pool(), &ghost.id, &operator.id)
         .await
         .ok()
@@ -902,6 +1054,7 @@ async fn main() {
         &session,
         conversation,
         reflection,
+        knowledge_verification,
         data_files,
         started,
     );
