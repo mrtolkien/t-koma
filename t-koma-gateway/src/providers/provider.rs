@@ -75,9 +75,12 @@ impl ProviderError {
     /// Whether this error is transient and the request can be retried.
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::HttpError(e) => e
-                .status()
-                .is_some_and(|s| s.is_server_error() || s.as_u16() == 429),
+            Self::HttpError(e) => match e.status() {
+                Some(s) => s.is_server_error() || s.as_u16() == 429,
+                // No status → transport-level failure (body decode, timeout,
+                // connection reset mid-transfer). Always worth retrying.
+                None => true,
+            },
             Self::ApiError { status, message } => {
                 *status == 429 || (500..600).contains(status) || message.contains("overloaded")
             }

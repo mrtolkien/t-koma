@@ -218,7 +218,9 @@ async fn run_reflection(
                 .await;
         }
         Err(err) => {
-            let status = format!("error: {err}");
+            warn!("reflection failed for ghost '{ghost_name}' session '{session_id}': {err:#}");
+
+            let status = format!("error: {err:#}");
 
             // Extract partial transcript from ToolLoopLimitReached if available,
             // otherwise persist empty transcript.

@@ -632,7 +632,10 @@ impl SessionChat {
             tools.clone(),
         )
         .await
-        .map_err(|e| ChatError::Api(e.to_string()))?;
+        .map_err(|e| {
+            warn!("Job initial send failed after retries: {e:#}");
+            ChatError::Api(format!("{e:#}"))
+        })?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
         let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
@@ -696,7 +699,10 @@ impl SessionChat {
                 tools.clone(),
             )
             .await
-            .map_err(|e| ChatError::Api(e.to_string()))?;
+            .map_err(|e| {
+                warn!("Job tool-loop send failed after retries (iteration {iteration}): {e:#}");
+                ChatError::Api(format!("{e:#}"))
+            })?;
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
 
@@ -1669,7 +1675,7 @@ async fn send_with_retry(
             Err(e) if e.is_retryable() && attempt + 1 < JOB_RETRY_ATTEMPTS => {
                 let delay = JOB_RETRY_BASE_SECS * 2u64.pow(attempt);
                 warn!(
-                    "Retryable provider error (attempt {}/{}), retrying in {delay}s: {e}",
+                    "Retryable provider error (attempt {}/{}), retrying in {delay}s: {e:#}",
                     attempt + 1,
                     JOB_RETRY_ATTEMPTS
                 );
@@ -1679,5 +1685,7 @@ async fn send_with_retry(
             Err(e) => return Err(e),
         }
     }
-    Err(last_err.unwrap())
+    let err = last_err.unwrap();
+    warn!("Provider error persisted after {JOB_RETRY_ATTEMPTS} attempts, giving up: {err:#}");
+    Err(err)
 }
