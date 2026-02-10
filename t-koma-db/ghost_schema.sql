@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS job_logs (
     finished_at INTEGER,
     status TEXT,
     transcript TEXT NOT NULL DEFAULT '[]',
+    todo_list TEXT,
+    handoff_note TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 

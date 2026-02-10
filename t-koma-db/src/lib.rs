@@ -21,7 +21,9 @@ pub mod usage_log;
 pub use error::{DbError, DbResult};
 pub use ghosts::{Ghost, GhostRepository};
 pub use interfaces::{Interface, InterfaceRepository};
-pub use job_logs::{JobKind, JobLog, JobLogRepository, JobLogSummary, TranscriptEntry};
+pub use job_logs::{
+    JobKind, JobLog, JobLogRepository, JobLogSummary, TodoItem, TodoStatus, TranscriptEntry,
+};
 pub use koma_db::KomaDbPool;
 pub use operators::{
     DEFAULT_RATE_LIMIT_1H_MAX, DEFAULT_RATE_LIMIT_5M_MAX, Operator, OperatorAccessLevel,
