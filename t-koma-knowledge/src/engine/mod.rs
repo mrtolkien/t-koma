@@ -7,12 +7,12 @@ use crate::errors::KnowledgeError;
 use crate::errors::KnowledgeResult;
 use crate::index::{reconcile_ghost, reconcile_shared};
 use crate::models::{
-    DiaryQuery, DiarySearchResult, KnowledgeGetQuery, KnowledgeScope, KnowledgeSearchQuery,
-    KnowledgeSearchResult, MatchedTopic, NoteCreateRequest, NoteDocument, NoteQuery, NoteResult,
-    NoteSummary, NoteUpdateRequest, NoteWriteResult, OwnershipScope, ReferenceFileStatus,
-    ReferenceQuery, ReferenceSaveRequest, ReferenceSaveResult, ReferenceSearchOutput,
-    ReferenceSearchResult, SearchCategory, TopicCreateRequest, TopicCreateResult, TopicListEntry,
-    TopicSearchResult, TopicUpdateRequest, WriteScope,
+    DiaryQuery, DiarySearchResult, IndexStats, IndexStatsEntry, KnowledgeGetQuery, KnowledgeScope,
+    KnowledgeSearchQuery, KnowledgeSearchResult, MatchedTopic, NoteCreateRequest, NoteDocument,
+    NoteQuery, NoteResult, NoteSummary, NoteUpdateRequest, NoteWriteResult, OwnershipScope,
+    ReferenceFileStatus, ReferenceQuery, ReferenceSaveRequest, ReferenceSaveResult,
+    ReferenceSearchOutput, ReferenceSearchResult, SearchCategory, TopicCreateRequest,
+    TopicCreateResult, TopicListEntry, TopicSearchResult, TopicUpdateRequest, WriteScope,
 };
 use crate::paths::knowledge_db_path;
 use crate::storage::KnowledgeStore;
@@ -611,12 +611,25 @@ impl KnowledgeEngine {
     }
 
     /// List recently updated notes across all scopes (no embeddings needed).
-    pub async fn list_recent_notes(&self, limit: usize) -> KnowledgeResult<Vec<NoteSummary>> {
+    ///
+    /// If `ghost_name` is non-empty, reconciles both shared and ghost scopes
+    /// before querying.  Otherwise only shared scope is reconciled.
+    pub async fn list_recent_notes(
+        &self,
+        ghost_name: &str,
+        limit: usize,
+    ) -> KnowledgeResult<Vec<NoteSummary>> {
+        self.maybe_reconcile(ghost_name, KnowledgeScope::SharedNote)
+            .await?;
+        if !ghost_name.is_empty() {
+            self.maybe_reconcile(ghost_name, KnowledgeScope::GhostNote)
+                .await?;
+        }
+
         let rows =
             sqlx::query_as::<_, (String, String, String, Option<String>, String, i64, String)>(
-                "SELECT n.id, n.title, n.note_type, n.archetype, n.path, n.trust_score, n.scope
+                "SELECT n.id, n.title, n.entry_type, n.archetype, n.path, n.trust_score, n.scope
              FROM notes n
-             WHERE n.type_valid = 1
              ORDER BY n.updated_at DESC
              LIMIT ?",
             )
@@ -640,6 +653,53 @@ impl KnowledgeEngine {
                 },
             )
             .collect())
+    }
+
+    /// Retrieve index statistics: note/chunk/embedding counts and latest entries.
+    pub async fn index_stats(&self) -> KnowledgeResult<IndexStats> {
+        let pool = self.pool();
+
+        let (total_notes,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM notes")
+                .fetch_one(pool)
+                .await?;
+
+        let (total_chunks,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM chunks")
+                .fetch_one(pool)
+                .await?;
+
+        // chunk_vec may not exist if embeddings are disabled
+        let total_embeddings: i64 = sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM chunk_vec",
+        )
+        .fetch_one(pool)
+        .await
+        .map(|(c,)| c)
+        .unwrap_or(0);
+
+        let recent = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT title, entry_type, scope, updated_at FROM notes ORDER BY updated_at DESC LIMIT 10",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(IndexStats {
+            total_notes,
+            total_chunks,
+            total_embeddings,
+            embedding_model: self.settings.embedding_model.clone(),
+            embedding_dim: self.settings.embedding_dim.unwrap_or(0) as u32,
+            recent_entries: recent
+                .into_iter()
+                .map(|(title, entry_type, scope, updated_at)| IndexStatsEntry {
+                    title,
+                    entry_type,
+                    scope,
+                    updated_at,
+                })
+                .collect(),
+        })
     }
 
     async fn maybe_reconcile(

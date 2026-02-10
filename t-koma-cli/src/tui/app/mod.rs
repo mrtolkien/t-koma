@@ -179,7 +179,11 @@ impl TuiApp {
                 opts
             }
             Category::Knowledge => {
-                vec!["Recent Notes".to_string(), "Search".to_string()]
+                vec![
+                    "Recent Notes".to_string(),
+                    "Search".to_string(),
+                    "Index Stats".to_string(),
+                ]
             }
         }
     }

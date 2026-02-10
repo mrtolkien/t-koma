@@ -36,6 +36,7 @@ impl TuiApp {
             ContentView::List => self.draw_list_content(frame, inner),
             ContentView::JobDetail { .. } => self.draw_job_detail(frame, inner),
             ContentView::KnowledgeDetail { .. } => self.draw_knowledge_detail(frame, inner),
+            ContentView::KnowledgeStats => self.draw_knowledge_stats(frame, inner),
             ContentView::GhostSessions { ghost_name, .. } => {
                 self.draw_ghost_sessions(frame, inner, ghost_name)
             }
@@ -61,6 +62,7 @@ impl TuiApp {
             ContentView::SessionMessages { ghost_name, .. } => {
                 format!("Messages: {}", ghost_name)
             }
+            ContentView::KnowledgeStats => "Index Stats".to_string(),
         }
     }
 
@@ -401,6 +403,68 @@ impl TuiApp {
         let p = Paragraph::new(Text::from(lines))
             .scroll((self.knowledge_view.scroll, 0))
             .wrap(Wrap { trim: false });
+        frame.render_widget(p, inner);
+    }
+
+    fn draw_knowledge_stats(&self, frame: &mut Frame, inner: Rect) {
+        let Some(stats) = &self.knowledge_view.stats else {
+            let p = Paragraph::new("Loading stats...")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(p, inner);
+            return;
+        };
+
+        let dim = Style::default().fg(Color::DarkGray);
+        let accent = Style::default().fg(Color::Cyan);
+        let header = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("  Embedding Model  ", dim),
+                Span::styled(&stats.embedding_model, accent),
+            ]),
+            Line::from(vec![
+                Span::styled("  Embedding Dim    ", dim),
+                Span::styled(stats.embedding_dim.to_string(), accent),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Notes            ", dim),
+                Span::styled(stats.total_notes.to_string(), accent),
+            ]),
+            Line::from(vec![
+                Span::styled("  Chunks           ", dim),
+                Span::styled(stats.total_chunks.to_string(), accent),
+            ]),
+            Line::from(vec![
+                Span::styled("  Embeddings       ", dim),
+                Span::styled(stats.total_embeddings.to_string(), accent),
+            ]),
+        ];
+
+        if !stats.recent_entries.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled("  Latest entries", header)));
+            lines.push(Line::from(""));
+            for entry in &stats.recent_entries {
+                lines.push(Line::from(vec![
+                    Span::styled("  [", dim),
+                    Span::styled(&entry.entry_type, Style::default().fg(Color::Magenta)),
+                    Span::styled("] ", dim),
+                    Span::raw(&entry.title),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("        ", dim),
+                    Span::styled(&entry.scope, Style::default().fg(Color::Blue)),
+                    Span::styled("  ", dim),
+                    Span::styled(&entry.updated_at, dim),
+                ]));
+            }
+        }
+
+        let p = Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false });
         frame.render_widget(p, inner);
     }
 
