@@ -119,7 +119,7 @@ impl Tool for ReferenceImportTool {
         })
     }
 
-    // Guidance is in the system prompt (reference_system.md)
+    // Guidance is in the main system prompt.
 
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String> {
         let input: ImportInput = serde_json::from_value(args).map_err(|e| e.to_string())?;

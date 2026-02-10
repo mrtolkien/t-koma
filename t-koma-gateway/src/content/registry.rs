@@ -10,18 +10,15 @@ use crate::content::{ContentError, ContentScope};
 use t_koma_core::GatewayMessage;
 
 static MESSAGES_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/messages");
-static PROMPTS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/prompts");
-static KNOWLEDGE_PROMPTS_DIR: Dir =
-    include_dir!("$CARGO_MANIFEST_DIR/../t-koma-knowledge/knowledge/prompts");
+static PROMPTS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/../prompts/system");
 
 /// Read an embedded prompt file by path (for `{{ include }}` resolution).
 ///
 /// Simple filenames (e.g. `"system-prompt.md"`) are looked up directly in the
-/// gateway prompts directory. Cross-crate paths (e.g.
-/// `"../../t-koma-knowledge/knowledge/prompts/foo.md"`) are normalized relative
-/// to the gateway crate root and dispatched to the appropriate embedded directory.
+/// root prompts/system directory. Relative include paths are normalized from the
+/// gateway prompt root (`prompts/system`).
 pub fn read_embedded_prompt(path: &str) -> Result<String, ContentError> {
-    // Fast path: simple filename lookup in gateway prompts
+    // Fast path: simple filename lookup in prompts/system
     if let Some(file) = PROMPTS_DIR.get_file(path) {
         return file
             .contents_utf8()
@@ -29,11 +26,11 @@ pub fn read_embedded_prompt(path: &str) -> Result<String, ContentError> {
             .ok_or_else(|| ContentError::Parse(format!("non-UTF-8 embedded file: {path}")));
     }
 
-    // Normalize relative path from the prompts/ directory to workspace-relative
+    // Normalize relative path from prompts/system to workspace-relative
     let normalized = normalize_include_path(path);
-    let knowledge_prefix = "t-koma-knowledge/knowledge/prompts/";
-    if let Some(relative) = normalized.strip_prefix(knowledge_prefix)
-        && let Some(file) = KNOWLEDGE_PROMPTS_DIR.get_file(relative)
+    let prompt_prefix = "prompts/system/";
+    if let Some(relative) = normalized.strip_prefix(prompt_prefix)
+        && let Some(file) = PROMPTS_DIR.get_file(relative)
     {
         return file
             .contents_utf8()
@@ -47,14 +44,12 @@ pub fn read_embedded_prompt(path: &str) -> Result<String, ContentError> {
     ))
 }
 
-/// Normalize an include path that is relative to `prompts/` within the gateway crate.
+/// Normalize an include path that is relative to `prompts/system`.
 ///
-/// Resolves `..` components so that cross-crate includes like
-/// `../../t-koma-knowledge/knowledge/prompts/foo.md` become
-/// `t-koma-knowledge/knowledge/prompts/foo.md` (workspace-relative).
+/// Resolves `..` components to a workspace-relative prompt path.
 fn normalize_include_path(path: &str) -> String {
-    // Start conceptually at t-koma-gateway/prompts/ (2 levels from workspace root)
-    let mut stack: Vec<&str> = vec!["t-koma-gateway", "prompts"];
+    // Start conceptually at prompts/system/
+    let mut stack: Vec<&str> = vec!["prompts", "system"];
     for component in path.split('/') {
         match component {
             ".." => {

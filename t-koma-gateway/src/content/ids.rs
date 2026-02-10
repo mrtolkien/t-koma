@@ -208,14 +208,14 @@ pub const UNKNOWN_GHOST_NAME_SERVER: &str = "unknown-ghost-name-server";
 /// content: messages/en/server.toml#unknown-operator-status
 pub const UNKNOWN_OPERATOR_STATUS: &str = "unknown-operator-status";
 
-/// content: prompts/bootstrap.md
+/// content: prompts/system/bootstrap.md
 pub const PROMPT_BOOTSTRAP: &str = "bootstrap";
 
-/// content: prompts/compaction-prompt.md
+/// content: prompts/system/compaction-prompt.md
 pub const PROMPT_COMPACTION: &str = "compaction-prompt";
 
-/// content: prompts/reflection-prompt.md
+/// content: prompts/system/reflection-prompt.md
 pub const PROMPT_REFLECTION: &str = "reflection-prompt";
 
-/// content: prompts/system-prompt.md
+/// content: prompts/system/system-prompt.md
 pub const PROMPT_SYSTEM_PROMPT: &str = "system-prompt";

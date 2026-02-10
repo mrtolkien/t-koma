@@ -33,7 +33,7 @@ const CODE_FILES: &[&str] = &[
 ];
 
 /// Documentation files to index as docs (boosted in search).
-const DOC_FILES: &[&str] = &["reference_system.md", "testing.md"];
+const DOC_FILES: &[&str] = &["system-prompt.md", "reflection-prompt.md"];
 
 /// Build a fully functional engine with real embeddings,
 /// a reference topic pointing to actual source files and documentation,
@@ -79,12 +79,7 @@ impl CodebaseFixture {
 
         // Copy real doc files into the topic directory
         for file_name in DOC_FILES {
-            let src = if *file_name == "reference_system.md" {
-                crate_root.join("knowledge/prompts/reference_system.md")
-            } else {
-                // testing.md lives in vibe/knowledge/
-                crate_root.join("../vibe/knowledge").join(file_name)
-            };
+            let src = crate_root.join("../prompts/system").join(file_name);
             let dst = topic_dir.join(file_name);
             tokio::fs::copy(&src, &dst).await.unwrap_or_else(|e| {
                 panic!(
@@ -128,7 +123,7 @@ paths = ["models.rs", "graph.rs", "parser.rs", "chunker.rs", "storage.rs", "sear
 type = "web"
 url = "https://example.com/docs"
 role = "docs"
-paths = ["reference_system.md", "testing.md"]
+paths = ["system-prompt.md", "reflection-prompt.md"]
 +++
 
 # t-koma-knowledge Source Code & Documentation

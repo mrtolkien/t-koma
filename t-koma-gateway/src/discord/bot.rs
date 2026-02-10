@@ -920,7 +920,7 @@ impl Bot {
         let bootstrap = match content::prompt_text(ids::PROMPT_BOOTSTRAP, None, &[]) {
             Ok(contents) => contents,
             Err(e) => {
-                error!("Failed to load prompts/bootstrap.md: {}", e);
+                error!("Failed to load prompts/system/bootstrap.md: {}", e);
                 let _ = send_gateway_embed(
                     ctx,
                     channel_id,

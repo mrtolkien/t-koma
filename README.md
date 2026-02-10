@@ -76,7 +76,7 @@ needed.
    implemented.
 3. Operators must be approved via the management CLI before interacting.
 4. GHOST creation happens in Discord. The bot prompts for a name, then boots
-   the GHOST with `t-koma-gateway/prompts/bootstrap.md` as the first user message.
+   the GHOST with `prompts/system/bootstrap.md` as the first user message.
 
 ### TUI Controls
 

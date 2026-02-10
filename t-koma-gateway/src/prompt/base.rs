@@ -1,6 +1,6 @@
 //! Base system prompt definitions for t-koma.
 //!
-//! This module loads prompt content from `t-koma-gateway/prompts/`.
+//! This module loads prompt content from `prompts/system/`.
 
 use crate::content::{self, ids};
 
@@ -10,10 +10,10 @@ use crate::content::{self, ids};
 /// Variables like `ghost_identity`, `ghost_diary`, `ghost_skills`, and
 /// `system_info` are injected per-session from ghost workspace content.
 ///
-/// content: prompts/system-prompt.md
+/// content: prompts/system/system-prompt.md
 pub fn full_system_prompt(vars: &[(&str, &str)]) -> String {
     content::prompt_text(ids::PROMPT_SYSTEM_PROMPT, None, vars)
-        .expect("Missing prompt: prompts/system-prompt.md")
+        .expect("Missing prompt: prompts/system/system-prompt.md")
 }
 
 #[cfg(test)]

@@ -77,4 +77,4 @@ body = "`GHOST STORAGE` init failed. ストレージ初期化エラー。"
 body = "`GHOST BOOT` failed. Retry later. ゴースト起動失敗。"
 
 [error-missing-bootstrap]
-body = "`BOOTSTRAP PROMPT` missing: t-koma-gateway/prompts/bootstrap.md"
+body = "`BOOTSTRAP PROMPT` missing: prompts/system/bootstrap.md"

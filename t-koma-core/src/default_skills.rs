@@ -22,11 +22,11 @@ pub struct DefaultSkill {
 pub const DEFAULT_SKILLS: &[DefaultSkill] = &[
     DefaultSkill {
         name: "skill-creator",
-        content: include_str!("../../default-prompts/skills/skill-creator/SKILL.md"),
+        content: include_str!("../../prompts/skills/skill-creator/SKILL.md"),
     },
     DefaultSkill {
         name: "reference-researcher",
-        content: include_str!("../../default-prompts/skills/reference-researcher/SKILL.md"),
+        content: include_str!("../../prompts/skills/reference-researcher/SKILL.md"),
     },
 ];
 

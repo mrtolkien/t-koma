@@ -14,7 +14,7 @@ You should ALWAYS EDIT THIS FILE if:
 - You make assumptions about a library that we use that turns out to be wrong
 
 If you implement a complex feature that will need to be referenced later, save
-important information in vibe/knowledge.
+important information in this file.
 
 ## Frequent mistakes
 
@@ -117,7 +117,7 @@ Make extensive use of MCPs available to you:
 - Files that describe or support a feature should live near the feature's crate
   or module.
   - For example knowledge-system prompts live inside
-    `t-koma-knowledge/knowledge/prompts`.
+    `prompts/system`.
 
 ### Project Layout (Short)
 
@@ -299,9 +299,8 @@ scheduler state owned by `AppState`.
 - AI agents must NEVER accept or update snapshots.
 - Live tests (`--features live-tests`) are human-only.
 
-Full examples live in:
-
-- `vibe/knowledge/testing.md`
+Follow existing tests in `t-koma-knowledge/tests/` and crate-level test modules
+as canonical examples.
 
 ## Code Style (Short)
 
@@ -327,7 +326,7 @@ Full examples live in:
 - **Auto-save**: Results are automatically saved to the `_web-cache` reference
   topic via `auto_save_web_result()` in `ToolContext`. The ghost does NOT need
   to manually call `reference_write` — reflection curates the cache later.
-- Reference: `vibe/knowledge/web_tools.md`.
+- Keep web tool guidance in this file and prompt/tool docs close to code.
 
 ## Knowledge & Memory Tools
 
@@ -379,7 +378,7 @@ Notes have two classification axes:
   `event`, `place`, `project`, `organization`, `procedure`, `media`, `quote`.
   Optional classification for notes — omit when no archetype fits. Filterable
   via `knowledge_search`. Templates in
-  `default-prompts/skills/note-writer/archetypes/`.
+  `prompts/skills/note-writer/archetypes/`.
 
 ### Tools
 
@@ -467,7 +466,7 @@ Skills are discovered from three locations (highest priority first):
 
 1. Ghost-local: `$WORKSPACE/skills/{name}/SKILL.md`
 2. User config: `~/.config/t-koma/skills/{name}/SKILL.md`
-3. Project defaults: `./default-prompts/skills/{name}/SKILL.md`
+3. Project defaults: `./prompts/skills/{name}/SKILL.md`
 
 Available skills are listed in the system prompt under "Available Skills".
 Ghosts can create their own skills by adding `SKILL.md` files with YAML
@@ -520,20 +519,19 @@ On approval, Phase 2 re-executes with `has_approval()` returning true. See
   `cargo test -p t-koma-knowledge --features slow-tests`
 - **Run slow-tests after any change to the knowledge system.** Snapshot
   mismatches are expected — the user will validate.
-- Prompts: `t-koma-knowledge/knowledge/prompts/knowledge_system.md`
 
 ## Gateway Content (Brief)
 
 - Messages: add to `t-koma-gateway/messages/en/*.toml` as `[message-id]` with
   `body` and optional `vars`/`title`/`kind`/`actions`. Use `{{var}}`.
-- Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
+- Prompts: add `prompts/system/<id>.md` with TOML front matter (`+++`)
   and a `# loaded:` comment to know where they are used.
 - Keep the operator chat system prompt in a single file:
-  `prompts/system-prompt.md` (no prompt-fragment includes).
+  `prompts/system/system-prompt.md` (no prompt-fragment includes).
 - Keep the reflection system prompt in a single file:
-  `prompts/reflection-prompt.md` (self-contained; includes note-writing guidance).
+  `prompts/system/reflection-prompt.md` (self-contained; includes note-writing guidance).
 - Session context variables (`{{ ghost_identity }}`, `{{ ghost_diary }}`, etc.)
-  are rendered directly in `prompts/system-prompt.md`. Template vars must be
+  are rendered directly in `prompts/system/system-prompt.md`. Template vars must be
   declared in front matter `vars = [...]`.
 - Update `t-koma-gateway/src/content/ids.rs` after changes.
 - Debug logging: set `dump_queries = true` in `[logging]` config to write raw
@@ -599,7 +597,7 @@ Wiring in `session.rs`:
 - `apply_masking_if_needed()`: lightweight Phase 1 only, used mid-tool-loop
 - Original `Some(50)` message limit is removed — context budget is token-based
 
-Prompt: `prompts/compaction-prompt.md` (summarization instructions for Phase 2).
+Prompt: `prompts/system/compaction-prompt.md` (summarization instructions for Phase 2).
 
 ### Usage Logging
 
@@ -640,21 +638,9 @@ idle_minutes = 4           # session idle time before reflection triggers
 
 ## Common Tasks (Pointer Only)
 
-Detailed how-tos are in `vibe/knowledge/`:
+Use crate-local docs, prompts, and tests as the source of truth:
 
-- Adding providers: `vibe/knowledge/providers.md`
-- Adding tools: `vibe/knowledge/tools.md`
-- Testing patterns: `vibe/knowledge/testing.md`
-- Skills system: `vibe/knowledge/skills.md`
-- TUI cyberdeck notes: `vibe/knowledge/tui_cyberdeck.md`
-- Anthropic/OpenRouter specifics: `vibe/knowledge/anthropic_claude_api.md`,
-  `vibe/knowledge/openrouter.md`
-- sqlite-vec notes: `vibe/knowledge/sqlite-vec.md`
-- OpenAI-compatible provider: `vibe/knowledge/openai_compatible_provider.md`
-- Knowledge system: `t-koma-knowledge/knowledge/prompts/knowledge_system.md`
-- Operator access levels: `vibe/knowledge/operator_access_levels.md`
-
-ALWAYS read relevant files in knowledge.md before implementing a feature. If you
-see outdated information, update it. If you learn something new during the task
-that will be useful for future tasks, create a new knowledge file and list it
-here.
+- Gateway prompts: `prompts/system/`
+- Default skills: `prompts/skills/`
+- Knowledge tests: `t-koma-knowledge/tests/`
+- Provider/tool implementation references in their owning crates

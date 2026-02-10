@@ -83,7 +83,7 @@ impl Skill {
     /// use std::path::Path;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let skill = Skill::from_file(Path::new("default-prompts/skills/my-skill/SKILL.md"))?;
+    /// let skill = Skill::from_file(Path::new("prompts/skills/my-skill/SKILL.md"))?;
     /// println!("Loaded skill: {}", skill.name);
     /// # Ok(())
     /// # }

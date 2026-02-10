@@ -16,7 +16,7 @@ struct PromptFrontMatter {
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let messages_dir = manifest_dir.join("messages");
-    let prompts_dir = manifest_dir.join("prompts");
+    let prompts_dir = manifest_dir.join("../prompts/system");
 
     println!("cargo:rerun-if-changed={}", messages_dir.display());
     println!("cargo:rerun-if-changed={}", prompts_dir.display());
