@@ -408,8 +408,7 @@ impl TuiApp {
 
     fn draw_knowledge_stats(&self, frame: &mut Frame, inner: Rect) {
         let Some(stats) = &self.knowledge_view.stats else {
-            let p = Paragraph::new("Loading stats...")
-                .style(Style::default().fg(Color::DarkGray));
+            let p = Paragraph::new("Loading stats...").style(Style::default().fg(Color::DarkGray));
             frame.render_widget(p, inner);
             return;
         };

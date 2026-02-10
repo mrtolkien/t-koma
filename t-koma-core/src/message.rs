@@ -371,9 +371,7 @@ pub enum WsResponse {
     /// Current scheduler state
     SchedulerState { entries: Vec<SchedulerEntryInfo> },
     /// Knowledge index statistics
-    KnowledgeStats {
-        stats: KnowledgeIndexStats,
-    },
+    KnowledgeStats { stats: KnowledgeIndexStats },
     /// Pong response to ping
     Pong,
 }

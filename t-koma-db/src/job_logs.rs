@@ -1,8 +1,12 @@
 //! Job log storage for background tasks (heartbeat, reflection).
 //!
-//! Instead of writing every message to the session `messages` table,
-//! background jobs collect their transcript in memory and persist a
-//! single `job_logs` row when finished.
+//! Job lifecycle:
+//! 1. `insert_started()` — INSERT at job start (TUI sees "in progress")
+//! 2. `update_todos()` — UPDATE `todo_list` column mid-run (reflection observability)
+//! 3. `finish()` — UPDATE `finished_at`, `status`, `transcript`, `handoff_note`
+//!
+//! The legacy `insert()` method persists a fully-populated row in one shot
+//! (used by heartbeat which is short-lived and doesn't need mid-run visibility).
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -50,7 +54,39 @@ pub struct TranscriptEntry {
     pub model: Option<String>,
 }
 
-/// A completed job log row.
+/// Status of a single TODO item in a reflection job.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Done,
+    Skipped,
+}
+
+impl std::fmt::Display for TodoStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TodoStatus::Pending => write!(f, "pending"),
+            TodoStatus::InProgress => write!(f, "in_progress"),
+            TodoStatus::Done => write!(f, "done"),
+            TodoStatus::Skipped => write!(f, "skipped"),
+        }
+    }
+}
+
+/// A single item in a reflection job's TODO list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub status: TodoStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// A job log row.
 #[derive(Debug, Clone)]
 pub struct JobLog {
     pub id: String,
@@ -61,6 +97,8 @@ pub struct JobLog {
     pub finished_at: Option<i64>,
     pub status: Option<String>,
     pub transcript: Vec<TranscriptEntry>,
+    pub todo_list: Vec<TodoItem>,
+    pub handoff_note: Option<String>,
 }
 
 impl JobLog {
@@ -75,6 +113,8 @@ impl JobLog {
             finished_at: None,
             status: None,
             transcript: Vec::new(),
+            todo_list: Vec::new(),
+            handoff_note: None,
         }
     }
 
@@ -100,20 +140,32 @@ pub struct JobLogSummary {
     pub status: Option<String>,
     /// Last transcript entry's first text block (extracted via SQLite JSON1).
     pub last_message: Option<String>,
+    pub todo_list: Vec<TodoItem>,
+    pub handoff_note: Option<String>,
 }
 
 /// Repository for job_logs table operations.
 pub struct JobLogRepository;
 
 impl JobLogRepository {
-    /// Insert a completed job log.
+    /// Insert a fully-populated job log in one shot.
+    ///
+    /// Used by short-lived jobs (heartbeat) that don't need mid-run observability.
     pub async fn insert(pool: &SqlitePool, log: &JobLog) -> DbResult<()> {
         let transcript_json = serde_json::to_string(&log.transcript)
             .map_err(|e| DbError::Serialization(e.to_string()))?;
+        let todo_json = if log.todo_list.is_empty() {
+            None
+        } else {
+            Some(
+                serde_json::to_string(&log.todo_list)
+                    .map_err(|e| DbError::Serialization(e.to_string()))?,
+            )
+        };
 
         sqlx::query(
-            "INSERT INTO job_logs (id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO job_logs (id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript, todo_list, handoff_note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&log.id)
         .bind(&log.ghost_id)
@@ -123,6 +175,68 @@ impl JobLogRepository {
         .bind(log.finished_at)
         .bind(&log.status)
         .bind(&transcript_json)
+        .bind(&todo_json)
+        .bind(&log.handoff_note)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// INSERT a job log row at job start with minimal data.
+    ///
+    /// The row is visible immediately (TUI sees "in progress"). Call
+    /// `update_todos()` mid-run and `finish()` when done.
+    pub async fn insert_started(pool: &SqlitePool, log: &JobLog) -> DbResult<()> {
+        sqlx::query(
+            "INSERT INTO job_logs (id, ghost_id, job_kind, session_id, started_at, transcript)
+             VALUES (?, ?, ?, ?, ?, '[]')",
+        )
+        .bind(&log.id)
+        .bind(&log.ghost_id)
+        .bind(log.job_kind.to_string())
+        .bind(&log.session_id)
+        .bind(log.started_at)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// UPDATE the `todo_list` column mid-run for observability.
+    pub async fn update_todos(pool: &SqlitePool, id: &str, todos: &[TodoItem]) -> DbResult<()> {
+        let json =
+            serde_json::to_string(todos).map_err(|e| DbError::Serialization(e.to_string()))?;
+
+        sqlx::query("UPDATE job_logs SET todo_list = ? WHERE id = ?")
+            .bind(&json)
+            .bind(id)
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
+    /// UPDATE a started job log with final status, transcript, and handoff note.
+    pub async fn finish(
+        pool: &SqlitePool,
+        id: &str,
+        status: &str,
+        transcript: &[TranscriptEntry],
+        handoff_note: Option<&str>,
+    ) -> DbResult<()> {
+        let transcript_json =
+            serde_json::to_string(transcript).map_err(|e| DbError::Serialization(e.to_string()))?;
+        let finished_at = Utc::now().timestamp();
+
+        sqlx::query(
+            "UPDATE job_logs SET finished_at = ?, status = ?, transcript = ?, handoff_note = ? WHERE id = ?",
+        )
+        .bind(finished_at)
+        .bind(status)
+        .bind(&transcript_json)
+        .bind(handoff_note)
+        .bind(id)
         .execute(pool)
         .await?;
 
@@ -132,7 +246,7 @@ impl JobLogRepository {
     /// Get a single job log by ID (with full transcript).
     pub async fn get(pool: &SqlitePool, id: &str) -> DbResult<Option<JobLog>> {
         let row = sqlx::query_as::<_, JobLogRow>(
-            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript
+            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript, todo_list, handoff_note
              FROM job_logs
              WHERE id = ?",
         )
@@ -147,7 +261,8 @@ impl JobLogRepository {
     pub async fn list_recent(pool: &SqlitePool, limit: i64) -> DbResult<Vec<JobLogSummary>> {
         let rows = sqlx::query_as::<_, JobLogSummaryRow>(
             "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status,
-                    json_extract(transcript, '$[#-1].content[0].text') as last_message
+                    json_extract(transcript, '$[#-1].content[0].text') as last_message,
+                    todo_list, handoff_note
              FROM job_logs
              ORDER BY started_at DESC
              LIMIT ?",
@@ -169,7 +284,8 @@ impl JobLogRepository {
     ) -> DbResult<Vec<JobLogSummary>> {
         let rows = sqlx::query_as::<_, JobLogSummaryRow>(
             "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status,
-                    json_extract(transcript, '$[#-1].content[0].text') as last_message
+                    json_extract(transcript, '$[#-1].content[0].text') as last_message,
+                    todo_list, handoff_note
              FROM job_logs
              WHERE ghost_id = ?
              ORDER BY started_at DESC
@@ -197,7 +313,7 @@ impl JobLogRepository {
         since_ts: i64,
     ) -> DbResult<Option<JobLog>> {
         let row = sqlx::query_as::<_, JobLogRow>(
-            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript
+            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript, todo_list, handoff_note
              FROM job_logs
              WHERE ghost_id = ? AND session_id = ? AND job_kind = ? AND started_at >= ?
                AND status IS NOT NULL AND status NOT LIKE 'error:%'
@@ -222,7 +338,7 @@ impl JobLogRepository {
         kind: JobKind,
     ) -> DbResult<Option<JobLog>> {
         let row = sqlx::query_as::<_, JobLogRow>(
-            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript
+            "SELECT id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript, todo_list, handoff_note
              FROM job_logs
              WHERE ghost_id = ? AND session_id = ? AND job_kind = ?
                AND status IS NOT NULL AND status NOT LIKE 'error:%'
@@ -249,6 +365,8 @@ struct JobLogRow {
     finished_at: Option<i64>,
     status: Option<String>,
     transcript: String,
+    todo_list: Option<String>,
+    handoff_note: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -261,6 +379,13 @@ struct JobLogSummaryRow {
     finished_at: Option<i64>,
     status: Option<String>,
     last_message: Option<String>,
+    todo_list: Option<String>,
+    handoff_note: Option<String>,
+}
+
+fn parse_todo_list(json: Option<&str>) -> Vec<TodoItem> {
+    json.and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default()
 }
 
 impl TryFrom<JobLogSummaryRow> for JobLogSummary {
@@ -268,6 +393,7 @@ impl TryFrom<JobLogSummaryRow> for JobLogSummary {
 
     fn try_from(row: JobLogSummaryRow) -> Result<Self, Self::Error> {
         let job_kind: JobKind = row.job_kind.parse()?;
+        let todo_list = parse_todo_list(row.todo_list.as_deref());
         Ok(JobLogSummary {
             id: row.id,
             ghost_id: row.ghost_id,
@@ -277,6 +403,8 @@ impl TryFrom<JobLogSummaryRow> for JobLogSummary {
             finished_at: row.finished_at,
             status: row.status,
             last_message: row.last_message,
+            todo_list,
+            handoff_note: row.handoff_note,
         })
     }
 }
@@ -288,6 +416,7 @@ impl TryFrom<JobLogRow> for JobLog {
         let job_kind: JobKind = row.job_kind.parse()?;
         let transcript: Vec<TranscriptEntry> = serde_json::from_str(&row.transcript)
             .map_err(|e| DbError::Serialization(e.to_string()))?;
+        let todo_list = parse_todo_list(row.todo_list.as_deref());
 
         Ok(JobLog {
             id: row.id,
@@ -298,6 +427,8 @@ impl TryFrom<JobLogRow> for JobLog {
             finished_at: row.finished_at,
             status: row.status,
             transcript,
+            todo_list,
+            handoff_note: row.handoff_note,
         })
     }
 }
@@ -406,6 +537,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_insert_started_and_finish() {
+        let db = create_test_pool().await.unwrap();
+        let pool = db.pool();
+
+        let operator = OperatorRepository::create_new(
+            pool,
+            "TestOp",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+        let ghost = GhostRepository::create(pool, &operator.id, "TestGhost")
+            .await
+            .unwrap();
+        let session = SessionRepository::create(pool, &ghost.id, &operator.id)
+            .await
+            .unwrap();
+
+        let log = JobLog::start(&ghost.id, JobKind::Reflection, &session.id);
+        let log_id = log.id.clone();
+        JobLogRepository::insert_started(pool, &log).await.unwrap();
+
+        // Visible immediately with no status
+        let fetched = JobLogRepository::get(pool, &log_id).await.unwrap().unwrap();
+        assert!(fetched.status.is_none());
+        assert!(fetched.finished_at.is_none());
+
+        // Update todos mid-run
+        let todos = vec![TodoItem {
+            title: "Review conversation".to_string(),
+            description: None,
+            status: TodoStatus::InProgress,
+            note: None,
+        }];
+        JobLogRepository::update_todos(pool, &log_id, &todos)
+            .await
+            .unwrap();
+
+        let fetched = JobLogRepository::get(pool, &log_id).await.unwrap().unwrap();
+        assert_eq!(fetched.todo_list.len(), 1);
+        assert_eq!(fetched.todo_list[0].status, TodoStatus::InProgress);
+
+        // Finish with transcript and handoff
+        let transcript = vec![TranscriptEntry {
+            role: MessageRole::Ghost,
+            content: vec![ContentBlock::Text {
+                text: "done".to_string(),
+            }],
+            model: None,
+        }];
+        JobLogRepository::finish(
+            pool,
+            &log_id,
+            "ok",
+            &transcript,
+            Some("Next: curate references"),
+        )
+        .await
+        .unwrap();
+
+        let fetched = JobLogRepository::get(pool, &log_id).await.unwrap().unwrap();
+        assert_eq!(fetched.status.as_deref(), Some("ok"));
+        assert!(fetched.finished_at.is_some());
+        assert_eq!(fetched.transcript.len(), 1);
+        assert_eq!(
+            fetched.handoff_note.as_deref(),
+            Some("Next: curate references")
+        );
+    }
+
+    #[tokio::test]
     async fn test_transcript_json_round_trip() {
         let entries = vec![
             TranscriptEntry {
@@ -444,5 +647,29 @@ mod tests {
         let parsed: Vec<TranscriptEntry> = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[1].content.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_todo_item_round_trip() {
+        let items = vec![
+            TodoItem {
+                title: "Save reference".to_string(),
+                description: Some("From web_fetch result".to_string()),
+                status: TodoStatus::Done,
+                note: Some("Saved to dioxus topic".to_string()),
+            },
+            TodoItem {
+                title: "Update diary".to_string(),
+                description: None,
+                status: TodoStatus::Pending,
+                note: None,
+            },
+        ];
+
+        let json = serde_json::to_string(&items).unwrap();
+        let parsed: Vec<TodoItem> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].status, TodoStatus::Done);
+        assert_eq!(parsed[1].status, TodoStatus::Pending);
     }
 }
