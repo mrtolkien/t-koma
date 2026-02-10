@@ -119,8 +119,8 @@ fn add_or_update_model(
     settings: &mut Settings,
     suggested_alias: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let existing_alias = suggested_alias
-        .and_then(|alias| settings.models.get(alias).map(|_| alias.to_string()));
+    let existing_alias =
+        suggested_alias.and_then(|alias| settings.models.get(alias).map(|_| alias.to_string()));
     let existing = existing_alias
         .as_ref()
         .and_then(|alias| settings.models.get(alias).cloned());
@@ -134,10 +134,7 @@ fn add_or_update_model(
     }
 
     let provider = prompt_provider(existing.as_ref().map(|e| e.provider))?;
-    let model = prompt_text(
-        "Model ID",
-        existing.as_ref().map(|e| e.model.as_str()),
-    )?;
+    let model = prompt_text("Model ID", existing.as_ref().map(|e| e.model.as_str()))?;
     let base_url = match provider {
         ProviderType::OpenAiCompatible => Some(prompt_text(
             "Base URL",
@@ -223,7 +220,9 @@ fn prompt_alias(suggested: Option<&str>) -> Result<String, Box<dyn std::error::E
     }
 }
 
-fn prompt_provider(default: Option<ProviderType>) -> Result<ProviderType, Box<dyn std::error::Error>> {
+fn prompt_provider(
+    default: Option<ProviderType>,
+) -> Result<ProviderType, Box<dyn std::error::Error>> {
     let providers = [
         ProviderType::Anthropic,
         ProviderType::OpenRouter,
@@ -267,10 +266,7 @@ fn prompt_provider(default: Option<ProviderType>) -> Result<ProviderType, Box<dy
     }
 }
 
-fn prompt_text(
-    label: &str,
-    default: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error>> {
+fn prompt_text(label: &str, default: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
     loop {
         match default {
             Some(value) => print!("{} [default: {}]: ", label, value),
@@ -380,7 +376,10 @@ fn prompt_provider_picker(
                 }
             }
 
-            if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
+            if let Event::Key(KeyEvent {
+                code, modifiers, ..
+            }) = event::read()?
+            {
                 match code {
                     KeyCode::Up => {
                         index = if index == 0 {
@@ -394,7 +393,7 @@ fn prompt_provider_picker(
                     }
                     KeyCode::Enter => return Ok(providers[index]),
                     KeyCode::Char('c') if modifiers == KeyModifiers::CONTROL => {
-                        return Err("Provider selection cancelled".into())
+                        return Err("Provider selection cancelled".into());
                     }
                     KeyCode::Char(c) => {
                         query.push(c);

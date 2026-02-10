@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
-    Frame,
 };
 
 use t_koma_core::ChatMessage;
@@ -30,9 +30,9 @@ impl Ui {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(3),     // Chat history
-                Constraint::Length(3),  // Input area
-                Constraint::Length(1),  // Status bar
+                Constraint::Min(3),    // Chat history
+                Constraint::Length(3), // Input area
+                Constraint::Length(1), // Status bar
             ])
             .split(frame.area());
 
@@ -47,7 +47,12 @@ impl Ui {
     }
 
     /// Draw the chat history
-    fn draw_chat_history(&mut self, frame: &mut Frame, area: ratatui::layout::Rect, messages: &[ChatMessage]) {
+    fn draw_chat_history(
+        &mut self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        messages: &[ChatMessage],
+    ) {
         let block = Block::default()
             .title("Chat History")
             .borders(Borders::ALL)
@@ -137,11 +142,7 @@ impl Ui {
             Span::styled("● Disconnected", Style::default().fg(Color::Red))
         };
 
-        let status_text = vec![
-            connection_status,
-            Span::raw(" | "),
-            Span::raw(status),
-        ];
+        let status_text = vec![connection_status, Span::raw(" | "), Span::raw(status)];
 
         let paragraph = Paragraph::new(Line::from(status_text))
             .alignment(Alignment::Left)
