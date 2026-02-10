@@ -1,7 +1,7 @@
 +++
 id = "reflection-prompt"
 role = "system"
-vars = ["recent_messages", "previous_handoff"]
+vars = ["recent_messages", "previous_handoff", "diary_today"]
 # loaded: reflection.rs — build_reflection_prompt() renders with filtered transcript
 +++
 
@@ -103,6 +103,10 @@ Start with private scope. Promote to shared when validated and broadly useful.
 
 {{ previous_handoff }}
 
+### Today's Diary
+
+{{ diary_today }}
+
 ### Conversation Transcript (filtered)
 
 The transcript shows text from both roles and concise tool-use summaries. Tool
@@ -123,6 +127,9 @@ Start by creating a TODO list with `reflection_todo`:
 
 ### 2. Execute (update your TODO as you go)
 
+Use `reflection_todo(action="batch_update", updates=[...])` to mark multiple
+items done/skipped at once instead of calling `update` repeatedly.
+
 For each item in your plan:
 
 a. **Search first** — use `knowledge_search` to check if a note already exists.
@@ -131,13 +138,28 @@ Update existing notes rather than creating duplicates.
 b. **Create or update notes** — use `note_write` for new concepts, decisions, or
 learnings. Use `update` to add information to existing notes.
 
-c. **Curate web cache** — web results from the conversation are auto-saved to
-the `_web-cache` reference topic. Search with `knowledge_search` to find them.
-For useful items:
+c. **Curate web cache (mandatory — empty it)** — Web fetch results from the
+conversation are auto-saved to `_web-cache`. You MUST handle every item:
 
-- Use `reference_write` to copy content to a proper topic
-- Use `reference_manage` to delete the `_web-cache` original
-- Delete useless items directly with `reference_manage`
+   1. Search: `knowledge_search(query="web", categories=["references"],
+      topic="_web-cache")` to find all cached items.
+   2. Read each item with `knowledge_get` to assess content quality.
+   3. For each item, choose ONE action:
+      - **Move useful content**: Read full content with `knowledge_get` →
+        save verbatim to a proper topic with `reference_write` → delete
+        the `_web-cache` original with `reference_manage(action="delete")`
+      - **Delete garbage**: 403 pages, empty content, irrelevant material →
+        `reference_manage(action="delete")` directly
+   4. When finished, `_web-cache` should be empty.
+
+> **References preserve source content verbatim.** Your summaries and
+> interpretations belong in notes. When moving content from `_web-cache` to a
+> reference topic, pass the original content from `knowledge_get` as-is via
+> the `content` field of `reference_write`.
+
+   After creating a new topic, set its description with:
+   `reference_manage(action="update", topic="...", body="Description of what
+   this topic covers.")`
 
 d. **Update diary** — use `diary_write` for notable events, milestones, or
 decisions.
@@ -153,6 +175,8 @@ reflection run. Summarize:
 
 - Notes created/updated (with titles)
 - References curated (topics touched)
+- Web-cache status: confirm `_web-cache` is empty, or list remaining items
+  with reasons
 - Unclear information from the user that will need clarification
 - Items deferred or blocked
 - Suggestions for next run
@@ -163,3 +187,6 @@ reflection run. Summarize:
 - Use `[[Title]]` wiki links to connect related concepts
 - Tags: hierarchical, lowercase (e.g. `rust/async`, `people/friends`)
 - Trust scores: start at 5, raise with evidence, lower for speculation
+- References = source preservation. Notes = your interpretation. Never rewrite
+  source material in references.
+- Empty the `_web-cache` completely — any remaining item is a mistake.

@@ -70,7 +70,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch a web page as text or markdown. Results are automatically saved for reference."
+        "Fetch a web page as text or markdown. Successful fetches are automatically saved for later curation."
     }
 
     fn input_schema(&self) -> Value {
@@ -117,11 +117,13 @@ impl Tool for WebFetchTool {
 
         let response = service.fetch(request).await.map_err(Self::format_error)?;
 
-        // Auto-save fetched content to _web-cache reference topic
-        let filename = url_to_cache_filename(&url, "md");
-        context
-            .auto_save_web_result(&url, &response.content, &filename)
-            .await;
+        // Auto-save fetched content to _web-cache reference topic (skip non-2xx)
+        if (200..300).contains(&response.status) {
+            let filename = url_to_cache_filename(&url, "md");
+            context
+                .auto_save_web_result(&url, &response.content, &filename)
+                .await;
+        }
 
         let serialized = serde_json::to_string(&response).map_err(|e| e.to_string())?;
         let ref_id = context.cache_tool_result("web_fetch", &serialized);

@@ -19,12 +19,20 @@ struct ReflectionTodoInput {
     note: Option<String>,
     title: Option<String>,
     description: Option<String>,
+    updates: Option<Vec<BatchUpdateItem>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct TodoPlanItem {
     title: String,
     description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchUpdateItem {
+    index: usize,
+    status: String,
+    note: Option<String>,
 }
 
 pub struct ReflectionTodoTool;
@@ -87,8 +95,8 @@ impl Tool for ReflectionTodoTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["plan", "update", "add"],
-                    "description": "plan: create/replace the full TODO list. update: change status of an item. add: append a new item."
+                    "enum": ["plan", "update", "add", "batch_update"],
+                    "description": "plan: create/replace the full TODO list. update: change status of one item. batch_update: change status of multiple items at once. add: append a new item."
                 },
                 "items": {
                     "type": "array",
@@ -123,6 +131,19 @@ impl Tool for ReflectionTodoTool {
                 "description": {
                     "type": "string",
                     "description": "Optional description for 'add' action."
+                },
+                "updates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {"type": "integer", "minimum": 1},
+                            "status": {"type": "string", "enum": ["pending", "in_progress", "done", "skipped"]},
+                            "note": {"type": "string"}
+                        },
+                        "required": ["index", "status"]
+                    },
+                    "description": "Array of updates for 'batch_update' action."
                 }
             },
             "required": ["action"]
@@ -191,8 +212,32 @@ impl Tool for ReflectionTodoTool {
                 handle.persist_todos().await?;
                 Ok(Self::format_todo_list(&handle.todos))
             }
+            "batch_update" => {
+                let updates = input
+                    .updates
+                    .ok_or("'updates' is required for batch_update action")?;
+
+                for update in &updates {
+                    if update.index == 0 || update.index > handle.todos.len() {
+                        return Err(format!(
+                            "Index {} out of range (1-{})",
+                            update.index,
+                            handle.todos.len()
+                        ));
+                    }
+                    let status = Self::parse_status(&update.status)?;
+                    let item = &mut handle.todos[update.index - 1];
+                    item.status = status;
+                    if let Some(note) = &update.note {
+                        item.note = Some(note.clone());
+                    }
+                }
+
+                handle.persist_todos().await?;
+                Ok(Self::format_todo_list(&handle.todos))
+            }
             other => Err(format!(
-                "Unknown action '{}'. Use 'plan', 'update', or 'add'.",
+                "Unknown action '{}'. Use 'plan', 'update', 'add', or 'batch_update'.",
                 other
             )),
         }

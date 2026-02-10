@@ -323,9 +323,11 @@ as canonical examples.
 - `web_search` uses the Brave Search API and requires `BRAVE_API_KEY`.
 - `web_fetch` performs HTTP fetch + HTML-to-text conversion (no JavaScript).
 - Rate limits for Brave are enforced at ~1 query/second.
-- **Auto-save**: Results are automatically saved to the `_web-cache` reference
-  topic via `auto_save_web_result()` in `ToolContext`. The ghost does NOT need
-  to manually call `reference_write` — reflection curates the cache later.
+- **Auto-save**: `web_fetch` results (2xx only) and `web_search` results are
+  automatically saved to the `_web-cache` reference topic via
+  `auto_save_web_result()` in `ToolContext`. Search results are saved as JSON.
+  The ghost does NOT need to manually call `reference_write` — reflection
+  curates the cache later.
 - Keep web tool guidance in this file and prompt/tool docs close to code.
 
 ## Knowledge & Memory Tools
@@ -385,8 +387,9 @@ Notes have two classification axes:
 Tools are split across two `ToolManager` constructors — ghost sessions get
 conversation tools only, reflection gets knowledge-writing tools only.
 
-- `ToolManager::new_chat(skill_paths)` — interactive ghost sessions (~13 tools):
-  shell (8), web (2), knowledge query (2), load_skill.
+- `ToolManager::new_chat(skill_paths)` — interactive ghost sessions (14 tools):
+  shell + filesystem (8), web (2), knowledge query (2), reference_import,
+  load_skill.
 - `ToolManager::new_reflection(skill_paths)` — autonomous reflection jobs (~13
   tools): knowledge query (2), note_write, reference_write, reference_manage,
   identity_edit, diary_write, reflection_todo, web (2), read_file, find_files,
@@ -417,16 +420,17 @@ Reflection tools (knowledge writing):
 - `identity_edit`: Read/update ghost identity files (BOOT.md, SOUL.md, USER.md).
 - `diary_write`: Create or append to diary entries (YYYY-MM-DD.md format).
 - `reflection_todo`: Structured TODO list for reflection planning. Actions:
-  `plan` (create list), `update` (change item status), `add` (append item).
-  Persisted to `job_logs.todo_list` for TUI observability.
+  `plan` (create list), `update` (change item status), `batch_update` (change
+  multiple item statuses at once), `add` (append item). Persisted to
+  `job_logs.todo_list` for TUI observability.
 
 Other (both):
 
 - `load_skill`: Load a skill for detailed guidance on a workflow. Searches
   ghost-local skills first (`$WORKSPACE/skills/`), then user config, then
   project defaults.
-- `reference_import`: Bulk import tool (module kept but not registered in either
-  constructor — reserved for future CLI use).
+- `reference_import`: Bulk import tool for documentation sites, code repos, and
+  web pages. Registered in `new_chat()` — requires operator approval (two-phase).
 
 Administrative operations (refresh) are CLI/TUI-only — not ghost tools.
 
@@ -446,12 +450,14 @@ blocks are stripped entirely — reflection uses `knowledge_search`/`knowledge_g
 to access saved content instead.
 
 The reflection agent receives the previous run's **handoff note** (stored in
-`job_logs.handoff_note`) as context. Its final message becomes the handoff note
-for the next run, creating continuity across reflection sessions.
+`job_logs.handoff_note`) and **today's diary** (read from the ghost workspace)
+as context. Its final message becomes the handoff note for the next run,
+creating continuity across reflection sessions.
 
-Auto-save: web tool results (`web_fetch`, `web_search`) are automatically saved
-to the `_web-cache` reference topic during the ghost session. Reflection curates
-these into proper reference topics or deletes them.
+Auto-save: `web_fetch` results (2xx only) and `web_search` results are
+automatically saved to the `_web-cache` reference topic during the ghost
+session. Search results are saved as JSON. Reflection curates these into
+proper reference topics or deletes them.
 
 Job lifecycle: the job log is INSERT-ed at start (TUI sees "in progress"), TODO
 list updates are persisted mid-run, and finish writes status + transcript +

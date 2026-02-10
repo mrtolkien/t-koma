@@ -7,9 +7,10 @@ use super::{
     diary_write::DiaryWriteTool, file_edit::FileEditTool, find_files::FindFilesTool,
     identity_edit::IdentityEditTool, knowledge_get::KnowledgeGetTool,
     knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool, load_skill::LoadSkillTool,
-    note_write::NoteWriteTool, read_file::ReadFileTool, reference_manage::ReferenceManageTool,
-    reference_write::ReferenceWriteTool, reflection_todo::ReflectionTodoTool, search::SearchTool,
-    shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
+    note_write::NoteWriteTool, read_file::ReadFileTool, reference_import::ReferenceImportTool,
+    reference_manage::ReferenceManageTool, reference_write::ReferenceWriteTool,
+    reflection_todo::ReflectionTodoTool, search::SearchTool, shell::ShellTool,
+    web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
 /// Central manager for AI tools.
@@ -44,6 +45,7 @@ impl ToolManager {
             Box::new(WebFetchTool),
             Box::new(KnowledgeSearchTool),
             Box::new(KnowledgeGetTool),
+            Box::new(ReferenceImportTool),
             Box::new(LoadSkillTool::new(skill_paths)),
         ];
         Self { tools }
@@ -109,6 +111,10 @@ mod tests {
         assert!(names.contains(&"run_shell_command"));
         assert!(names.contains(&"knowledge_search"));
         assert!(names.contains(&"web_fetch"));
+        assert!(
+            names.contains(&"reference_import"),
+            "reference_import should be in chat tools"
+        );
         assert!(
             !names.contains(&"note_write"),
             "note_write should not be in chat tools"

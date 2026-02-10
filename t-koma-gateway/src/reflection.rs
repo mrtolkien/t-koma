@@ -151,7 +151,7 @@ async fn run_reflection(
     let job_handle = JobHandle::new(pool.clone(), job_log_id.clone());
 
     // Build the filtered transcript prompt
-    let prompt = build_reflection_prompt(&recent_messages, &previous_handoff);
+    let prompt = build_reflection_prompt(&recent_messages, &previous_handoff, ghost_name).await;
 
     let model = if let Some(alias) = heartbeat_model_alias {
         state
@@ -318,8 +318,24 @@ fn extract_tool_summary(tool_name: &str, input: &serde_json::Value) -> String {
     }
 }
 
-fn build_reflection_prompt(messages: &[t_koma_db::Message], previous_handoff: &str) -> String {
+async fn build_reflection_prompt(
+    messages: &[t_koma_db::Message],
+    previous_handoff: &str,
+    ghost_name: &str,
+) -> String {
     let recent_messages = format_chat_transcript(messages);
+
+    // Read today's diary file if it exists
+    let diary_today = match t_koma_db::ghosts::ghost_workspace_path(ghost_name) {
+        Ok(workspace) => {
+            let today = Utc::now().format("%Y-%m-%d").to_string();
+            let diary_path = workspace.join("diary").join(format!("{today}.md"));
+            tokio::fs::read_to_string(&diary_path)
+                .await
+                .unwrap_or_default()
+        }
+        Err(_) => String::new(),
+    };
 
     crate::content::prompt_text(
         crate::content::ids::PROMPT_REFLECTION,
@@ -327,6 +343,7 @@ fn build_reflection_prompt(messages: &[t_koma_db::Message], previous_handoff: &s
         &[
             ("recent_messages", &recent_messages),
             ("previous_handoff", previous_handoff),
+            ("diary_today", &diary_today),
         ],
     )
     .unwrap_or_else(|e| {

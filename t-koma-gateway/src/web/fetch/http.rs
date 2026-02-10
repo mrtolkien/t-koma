@@ -58,7 +58,9 @@ impl HttpFetchProvider {
         let url =
             Url::parse(page_url).unwrap_or_else(|_| Url::parse("http://example.com").unwrap());
         match readability::extractor::extract(&mut html.as_bytes(), &url) {
-            Ok(product) if !product.text.trim().is_empty() => product.text,
+            Ok(product) if !product.content.trim().is_empty() => {
+                Self::html_to_text(&product.content)
+            }
             _ => Self::html_to_text(html),
         }
     }

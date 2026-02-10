@@ -75,7 +75,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web for current information. Results are automatically saved for reference."
+        "Search the web for current information. Results are automatically saved for later curation."
     }
 
     fn input_schema(&self) -> Value {
@@ -116,16 +116,16 @@ impl Tool for WebSearchTool {
             std::time::Duration::from_secs(settings.tools.web.search.cache_ttl_minutes * 60),
         );
 
-        let search_query_str = input.query.clone();
+        let search_query = input.query.clone();
         let query = Self::build_query(input, settings.tools.web.search.max_results);
         let response = service.search(query).await.map_err(Self::format_error)?;
 
         let serialized = serde_json::to_string(&response).map_err(|e| e.to_string())?;
         let ref_id = context.cache_tool_result("web_search", &serialized);
 
-        // Auto-save search results to _web-cache reference topic
-        let cache_key = format!("search:{search_query_str}");
-        let filename = url_to_cache_filename(&cache_key, "md");
+        // Auto-save search results to _web-cache for reflection to curate
+        let cache_key = format!("search:{search_query}");
+        let filename = url_to_cache_filename(&cache_key, "json");
         context
             .auto_save_web_result(&cache_key, &serialized, &filename)
             .await;
