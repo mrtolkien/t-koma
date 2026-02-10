@@ -42,14 +42,18 @@ workspace I open you in.
   30 minutes). Heartbeat transcripts are stored in `job_logs`, not in session
   messages. Only meaningful content (status "ran") posts a summary to the
   session.
-- REFLECTION: Background job checked after each heartbeat tick (including when
-  heartbeat is skipped). Processes recent conversation messages and reference
-  saves into structured knowledge (notes, diary, identity files) using the
-  `reflection-prompt.md` template (which includes `note-guidelines.md`).
-  Reflection runs when new messages exist since last reflection AND the session
-  has been idle for the configured idle time (default 4 minutes). No cooldown —
-  runs once per idle window, then waits for new messages. Reflection transcripts
-  are stored in `job_logs` and do NOT appear in session messages.
+- REFLECTION: Background knowledge curation job checked after each heartbeat
+  tick (including when heartbeat is skipped). Uses a **filtered transcript**
+  (text preserved, tool results stripped) and a dedicated reflection tool set
+  (`ToolManager::new_reflection()`). Creates a structured TODO plan via
+  `reflection_todo`, then curates conversation insights into notes, references,
+  diary, and identity files. Carries a **handoff note** between runs for
+  continuity. Web results are auto-saved to `_web-cache` during chat; reflection
+  curates them into proper topics. Runs when new messages exist since last
+  reflection AND the session has been idle for the configured idle time (default
+  4 minutes). No cooldown — runs once per idle window, then waits for new
+  messages. Reflection transcripts are stored in `job_logs` and do NOT appear in
+  session messages.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for
   management UX and messaging labels).
@@ -158,13 +162,21 @@ Background jobs (heartbeat, reflection) use `SessionChat::chat_job()` instead of
 final response) out of the session `messages` table. Instead, each run is stored
 as a single row in the `job_logs` table (ghost DB) with the transcript as JSON.
 
+Job lifecycle: INSERT at start → UPDATE todos mid-run → UPDATE finish at end.
+
 - `JobLog::start(kind, session_id)` creates an in-progress log.
-- `JobLog::finish(status)` sets `finished_at` and status.
-- `JobLogRepository::insert()` persists the completed log.
+- `JobLogRepository::insert_started()` persists at job start (TUI sees
+  "in progress").
+- `JobLogRepository::update_todos()` updates the `todo_list` column mid-run.
+- `JobLogRepository::finish()` sets `finished_at`, `status`, `transcript`, and
+  `handoff_note`.
 - `JobLogRepository::latest_ok_since()` checks for recent successful runs (used
   by heartbeat skip logic).
 - `JobLogRepository::latest_ok()` finds last successful run of a given kind (no
-  time bound, used by reflection to find "since" timestamp).
+  time bound, used by reflection to find "since" timestamp and handoff note).
+
+Columns: `todo_list` (JSON array of `TodoItem`), `handoff_note` (plain text
+carried to next reflection prompt).
 
 Path override knobs for testing:
 
@@ -312,6 +324,9 @@ Full examples live in:
 - `web_search` uses the Brave Search API and requires `BRAVE_API_KEY`.
 - `web_fetch` performs HTTP fetch + HTML-to-text conversion (no JavaScript).
 - Rate limits for Brave are enforced at ~1 query/second.
+- **Auto-save**: Results are automatically saved to the `_web-cache` reference
+  topic via `auto_save_web_result()` in `ToolContext`. The ghost does NOT need
+  to manually call `reference_write` — reflection curates the cache later.
 - Reference: `vibe/knowledge/web_tools.md`.
 
 ## Knowledge & Memory Tools
@@ -368,16 +383,20 @@ Notes have two classification axes:
 
 ### Tools
 
-Tools have a `ToolVisibility` enum: `Always` (visible in interactive chat) or
-`BackgroundOnly` (only available to background jobs like reflection). The
-`ToolManager` exposes `get_chat_tools()` for interactive sessions and
-`get_all_tools()` for background jobs. Tool execution always searches all tools
-regardless of visibility.
+Tools are split across two `ToolManager` constructors — ghost sessions get
+conversation tools only, reflection gets knowledge-writing tools only.
 
-Basic reference usage guidance is in the system prompt (`reference_system.md`);
-the `reference-researcher` skill covers advanced import strategies.
+- `ToolManager::new_chat(skill_paths)` — interactive ghost sessions (~13 tools):
+  shell (8), web (2), knowledge query (2), load_skill.
+- `ToolManager::new_reflection(skill_paths)` — autonomous reflection jobs (~13
+  tools): knowledge query (2), note_write, reference_write, reference_manage,
+  identity_edit, diary_write, reflection_todo, web (2), read_file, find_files,
+  load_skill.
 
-Query tools:
+Both expose `get_tools()` for tool listing. `chat_job()` accepts an optional
+`tool_manager_override` param to inject the reflection tool manager.
+
+Ghost chat tools (query only):
 
 - `knowledge_search`: Unified search across notes, diary, references, and
   topics. Supports `categories` filter, `scope` (all/shared/private), `topic`
@@ -387,34 +406,30 @@ Query tools:
 - `knowledge_get`: Retrieve full content by ID (searches all scopes) or by
   `topic` + `path` for reference files. Supports `max_chars` truncation.
 
-Write tools:
+Reflection tools (knowledge writing):
 
 - `note_write`: Consolidated tool for note operations. Actions: `create`,
   `update`, `validate`, `comment`, `delete`. (skill: `note-writer`)
 - `reference_write`: Save-only tool for reference files. Fields: `topic`
   (required), `filename` (required), `content` or `content_ref` (one required),
-  `collection` (optional), `source_url` (optional). Web tool results are cached
-  with IDs; use `content_ref=N` to reference cached content instead of copying.
-  No approval needed. Topic and collection auto-created on first save.
-- `reference_import`: Bulk import from git repos, web pages, and crawled doc
-  sites into a reference topic. Source types: `git`, `web`, `crawl` (BFS from
-  seed URL). Sources can have a `role` (docs/code) to control search boost.
-  Requires operator approval. (skill: `reference-researcher`)
-
-Background-only tools (reflection):
-
+  `collection` (optional), `source_url` (optional). No approval needed.
 - `reference_manage`: Curation tool for reference topics and files. Actions:
   `update` (change file status, topic description/tags), `delete` (remove file).
-  Only available during reflection, not in interactive chat.
+- `identity_edit`: Read/update ghost identity files (BOOT.md, SOUL.md, USER.md).
+- `diary_write`: Create or append to diary entries (YYYY-MM-DD.md format).
+- `reflection_todo`: Structured TODO list for reflection planning. Actions:
+  `plan` (create list), `update` (change item status), `add` (append item).
+  Persisted to `job_logs.todo_list` for TUI observability.
 
-Other:
+Other (both):
 
 - `load_skill`: Load a skill for detailed guidance on a workflow. Searches
   ghost-local skills first (`$WORKSPACE/skills/`), then user config, then
   project defaults.
+- `reference_import`: Bulk import tool (module kept but not registered in either
+  constructor — reserved for future CLI use).
 
-Administrative operations (refresh) are CLI/TUI-only — not ghost tools. Note
-deletion is available via `note_write` action `delete`.
+Administrative operations (refresh) are CLI/TUI-only — not ghost tools.
 
 ### Reflection Job
 
@@ -422,16 +437,26 @@ After each heartbeat tick completes, the reflection runner
 (`t-koma-gateway/src/reflection.rs`) checks whether new messages exist since the
 last successful reflection (via `JobLogRepository::latest_ok()` +
 `SessionRepository::get_messages_since()`). If new messages exist and the session
-has been idle for the configured idle time (default 4 minutes), it sends the
-**full untruncated conversation transcript** (including complete tool use inputs
-and tool results) through `chat_job()` with `load_session_history=false`.
+has been idle for the configured idle time (default 4 minutes), it builds a
+**filtered transcript** and sends it through `chat_job()` with
+`ToolManager::new_reflection()` and a `JobHandle` for real-time TODO persistence.
 
-The transcript is rendered into `prompts/reflection-prompt.md` (which includes
-`note-guidelines.md` via `{{ include }}`). The ghost curates conversation
-insights into structured notes, curates reference saves via `reference_manage`,
-updates diary entries, or updates identity files. Because the transcript is
-untruncated, reflection sees exactly the same information the ghost had during
-chat — including full `web_fetch` content, `reference_write` arguments, etc.
+Filtered transcript format: text blocks from both roles are preserved verbatim.
+Tool use blocks become concise one-liners (`→ Used web_fetch(url)`). Tool result
+blocks are stripped entirely — reflection uses `knowledge_search`/`knowledge_get`
+to access saved content instead.
+
+The reflection agent receives the previous run's **handoff note** (stored in
+`job_logs.handoff_note`) as context. Its final message becomes the handoff note
+for the next run, creating continuity across reflection sessions.
+
+Auto-save: web tool results (`web_fetch`, `web_search`) are automatically saved
+to the `_web-cache` reference topic during the ghost session. Reflection curates
+these into proper reference topics or deletes them.
+
+Job lifecycle: the job log is INSERT-ed at start (TUI sees "in progress"), TODO
+list updates are persisted mid-run, and finish writes status + transcript +
+handoff note.
 
 No cooldown — reflection runs once per idle window, then waits for new messages
 to appear before triggering again.
