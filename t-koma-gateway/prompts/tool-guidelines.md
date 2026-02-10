@@ -57,12 +57,6 @@ private-only. Prefer concise, specific queries for quality.
 Provide `id` to fetch by note ID (searches all scopes), or `topic` + `path` for
 reference files. Use `max_chars` to limit output for large files.
 
-**`note_write`** — Manage knowledge notes.
-Actions: `create`, `update`, `validate`, `comment`, `delete`. Default scope is
-`private`. Use `archetype` (optional) for semantic classification and tags for
-categorization. Use `[[Title]]` wiki links in body. Load the `note-writer` skill
-for detailed guidance.
-
 **`load_skill`** — Load a skill for detailed workflow guidance.
 Use the exact skill name from the available skills list. After loading, follow
 the instructions in the skill content to complete the task.
@@ -77,30 +71,10 @@ Send concise queries only. Results are cached briefly and rate-limited
 Only http/https URLs. Results may be truncated. Do not fetch sensitive or
 private URLs.
 
-### After Using Web Tools — MANDATORY
+### Web Results & Citations
 
-Every time you call `web_search` or `web_fetch`, you MUST save valuable content
-as a reference using `reference_write`. Web content disappears — if you don't
-save it now, it's gone. Even partial or imperfect content is worth saving. When
-in doubt, save it.
+Web tool results are automatically saved to the `_web-cache` reference topic.
+You do not need to manually save web content — reflection will curate it later.
 
-Web tool results are automatically cached and assigned a result ID (shown as
-`[Result #N]` in the output). Use `content_ref` to reference cached content
-instead of copying it into `reference_write`:
-
-```
-reference_write(topic="rust-async", filename="select-guide.md",
-  content_ref=1, source_url="https://tokio.rs/...")
-```
-
-Bundle saves with your response in the same turn — use parallel tool calls.
-Don't create a separate "saving" step.
-
-### Every Response — Knowledge Check
-
-With every response where new information came up, save external content worth
-preserving using `reference_write` alongside your reply. Reflection will later
-curate these saves into structured notes and update identity files.
-
-Failing to persist information is failing at your job. Lost information requires
-the operator to repeat themselves.
+When citing web sources in your response, include the URL so the operator can
+verify the information.
