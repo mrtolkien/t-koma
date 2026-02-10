@@ -61,8 +61,8 @@ pub struct ProviderResponse {
 pub enum ProviderError {
     #[error("HTTP request failed: {0}")]
     HttpError(#[from] reqwest::Error),
-    #[error("API error: {message}")]
-    ApiError { message: String },
+    #[error("API error (HTTP {status}): {message}")]
+    ApiError { status: u16, message: String },
     #[error("No content in response")]
     NoContent,
     #[error("Serialization error: {0}")]
@@ -78,7 +78,9 @@ impl ProviderError {
             Self::HttpError(e) => e
                 .status()
                 .is_some_and(|s| s.is_server_error() || s.as_u16() == 429),
-            Self::ApiError { message } => message.contains("overloaded") || message.contains("529"),
+            Self::ApiError { status, message } => {
+                *status == 429 || (500..600).contains(status) || message.contains("overloaded")
+            }
             _ => false,
         }
     }

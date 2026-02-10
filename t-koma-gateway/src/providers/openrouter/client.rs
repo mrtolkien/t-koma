@@ -453,7 +453,8 @@ impl OpenRouterClient {
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
             return Err(ProviderError::ApiError {
-                message: format!("HTTP {}: {}", status, error_text),
+                status: status.as_u16(),
+                message: error_text,
             });
         }
 
@@ -536,7 +537,8 @@ impl Provider for OpenRouterClient {
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
             return Err(ProviderError::ApiError {
-                message: format!("HTTP {}: {}", status, error_text),
+                status: status.as_u16(),
+                message: error_text,
             });
         }
 

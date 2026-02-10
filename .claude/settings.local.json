@@ -33,7 +33,8 @@
       "WebFetch(domain:crates.io)",
       "mcp__github__get_file_contents",
       "WebFetch(domain:ollama.com)",
-      "mcp__rust-analyzer__rust_analyzer_hover"
+      "mcp__rust-analyzer__rust_analyzer_hover",
+      "Bash(git status:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

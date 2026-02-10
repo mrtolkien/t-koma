@@ -94,8 +94,8 @@ pub struct Usage {
 pub enum AnthropicError {
     #[error("HTTP request failed: {0}")]
     HttpError(#[from] reqwest::Error),
-    #[error("API error: {message}")]
-    ApiError { message: String },
+    #[error("API error (HTTP {status}): {message}")]
+    ApiError { status: u16, message: String },
     #[error("No content in response")]
     NoContent,
     #[error("Serialization error: {0}")]
@@ -106,7 +106,9 @@ impl From<AnthropicError> for ProviderError {
     fn from(err: AnthropicError) -> Self {
         match err {
             AnthropicError::HttpError(e) => ProviderError::HttpError(e),
-            AnthropicError::ApiError { message } => ProviderError::ApiError { message },
+            AnthropicError::ApiError { status, message } => {
+                ProviderError::ApiError { status, message }
+            }
             AnthropicError::NoContent => ProviderError::NoContent,
             AnthropicError::Serialization(e) => ProviderError::Serialization(e),
         }
@@ -235,7 +237,8 @@ impl AnthropicClient {
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
             return Err(AnthropicError::ApiError {
-                message: format!("HTTP {}: {}", status, error_text),
+                status: status.as_u16(),
+                message: error_text,
             });
         }
 
@@ -255,6 +258,7 @@ impl AnthropicClient {
                     &response_text
                 };
                 AnthropicError::ApiError {
+                    status: 0,
                     message: format!("Failed to parse response: {e}\nBody preview: {preview}"),
                 }
             })?;
