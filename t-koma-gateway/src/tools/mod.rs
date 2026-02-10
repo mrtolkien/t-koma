@@ -1,8 +1,10 @@
 pub mod change_directory;
 pub mod context;
 pub mod create_file;
+pub mod diary_write;
 pub mod file_edit;
 pub mod find_files;
+pub mod identity_edit;
 pub mod knowledge_get;
 pub mod knowledge_search;
 pub mod list_dir;
@@ -13,11 +15,12 @@ pub mod read_file;
 pub mod reference_import;
 pub mod reference_manage;
 pub mod reference_write;
+pub mod reflection_todo;
 pub mod search;
 pub mod shell;
 pub mod web_fetch;
 pub mod web_search;
-pub use context::{ApprovalReason, ToolContext};
+pub use context::{ApprovalReason, JobHandle, ToolContext};
 
 pub use manager::ToolManager;
 

@@ -1,6 +1,9 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+use sqlx::SqlitePool;
+use t_koma_db::job_logs::{JobLogRepository, TodoItem};
+
 /// Reason why a tool requires operator approval before proceeding.
 ///
 /// Each variant carries the data needed to render an appropriate approval
@@ -81,6 +84,44 @@ impl ApprovalReason {
     }
 }
 
+/// Handle for persisting reflection job state (TODO list) mid-run.
+///
+/// Owned by the reflection runner and injected into `ToolContext` before
+/// the job tool loop starts. The `reflection_todo` tool reads/writes the
+/// in-memory `todos` vec, then flushes to DB via `persist()`.
+pub struct JobHandle {
+    pool: SqlitePool,
+    job_log_id: String,
+    pub todos: Vec<TodoItem>,
+}
+
+impl JobHandle {
+    /// Create a new handle for a specific job log row.
+    pub fn new(pool: SqlitePool, job_log_id: String) -> Self {
+        Self {
+            pool,
+            job_log_id,
+            todos: Vec::new(),
+        }
+    }
+
+    /// Persist the current TODO list to the database.
+    pub async fn persist_todos(&self) -> Result<(), String> {
+        JobLogRepository::update_todos(&self.pool, &self.job_log_id, &self.todos)
+            .await
+            .map_err(|e| format!("Failed to persist todos: {e}"))
+    }
+}
+
+impl std::fmt::Debug for JobHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JobHandle")
+            .field("job_log_id", &self.job_log_id)
+            .field("todos", &self.todos.len())
+            .finish()
+    }
+}
+
 /// A cached tool result that can be referenced by ID via `content_ref`.
 #[derive(Debug, Clone)]
 pub struct CachedToolResult {
@@ -89,7 +130,7 @@ pub struct CachedToolResult {
     pub content: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ToolContext {
     ghost_name: String,
     workspace_root: PathBuf,
@@ -101,6 +142,7 @@ pub struct ToolContext {
     dirty: bool,
     knowledge_engine: Option<Arc<t_koma_knowledge::KnowledgeEngine>>,
     tool_result_cache: Vec<CachedToolResult>,
+    pub job_handle: Option<JobHandle>,
 }
 
 pub const APPROVAL_REQUIRED_PREFIX: &str = "APPROVAL_REQUIRED:";
@@ -123,6 +165,7 @@ impl ToolContext {
             dirty: false,
             knowledge_engine: None,
             tool_result_cache: Vec::new(),
+            job_handle: None,
         }
     }
 
@@ -281,6 +324,7 @@ impl ToolContext {
             dirty: false,
             knowledge_engine: None,
             tool_result_cache: Vec::new(),
+            job_handle: None,
         }
     }
 }
