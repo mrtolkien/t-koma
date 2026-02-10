@@ -298,6 +298,8 @@ pub enum WsMessage {
     /// List recent knowledge notes
     ListRecentNotes {
         #[serde(skip_serializing_if = "Option::is_none")]
+        ghost_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         limit: Option<usize>,
     },
     /// Get a full knowledge entry by ID
@@ -306,6 +308,8 @@ pub enum WsMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         max_chars: Option<usize>,
     },
+    /// Get knowledge index statistics
+    GetKnowledgeStats,
     /// Get current scheduler state
     GetSchedulerState,
     /// Ping to keep connection alive
@@ -366,8 +370,33 @@ pub enum WsResponse {
     },
     /// Current scheduler state
     SchedulerState { entries: Vec<SchedulerEntryInfo> },
+    /// Knowledge index statistics
+    KnowledgeStats {
+        stats: KnowledgeIndexStats,
+    },
     /// Pong response to ping
     Pong,
+}
+
+/// Statistics about the knowledge index (notes, chunks, embeddings).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeIndexStats {
+    pub total_notes: i64,
+    pub total_chunks: i64,
+    pub total_embeddings: i64,
+    pub embedding_model: String,
+    pub embedding_dim: u32,
+    /// Most recently updated entries (title, entry_type, scope, updated_at).
+    pub recent_entries: Vec<KnowledgeStatsEntry>,
+}
+
+/// A single entry in the knowledge stats "latest" list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeStatsEntry {
+    pub title: String,
+    pub entry_type: String,
+    pub scope: String,
+    pub updated_at: String,
 }
 
 /// Lightweight DTO for knowledge search results sent over WebSocket.

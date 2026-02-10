@@ -1,4 +1,4 @@
-use t_koma_core::KnowledgeResultInfo;
+use t_koma_core::{KnowledgeIndexStats, KnowledgeResultInfo};
 use t_koma_db::{Ghost, JobLog, JobLogSummary, SessionInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +47,7 @@ pub(super) enum ContentView {
     KnowledgeDetail {
         note_id: String,
     },
+    KnowledgeStats,
 }
 
 /// Selection modal for choosing from a list (e.g. access level).
@@ -120,4 +121,5 @@ pub(super) struct KnowledgeViewState {
     pub(super) detail_title: Option<String>,
     pub(super) detail_body: Option<String>,
     pub(super) scroll: u16,
+    pub(super) stats: Option<KnowledgeIndexStats>,
 }

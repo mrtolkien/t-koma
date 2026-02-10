@@ -264,6 +264,7 @@ impl TuiApp {
                 ContentView::JobDetail { .. } | ContentView::KnowledgeDetail { .. } => {
                     self.scroll_detail_down(1);
                 }
+                ContentView::KnowledgeStats => {}
                 ContentView::GhostSessions { .. } => {
                     if self.content_idx + 1 < self.session_view.sessions.len() {
                         self.content_idx += 1;
@@ -424,6 +425,7 @@ impl TuiApp {
             Category::Knowledge => match self.options_idx {
                 0 => self.refresh_knowledge_recent().await,
                 1 => self.begin_prompt(PromptKind::KnowledgeSearch, None, None),
+                2 => self.refresh_knowledge_stats().await,
                 _ => {}
             },
             Category::Gate => {}

@@ -540,9 +540,10 @@ async fn handle_websocket(
                         continue;
                     }
 
-                    if let WsMessage::ListRecentNotes { limit } = &other_message {
+                    if let WsMessage::ListRecentNotes { ghost_name, limit } = &other_message {
+                        let ghost = ghost_name.clone().unwrap_or_default();
                         let lim = limit.unwrap_or(50);
-                        let response = match state.knowledge_engine().list_recent_notes(lim).await {
+                        let response = match state.knowledge_engine().list_recent_notes(&ghost, lim).await {
                             Ok(notes) => {
                                 let infos: Vec<t_koma_core::KnowledgeResultInfo> = notes
                                     .into_iter()
@@ -585,6 +586,37 @@ async fn handle_websocket(
                                 },
                                 Err(e) => ws_error_response(format!("Get entry failed: {}", e)),
                             };
+                        let _ = sender
+                            .send(Message::Text(
+                                serde_json::to_string(&response).unwrap().into(),
+                            ))
+                            .await;
+                        continue;
+                    }
+
+                    if let WsMessage::GetKnowledgeStats = other_message {
+                        let response = match state.knowledge_engine().index_stats().await {
+                            Ok(s) => WsResponse::KnowledgeStats {
+                                stats: t_koma_core::KnowledgeIndexStats {
+                                    total_notes: s.total_notes,
+                                    total_chunks: s.total_chunks,
+                                    total_embeddings: s.total_embeddings,
+                                    embedding_model: s.embedding_model,
+                                    embedding_dim: s.embedding_dim,
+                                    recent_entries: s
+                                        .recent_entries
+                                        .into_iter()
+                                        .map(|e| t_koma_core::KnowledgeStatsEntry {
+                                            title: e.title,
+                                            entry_type: e.entry_type,
+                                            scope: e.scope,
+                                            updated_at: e.updated_at,
+                                        })
+                                        .collect(),
+                                },
+                            },
+                            Err(e) => ws_error_response(format!("Knowledge stats failed: {e}")),
+                        };
                         let _ = sender
                             .send(Message::Text(
                                 serde_json::to_string(&response).unwrap().into(),
@@ -909,6 +941,7 @@ async fn handle_websocket(
                         | WsMessage::SearchKnowledge { .. }
                         | WsMessage::ListRecentNotes { .. }
                         | WsMessage::GetKnowledgeEntry { .. }
+                        | WsMessage::GetKnowledgeStats
                         | WsMessage::GetSchedulerState
                         | WsMessage::Ping => {}
                         WsMessage::Chat {

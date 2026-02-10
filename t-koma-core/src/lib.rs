@@ -18,6 +18,6 @@ pub use config::{
 pub use message::{
     ChatMessage, GatewayAction, GatewayActionStyle, GatewayChoice, GatewayInputKind,
     GatewayInputRequest, GatewayMessage, GatewayMessageKind, GatewayMessageText,
-    KnowledgeResultInfo, MessageRole, ModelInfo, ProviderType, SchedulerEntryInfo, WsMessage,
-    WsResponse,
+    KnowledgeIndexStats, KnowledgeResultInfo, KnowledgeStatsEntry, MessageRole, ModelInfo,
+    ProviderType, SchedulerEntryInfo, WsMessage, WsResponse,
 };

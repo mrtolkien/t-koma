@@ -849,9 +849,17 @@ impl TuiApp {
 
     // ── Knowledge actions ────────────────────────────────────────────
 
+    /// First ghost name if any ghosts are loaded, for knowledge queries.
+    fn first_ghost_name(&self) -> Option<String> {
+        self.ghosts.first().map(|g| g.ghost.name.clone())
+    }
+
     pub(super) async fn refresh_knowledge_recent(&mut self) {
         match self
-            .ws_query(WsMessage::ListRecentNotes { limit: Some(50) })
+            .ws_query(WsMessage::ListRecentNotes {
+                ghost_name: self.first_ghost_name(),
+                limit: Some(50),
+            })
             .await
         {
             Ok(WsResponse::RecentNotes { notes }) => {
@@ -879,7 +887,7 @@ impl TuiApp {
 
         match self
             .ws_query(WsMessage::SearchKnowledge {
-                ghost_name: None,
+                ghost_name: self.first_ghost_name(),
                 query: query.to_string(),
                 max_results: Some(30),
             })
@@ -926,6 +934,23 @@ impl TuiApp {
             }
             Ok(_) => self.status = "Unexpected knowledge response".to_string(),
             Err(e) => self.status = format!("Knowledge: {}", e),
+        }
+    }
+
+    pub(super) async fn refresh_knowledge_stats(&mut self) {
+        match self.ws_query(WsMessage::GetKnowledgeStats).await {
+            Ok(WsResponse::KnowledgeStats { stats }) => {
+                self.knowledge_view.stats = Some(stats);
+                self.content_view = ContentView::KnowledgeStats;
+                self.status = "Index stats loaded".to_string();
+            }
+            Ok(WsResponse::Response { message, .. })
+                if message.kind == GatewayMessageKind::Error =>
+            {
+                self.status = format!("Stats: {}", message.text_fallback);
+            }
+            Ok(_) => self.status = "Unexpected stats response".to_string(),
+            Err(e) => self.status = format!("Stats: {}", e),
         }
     }
 

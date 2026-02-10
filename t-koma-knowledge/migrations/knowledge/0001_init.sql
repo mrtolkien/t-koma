@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
-    note_type TEXT NOT NULL,
-    type_valid INTEGER NOT NULL DEFAULT 1,
+    entry_type TEXT NOT NULL,
+    archetype TEXT,
     path TEXT NOT NULL UNIQUE,
     scope TEXT NOT NULL,
     owner_ghost TEXT,
@@ -60,7 +60,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
     content,
     title,
     note_title,
-    note_type,
+    entry_type,
+    archetype,
     note_id UNINDEXED,
     chunk_id UNINDEXED
 );

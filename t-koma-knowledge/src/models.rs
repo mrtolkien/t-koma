@@ -188,6 +188,26 @@ pub struct KnowledgeGetQuery {
     pub max_chars: Option<usize>,
 }
 
+/// Statistics about the knowledge index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexStats {
+    pub total_notes: i64,
+    pub total_chunks: i64,
+    pub total_embeddings: i64,
+    pub embedding_model: String,
+    pub embedding_dim: u32,
+    pub recent_entries: Vec<IndexStatsEntry>,
+}
+
+/// A single entry in the index stats "latest" list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexStatsEntry {
+    pub title: String,
+    pub entry_type: String,
+    pub scope: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteSummary {
     pub id: String,
