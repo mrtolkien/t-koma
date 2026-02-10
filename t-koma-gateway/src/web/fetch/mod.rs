@@ -12,6 +12,9 @@ pub struct WebFetchRequest {
     pub url: String,
     pub mode: Option<String>,
     pub max_chars: Option<usize>,
+    /// When true, skip article extraction and return the full HTML-to-text conversion.
+    #[serde(default)]
+    pub raw: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +61,10 @@ impl WebFetchService {
     }
 
     pub async fn fetch(&self, request: WebFetchRequest) -> Result<WebFetchResponse, FetchError> {
-        let cache_key = format!("{}|{:?}|{:?}", request.url, request.mode, request.max_chars);
+        let cache_key = format!(
+            "{}|{:?}|{:?}|raw={}",
+            request.url, request.mode, request.max_chars, request.raw
+        );
         if let Some(cached) = self.cache.get(&cache_key).await {
             return Ok(cached);
         }

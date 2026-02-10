@@ -31,18 +31,18 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 // Import from workspace crates
-use t_koma_core::config::{Config, KnowledgeSettings, SearchDefaults};
+use t_koma_core::config::{Config, KnowledgeSettings};
 use t_koma_core::message::ProviderType;
 use t_koma_db::{
     ContentBlock, GhostRepository, JobKind, JobLogRepository, KomaDbPool, Message, MessageRole,
     OperatorAccessLevel, OperatorRepository, Platform, SessionRepository, TranscriptEntry,
 };
-use t_koma_knowledge::{KnowledgeSearchQuery, KnowledgeSearchResult, OwnershipScope};
 use t_koma_gateway::chat::compaction::CompactionConfig;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::state::{AppState, ModelEntry};
+use t_koma_knowledge::{KnowledgeSearchQuery, KnowledgeSearchResult, OwnershipScope};
 
 /// Terminal styling
 mod style {
@@ -66,11 +66,15 @@ struct TestConfig {
     temp_dir: PathBuf,
 }
 
-impl Default for TestConfig {
-    fn default() -> Self {
-        let output_dir = std::env::var("E2E_OUTPUT_DIR")
+impl TestConfig {
+    fn new() -> Self {
+        let base_dir = std::env::var("E2E_OUTPUT_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("e2e-output"));
+
+        // Each run gets its own timestamped folder
+        let run_id = Utc::now().format("%Y%m%dT%H%M%S").to_string();
+        let output_dir = base_dir.join(&run_id);
 
         Self {
             operator_name: "OMEGA".to_string(),
@@ -481,16 +485,14 @@ async fn setup_env(config: &TestConfig, model_alias: &str) -> (Arc<AppState>, Ko
     let koma_db = create_db().await;
     let (models, default_alias) = create_models_from_config(model_alias);
 
-    let knowledge_settings = KnowledgeSettings {
-        knowledge_db_path_override: Some(config.temp_dir.join("knowledge.sqlite3")),
-        embedding_dim: Some(8),
-        embedding_url: "http://127.0.0.1:1".to_string(),
-        reconcile_seconds: 999_999,
-        data_root_override: Some(config.temp_dir.clone()),
-        embedding_batch: 1,
-        embedding_model: "qwen3-embedding:8b".to_string(),
-        search: SearchDefaults::default(),
-    };
+    // Read embedding config from the real config.toml [tools.knowledge]
+    let real_config = Config::load().expect("Failed to load config for knowledge settings");
+    let mut knowledge_settings = KnowledgeSettings::from(&real_config.settings.tools.knowledge);
+
+    // Override paths for test isolation
+    knowledge_settings.knowledge_db_path_override = Some(config.temp_dir.join("knowledge.sqlite3"));
+    knowledge_settings.data_root_override = Some(config.temp_dir.clone());
+    knowledge_settings.reconcile_seconds = 999_999;
 
     let knowledge_engine = Arc::new(
         t_koma_knowledge::KnowledgeEngine::open(knowledge_settings)
@@ -706,7 +708,10 @@ fn extract_knowledge_query(messages: &[Message]) -> Option<String> {
             if let ContentBlock::ToolUse { name, input, .. } = block
                 && name == "knowledge_search"
             {
-                return input.get("query").and_then(|v| v.as_str()).map(String::from);
+                return input
+                    .get("query")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
             }
         }
     }
@@ -869,15 +874,13 @@ fn write_report(
         usage,
     };
 
-    let path = config
-        .output_dir
-        .join(format!("e2e-report-{}.json", ghost.id));
+    let path = config.output_dir.join("report.json");
     fs::write(&path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     path
 }
 
 /// Print final summary
-fn print_summary(path: &PathBuf, ghost: &t_koma_db::Ghost, data_root: &PathBuf) {
+fn print_summary(path: &std::path::Path, ghost: &t_koma_db::Ghost, data_root: &std::path::Path) {
     let report: TestReport = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
 
     header("E2E TEST COMPLETE");
@@ -967,7 +970,7 @@ fn print_summary(path: &PathBuf, ghost: &t_koma_db::Ghost, data_root: &PathBuf) 
     }
 
     // Copy entire data directory for inspection
-    let data_dst = path.parent().unwrap().join(format!("data-{}", ghost.id));
+    let data_dst = path.parent().unwrap().join("data");
     if data_root.exists() {
         copy_dir(data_root, &data_dst).ok();
         println!(
@@ -1011,7 +1014,7 @@ async fn main() {
 
     let model_alias = parse_args();
     let started = Instant::now();
-    let config = TestConfig::default();
+    let config = TestConfig::new();
 
     header("E2E KNOWLEDGE TEST");
     info("Model", &model_alias);
@@ -1033,11 +1036,10 @@ async fn main() {
     let reflection = run_reflection(&state, &pool, &operator, &ghost).await;
 
     step(5, 6, "Verifying knowledge search");
-    let knowledge_verification =
-        verify_knowledge_search(&state, &pool, &ghost, &operator).await;
+    let knowledge_verification = verify_knowledge_search(&state, &pool, &ghost, &operator).await;
 
     step(6, 6, "Generating report");
-    let session = SessionRepository::get_active(&pool.pool(), &ghost.id, &operator.id)
+    let session = SessionRepository::get_active(pool.pool(), &ghost.id, &operator.id)
         .await
         .ok()
         .flatten()

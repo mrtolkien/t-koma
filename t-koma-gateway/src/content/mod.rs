@@ -98,7 +98,16 @@ mod tests {
         let msg = reg.message_text(ids::ERROR_GENERIC, None, &[]);
         assert!(msg.is_ok());
 
-        let prompt = reg.prompt_text(ids::PROMPT_SYSTEM_BASE, None, &[]);
+        let prompt = reg.prompt_text(
+            ids::PROMPT_SYSTEM_PROMPT,
+            None,
+            &[
+                ("ghost_identity", ""),
+                ("ghost_diary", ""),
+                ("ghost_skills", ""),
+                ("system_info", ""),
+            ],
+        );
         assert!(prompt.is_ok());
     }
 }

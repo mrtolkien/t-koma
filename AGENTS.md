@@ -528,12 +528,13 @@ On approval, Phase 2 re-executes with `has_approval()` returning true. See
   `body` and optional `vars`/`title`/`kind`/`actions`. Use `{{var}}`.
 - Prompts: add `t-koma-gateway/prompts/<id>.md` with TOML front matter (`+++`)
   and a `# loaded:` comment to know where they are used.
-- **Tool usage guidance** lives in `prompts/tool-guidelines.md`, included in the
-  system prompt via `{{ include "tool-guidelines.md" }}`. Prompt text must never
-  be inline Rust strings — always use `.md` files in the content system.
-- `ghost-context.md` uses Jinja template variables (`{{ ghost_identity }}`,
-  `{{ ghost_diary }}`, etc.) rendered per-session with ghost-specific data.
-  Template vars must be declared in front matter `vars = [...]`.
+- Keep the operator chat system prompt in a single file:
+  `prompts/system-prompt.md` (no prompt-fragment includes).
+- Keep the reflection system prompt in a single file:
+  `prompts/reflection-prompt.md` (self-contained; includes note-writing guidance).
+- Session context variables (`{{ ghost_identity }}`, `{{ ghost_diary }}`, etc.)
+  are rendered directly in `prompts/system-prompt.md`. Template vars must be
+  declared in front matter `vars = [...]`.
 - Update `t-koma-gateway/src/content/ids.rs` after changes.
 - Debug logging: set `dump_queries = true` in `[logging]` config to write raw
   LLM request/response JSON to `./logs/queries/`.

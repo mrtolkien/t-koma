@@ -16,7 +16,7 @@ static KNOWLEDGE_PROMPTS_DIR: Dir =
 
 /// Read an embedded prompt file by path (for `{{ include }}` resolution).
 ///
-/// Simple filenames (e.g. `"tool-guidelines.md"`) are looked up directly in the
+/// Simple filenames (e.g. `"system-prompt.md"`) are looked up directly in the
 /// gateway prompts directory. Cross-crate paths (e.g.
 /// `"../../t-koma-knowledge/knowledge/prompts/foo.md"`) are normalized relative
 /// to the gateway crate root and dispatched to the appropriate embedded directory.

@@ -26,6 +26,8 @@ struct WebFetchInput {
     url: String,
     mode: Option<String>,
     max_chars: Option<usize>,
+    #[serde(default)]
+    raw: bool,
 }
 
 pub struct WebFetchTool;
@@ -37,7 +39,8 @@ impl WebFetchTool {
             "properties": {
                 "url": {"type": "string"},
                 "mode": {"type": "string", "enum": ["text", "markdown"]},
-                "max_chars": {"type": "integer", "minimum": 1}
+                "max_chars": {"type": "integer", "minimum": 1},
+                "raw": {"type": "boolean", "description": "Return full page content instead of extracted article. Default false."}
             },
             "required": ["url"],
             "additionalProperties": false
@@ -109,6 +112,7 @@ impl Tool for WebFetchTool {
             url: url.clone(),
             mode: input.mode,
             max_chars: input.max_chars,
+            raw: input.raw,
         };
 
         let response = service.fetch(request).await.map_err(Self::format_error)?;

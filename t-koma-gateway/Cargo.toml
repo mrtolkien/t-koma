@@ -69,6 +69,10 @@ globset = "0.4"
 # HTML to text conversion
 html2text = "0.12"
 
+# Article content extraction (Mozilla Readability port)
+readability = "0.3"
+url = "2"
+
 # Database (re-export pool types)
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 

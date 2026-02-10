@@ -138,7 +138,7 @@ async fn run_reflection(
     );
 
     // INSERT job log early so TUI can see "in progress"
-    let mut job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
+    let job_log = JobLog::start(ghost_id, DbJobKind::Reflection, session_id);
     let job_log_id = job_log.id.clone();
 
     if let Err(err) = JobLogRepository::insert_started(pool, &job_log).await {
@@ -179,6 +179,7 @@ async fn run_reflection(
             false, // recent messages are embedded in the prompt
             Some(&reflection_tm),
             Some(job_handle),
+            Some(crate::session::REFLECTION_TOOL_LOOP_LIMIT),
         )
         .await;
 
@@ -218,12 +219,18 @@ async fn run_reflection(
         }
         Err(err) => {
             let status = format!("error: {err}");
-            // Still finish the job log even on error
-            job_log.finish(&status);
+
+            // Extract partial transcript from ToolLoopLimitReached if available,
+            // otherwise persist empty transcript.
+            let partial_transcript = match &err {
+                crate::session::ChatError::ToolLoopLimitReached(pending) => {
+                    &pending.partial_transcript
+                }
+                _ => &job_log.transcript,
+            };
 
             if let Err(e) =
-                JobLogRepository::finish(pool, &job_log_id, &status, &job_log.transcript, None)
-                    .await
+                JobLogRepository::finish(pool, &job_log_id, &status, partial_transcript, None).await
             {
                 warn!("reflection: failed to finish error job log: {e}");
             }

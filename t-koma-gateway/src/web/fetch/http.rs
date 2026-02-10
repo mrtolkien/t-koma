@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use reqwest::header::CONTENT_TYPE;
+use url::Url;
 
 use super::{FetchError, FetchProvider, WebFetchRequest, WebFetchResponse};
 
@@ -49,6 +50,17 @@ impl HttpFetchProvider {
 
     fn html_to_text(html: &str) -> String {
         html2text::from_read(html.as_bytes(), 80)
+    }
+
+    /// Extract article content using readability (Mozilla algorithm).
+    /// Falls back to html2text if readability fails to extract meaningful content.
+    fn extract_article(html: &str, page_url: &str) -> String {
+        let url =
+            Url::parse(page_url).unwrap_or_else(|_| Url::parse("http://example.com").unwrap());
+        match readability::extractor::extract(&mut html.as_bytes(), &url) {
+            Ok(product) if !product.text.trim().is_empty() => product.text,
+            _ => Self::html_to_text(html),
+        }
     }
 
     fn trim_content(content: String, max_chars: usize) -> (String, bool) {
@@ -100,7 +112,11 @@ impl FetchProvider for HttpFetchProvider {
         let mut content = match content_type.as_deref() {
             Some("text/html") | Some("application/xhtml+xml") => {
                 if mode == "text" || mode == "markdown" {
-                    Self::html_to_text(&raw)
+                    if request.raw {
+                        Self::html_to_text(&raw)
+                    } else {
+                        Self::extract_article(&raw, &request.url)
+                    }
                 } else {
                     raw
                 }

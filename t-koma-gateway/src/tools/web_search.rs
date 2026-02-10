@@ -13,7 +13,6 @@ struct WebSearchInput {
     count: Option<usize>,
     country: Option<String>,
     search_lang: Option<String>,
-    ui_lang: Option<String>,
     freshness: Option<String>,
 }
 
@@ -28,7 +27,6 @@ impl WebSearchTool {
                 "count": {"type": "integer", "minimum": 1},
                 "country": {"type": "string"},
                 "search_lang": {"type": "string"},
-                "ui_lang": {"type": "string"},
                 "freshness": {"type": "string"}
             },
             "required": ["query"],
@@ -46,7 +44,7 @@ impl WebSearchTool {
             count,
             country: input.country,
             search_lang: input.search_lang,
-            ui_lang: input.ui_lang,
+            ui_lang: None,
             freshness: input.freshness,
         }
     }

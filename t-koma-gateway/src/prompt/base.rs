@@ -6,7 +6,7 @@ use crate::content::{self, ids};
 
 /// The full system prompt for t-koma
 ///
-/// Renders the composite system prompt with template variable substitution.
+/// Renders the system prompt with template variable substitution.
 /// Variables like `ghost_identity`, `ghost_diary`, `ghost_skills`, and
 /// `system_info` are injected per-session from ghost workspace content.
 ///

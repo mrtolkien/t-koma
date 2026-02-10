@@ -71,6 +71,7 @@ async fn test_web_fetch_github_profile() {
             url: "https://github.com/mrtolkien/".to_string(),
             mode: Some("text".to_string()),
             max_chars: Some(12000),
+            raw: false,
         })
         .await
         .expect("web_fetch failed");

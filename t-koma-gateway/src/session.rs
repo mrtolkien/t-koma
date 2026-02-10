@@ -68,10 +68,13 @@ pub struct PendingToolApproval {
 #[derive(Debug, Clone)]
 pub struct PendingToolContinuation {
     pub pending_tool_uses: Vec<PendingToolUse>,
+    /// Partial transcript accumulated before hitting the loop limit.
+    pub partial_transcript: Vec<TranscriptEntry>,
 }
 
 pub const DEFAULT_TOOL_LOOP_LIMIT: usize = 10;
 pub const DEFAULT_TOOL_LOOP_EXTRA: usize = 50;
+pub const REFLECTION_TOOL_LOOP_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ToolApprovalDecision {
@@ -79,7 +82,7 @@ pub enum ToolApprovalDecision {
     Deny,
 }
 
-/// Template variable values for ghost-context.md rendering
+/// Template variable values for system-prompt.md rendering
 struct GhostContextVars {
     ghost_identity: String,
     ghost_diary: String,
@@ -522,6 +525,7 @@ impl SessionChat {
         load_session_history: bool,
         tool_manager_override: Option<&ToolManager>,
         job_handle: Option<JobHandle>,
+        max_tool_iterations: Option<usize>,
     ) -> Result<JobChatResult, ChatError> {
         // Verify session exists
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
@@ -568,6 +572,7 @@ impl SessionChat {
 
         let tm = tool_manager_override.unwrap_or(&self.tool_manager);
 
+        let limit = max_tool_iterations.unwrap_or(DEFAULT_TOOL_LOOP_LIMIT);
         let text = self
             .send_job_with_tool_loop(
                 pool,
@@ -580,7 +585,7 @@ impl SessionChat {
                 system_blocks,
                 &session_history,
                 &mut transcript,
-                DEFAULT_TOOL_LOOP_LIMIT,
+                limit,
                 tm,
                 job_handle,
             )
@@ -654,6 +659,7 @@ impl SessionChat {
             if iteration + 1 == max_iterations {
                 return Err(ChatError::ToolLoopLimitReached(PendingToolContinuation {
                     pending_tool_uses: collect_pending_tool_uses(&response),
+                    partial_transcript: transcript.clone(),
                 }));
             }
 
@@ -799,6 +805,8 @@ impl SessionChat {
             if iteration + 1 == max_iterations {
                 return Err(ChatError::ToolLoopLimitReached(PendingToolContinuation {
                     pending_tool_uses: collect_pending_tool_uses(&response),
+                    // Messages already persisted to DB — no in-memory transcript.
+                    partial_transcript: Vec::new(),
                 }));
             }
 
@@ -1397,7 +1405,7 @@ impl SessionChat {
         Ok(blocks)
     }
 
-    /// Build template variables for ghost-context.md rendering
+    /// Build template variables for system-prompt.md rendering
     ///
     /// Collects identity files, diary entries, and skill listings from the
     /// ghost workspace into string values for template substitution.
