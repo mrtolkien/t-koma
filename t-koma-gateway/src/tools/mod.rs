@@ -26,15 +26,6 @@ pub use manager::ToolManager;
 
 use serde_json::Value;
 
-/// Controls when a tool is visible in the tool list sent to the provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolVisibility {
-    /// Available in both interactive chat and background jobs.
-    Always,
-    /// Only available in background jobs (heartbeat, reflection).
-    BackgroundOnly,
-}
-
 /// Trait that all tools must implement
 #[async_trait::async_trait]
 pub trait Tool: Send + Sync {
@@ -46,11 +37,6 @@ pub trait Tool: Send + Sync {
 
     /// JSON Schema for the tool's input
     fn input_schema(&self) -> Value;
-
-    /// When this tool should appear in the tool list. Default: Always.
-    fn visibility(&self) -> ToolVisibility {
-        ToolVisibility::Always
-    }
 
     /// Execute the tool with the given arguments
     async fn execute(&self, args: Value, context: &mut ToolContext) -> Result<String, String>;

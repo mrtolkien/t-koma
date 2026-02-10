@@ -3,30 +3,34 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 use super::{
-    Tool, ToolContext, ToolVisibility, change_directory::ChangeDirectoryTool,
-    create_file::CreateFileTool, file_edit::FileEditTool, find_files::FindFilesTool,
-    knowledge_get::KnowledgeGetTool, knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool,
-    load_skill::LoadSkillTool, note_write::NoteWriteTool, read_file::ReadFileTool,
-    reference_import::ReferenceImportTool, reference_manage::ReferenceManageTool,
-    reference_write::ReferenceWriteTool, search::SearchTool, shell::ShellTool,
-    web_fetch::WebFetchTool, web_search::WebSearchTool,
+    Tool, ToolContext, change_directory::ChangeDirectoryTool, create_file::CreateFileTool,
+    diary_write::DiaryWriteTool, file_edit::FileEditTool, find_files::FindFilesTool,
+    identity_edit::IdentityEditTool, knowledge_get::KnowledgeGetTool,
+    knowledge_search::KnowledgeSearchTool, list_dir::ListDirTool, load_skill::LoadSkillTool,
+    note_write::NoteWriteTool, read_file::ReadFileTool, reference_manage::ReferenceManageTool,
+    reference_write::ReferenceWriteTool, reflection_todo::ReflectionTodoTool, search::SearchTool,
+    shell::ShellTool, web_fetch::WebFetchTool, web_search::WebSearchTool,
 };
 
-/// Central manager for all AI tools
+/// Central manager for AI tools.
 ///
-/// This struct owns all tool instances and provides a unified interface
-/// for listing and executing tools. It's used by SessionChat to handle
-/// tool use loops without exposing tool details to interface code.
+/// Two constructors produce distinct tool sets for each role:
+/// - `new_chat()`: interactive ghost sessions (conversation + query)
+/// - `new_reflection()`: autonomous reflection jobs (knowledge curation)
+///
+/// Each instance provides a single `get_tools()` method — the right set is
+/// determined at construction time, not at query time.
 pub struct ToolManager {
     tools: Vec<Box<dyn Tool>>,
 }
 
 impl ToolManager {
-    /// Create a new ToolManager with all available tools registered.
+    /// Tools for interactive ghost chat sessions.
     ///
-    /// `skill_paths` are directories to search for skills, in priority order
-    /// (first match wins). Typically: ghost workspace skills, user config, project defaults.
-    pub fn new(skill_paths: Vec<PathBuf>) -> Self {
+    /// Includes filesystem, web, knowledge query, and skill tools.
+    /// Does NOT include write tools (note_write, reference_write, etc.)
+    /// — those belong to reflection.
+    pub fn new_chat(skill_paths: Vec<PathBuf>) -> Self {
         let tools: Vec<Box<dyn Tool>> = vec![
             Box::new(ShellTool),
             Box::new(ChangeDirectoryTool),
@@ -40,38 +44,42 @@ impl ToolManager {
             Box::new(WebFetchTool),
             Box::new(KnowledgeSearchTool),
             Box::new(KnowledgeGetTool),
-            Box::new(NoteWriteTool),
-            Box::new(ReferenceWriteTool),
-            Box::new(ReferenceImportTool),
-            Box::new(ReferenceManageTool),
             Box::new(LoadSkillTool::new(skill_paths)),
         ];
         Self { tools }
     }
 
-    /// Get tools visible during interactive chat (excludes `BackgroundOnly` tools).
-    pub fn get_chat_tools(&self) -> Vec<&dyn Tool> {
-        self.tools
-            .iter()
-            .filter(|t| t.visibility() == ToolVisibility::Always)
-            .map(|t| t.as_ref())
-            .collect()
+    /// Tools for autonomous reflection/curator jobs.
+    ///
+    /// Includes knowledge query + write tools, reference management,
+    /// identity/diary editing, and the reflection TODO tool.
+    /// Does NOT include shell/filesystem tools — reflection works
+    /// purely through the knowledge layer.
+    pub fn new_reflection(skill_paths: Vec<PathBuf>) -> Self {
+        let tools: Vec<Box<dyn Tool>> = vec![
+            Box::new(KnowledgeSearchTool),
+            Box::new(KnowledgeGetTool),
+            Box::new(NoteWriteTool),
+            Box::new(ReferenceWriteTool),
+            Box::new(ReferenceManageTool),
+            Box::new(IdentityEditTool),
+            Box::new(DiaryWriteTool),
+            Box::new(ReflectionTodoTool),
+            Box::new(WebSearchTool),
+            Box::new(WebFetchTool),
+            Box::new(ReadFileTool),
+            Box::new(FindFilesTool),
+            Box::new(LoadSkillTool::new(skill_paths)),
+        ];
+        Self { tools }
     }
 
-    /// Get all tools including background-only tools (for heartbeat/reflection).
-    pub fn get_all_tools(&self) -> Vec<&dyn Tool> {
+    /// Get all tools in this manager.
+    pub fn get_tools(&self) -> Vec<&dyn Tool> {
         self.tools.iter().map(|t| t.as_ref()).collect()
     }
 
-    /// Execute a tool by name with the given input and context
-    ///
-    /// # Arguments
-    /// * `name` - The tool name (must match `Tool::name()`)
-    /// * `input` - JSON input for the tool
-    /// * `context` - Execution context (cwd + workspace boundary state)
-    ///
-    /// # Returns
-    /// The tool's output as a string, or an error message
+    /// Execute a tool by name with the given input and context.
     pub async fn execute_with_context(
         &self,
         name: &str,
@@ -93,34 +101,49 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_tool_manager_new() {
-        let manager = ToolManager::new(vec![]);
+    fn test_chat_tools() {
+        let manager = ToolManager::new_chat(vec![]);
+        let tools = manager.get_tools();
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
 
-        // Chat tools exclude BackgroundOnly tools
-        let chat_tools = manager.get_chat_tools();
-        let chat_names: Vec<&str> = chat_tools.iter().map(|t| t.name()).collect();
-        assert!(chat_names.contains(&"run_shell_command"));
-        assert!(chat_names.contains(&"reference_write"));
+        assert!(names.contains(&"run_shell_command"));
+        assert!(names.contains(&"knowledge_search"));
+        assert!(names.contains(&"web_fetch"));
         assert!(
-            !chat_names.contains(&"reference_manage"),
+            !names.contains(&"note_write"),
+            "note_write should not be in chat tools"
+        );
+        assert!(
+            !names.contains(&"reference_manage"),
             "reference_manage should not be in chat tools"
         );
-
-        // All tools include everything
-        let all_tools = manager.get_all_tools();
-        let all_names: Vec<&str> = all_tools.iter().map(|t| t.name()).collect();
-        assert!(all_names.contains(&"run_shell_command"));
-        assert!(all_names.contains(&"reference_write"));
         assert!(
-            all_names.contains(&"reference_manage"),
-            "reference_manage should be in all tools"
+            !names.contains(&"reflection_todo"),
+            "reflection_todo should not be in chat tools"
         );
-        assert!(all_tools.len() > chat_tools.len());
+    }
+
+    #[test]
+    fn test_reflection_tools() {
+        let manager = ToolManager::new_reflection(vec![]);
+        let tools = manager.get_tools();
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+
+        assert!(names.contains(&"knowledge_search"));
+        assert!(names.contains(&"note_write"));
+        assert!(names.contains(&"reference_manage"));
+        assert!(names.contains(&"reflection_todo"));
+        assert!(names.contains(&"identity_edit"));
+        assert!(names.contains(&"diary_write"));
+        assert!(
+            !names.contains(&"run_shell_command"),
+            "shell should not be in reflection tools"
+        );
     }
 
     #[tokio::test]
     async fn test_tool_manager_execute_shell() {
-        let manager = ToolManager::new(vec![]);
+        let manager = ToolManager::new_chat(vec![]);
         let temp_dir = tempfile::TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
         let input = json!({ "command": "echo 'hello from tool manager'" });
@@ -134,7 +157,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_manager_execute_unknown() {
-        let manager = ToolManager::new(vec![]);
+        let manager = ToolManager::new_chat(vec![]);
         let temp_dir = tempfile::TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
         let input = json!({});
@@ -148,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_manager_execute_read_file() {
-        let manager = ToolManager::new(vec![]);
+        let manager = ToolManager::new_chat(vec![]);
         let temp_dir = tempfile::TempDir::new().unwrap();
         let mut context = ToolContext::new_for_tests(temp_dir.path());
         let file_path = temp_dir.path().join("sample.txt");
