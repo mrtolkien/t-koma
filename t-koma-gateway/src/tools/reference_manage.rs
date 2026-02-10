@@ -6,7 +6,7 @@ use crate::tools::{Tool, ToolContext};
 #[derive(Debug, Deserialize)]
 struct ReferenceManageInput {
     action: String,
-    topic: String,
+    topic: Option<String>,
     note_id: Option<String>,
     path: Option<String>,
     // update fields
@@ -14,6 +14,10 @@ struct ReferenceManageInput {
     reason: Option<String>,
     body: Option<String>,
     tags: Option<Vec<String>>,
+    // move fields
+    target_topic: Option<String>,
+    target_filename: Option<String>,
+    target_collection: Option<String>,
 }
 
 pub struct ReferenceManageTool;
@@ -25,7 +29,7 @@ impl Tool for ReferenceManageTool {
     }
 
     fn description(&self) -> &str {
-        "Update or delete reference files and topic metadata. Use for curation: change file status, update topic descriptions/tags, or remove bad references."
+        "Manage reference files and topics. Actions: update (change status/metadata), delete (remove file), move (relocate file between topics without copying content)."
     }
 
     fn input_schema(&self) -> Value {
@@ -34,29 +38,29 @@ impl Tool for ReferenceManageTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["update", "delete"],
-                    "description": "update: change file status or topic metadata. delete: remove a reference file."
+                    "enum": ["update", "delete", "move"],
+                    "description": "update: change file status or topic metadata. delete: remove a reference file. move: relocate a file to another topic (content stays server-side)."
                 },
                 "topic": {
                     "type": "string",
-                    "description": "Topic name (must exist)."
+                    "description": "Source topic name. Required for update and path-based lookups. Optional for delete/move when note_id is provided."
                 },
                 "note_id": {
                     "type": "string",
-                    "description": "Note ID of a reference file. Alternative to path."
+                    "description": "Note ID of a reference file (globally unique). For delete/move, this alone is sufficient."
                 },
                 "path": {
                     "type": "string",
-                    "description": "File path within the topic. Used with note_id to target a file."
+                    "description": "File path within the topic. Use with topic to target a file."
                 },
                 "status": {
                     "type": "string",
                     "enum": ["active", "problematic", "obsolete"],
-                    "description": "New file status (update with note_id/path only)."
+                    "description": "New file status (update action only)."
                 },
                 "reason": {
                     "type": "string",
-                    "description": "Why the file is being updated/deleted."
+                    "description": "Why the file is being updated/deleted/moved."
                 },
                 "body": {
                     "type": "string",
@@ -66,9 +70,21 @@ impl Tool for ReferenceManageTool {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "New topic tags (update without note_id/path)."
+                },
+                "target_topic": {
+                    "type": "string",
+                    "description": "Destination topic (move action). Created if it doesn't exist."
+                },
+                "target_filename": {
+                    "type": "string",
+                    "description": "New filename in target topic (move action). Defaults to the original filename."
+                },
+                "target_collection": {
+                    "type": "string",
+                    "description": "Collection within target topic (move action). E.g. 'comparisons' or 'guides'."
                 }
             },
-            "required": ["action", "topic"],
+            "required": ["action"],
             "additionalProperties": false
         })
     }
@@ -85,7 +101,11 @@ impl Tool for ReferenceManageTool {
         match input.action.as_str() {
             "update" => execute_update(&engine, context.ghost_name(), input).await,
             "delete" => execute_delete(&engine, input).await,
-            other => Err(format!("Unknown action '{}'. Use update or delete.", other)),
+            "move" => execute_move(&engine, context.ghost_name(), input).await,
+            other => Err(format!(
+                "Unknown action '{}'. Use update, delete, or move.",
+                other
+            )),
         }
     }
 }
@@ -95,6 +115,11 @@ async fn execute_update(
     ghost_name: &str,
     input: ReferenceManageInput,
 ) -> Result<String, String> {
+    let topic = input
+        .topic
+        .as_deref()
+        .ok_or("'topic' is required for update")?;
+
     if input.note_id.is_some() || input.path.is_some() {
         // File-level update — change status
         let note_id = resolve_file_id(engine, &input).await?;
@@ -114,7 +139,7 @@ async fn execute_update(
     } else {
         // Topic-level update
         let (topic_id, _title) = engine
-            .resolve_topic(&input.topic)
+            .resolve_topic(topic)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -147,8 +172,45 @@ async fn execute_delete(
 
         Ok(json!({"deleted": note_id}).to_string())
     } else {
-        Err("Topic deletion is admin-only. Use the CLI/TUI to delete topics.".to_string())
+        Err("Provide 'note_id' or 'topic' + 'path' to identify the file to delete.".to_string())
     }
+}
+
+async fn execute_move(
+    engine: &t_koma_knowledge::KnowledgeEngine,
+    ghost_name: &str,
+    input: ReferenceManageInput,
+) -> Result<String, String> {
+    let target_topic = input
+        .target_topic
+        .as_deref()
+        .ok_or("'target_topic' is required for move")?;
+
+    if input.note_id.is_none() && input.path.is_none() {
+        return Err("Provide 'note_id' or 'topic' + 'path' to identify the file to move.".into());
+    }
+
+    let note_id = resolve_file_id(engine, &input).await?;
+
+    let result = engine
+        .reference_file_move(
+            ghost_name,
+            &note_id,
+            target_topic,
+            input.target_filename.as_deref(),
+            input.target_collection.as_deref(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(json!({
+        "moved": note_id,
+        "target_topic": result.topic_id,
+        "target_path": result.path,
+        "created_topic": result.created_topic,
+        "created_collection": result.created_collection,
+    })
+    .to_string())
 }
 
 /// Resolve a reference file's note_id from either `note_id` or `topic` + `path`.
@@ -160,18 +222,22 @@ async fn resolve_file_id(
         return Ok(id.clone());
     }
 
+    let topic = input
+        .topic
+        .as_deref()
+        .ok_or("either 'note_id' or 'topic' + 'path' is required")?;
     let path = input
         .path
         .as_deref()
-        .ok_or("either 'note_id' or 'path' is required")?;
+        .ok_or("either 'note_id' or 'topic' + 'path' is required")?;
 
     let doc = engine
-        .reference_get(None, Some(&input.topic), Some(path), Some(100))
+        .reference_get(None, Some(topic), Some(path), Some(100))
         .await
         .map_err(|e| {
             format!(
                 "No reference file at path '{}' in topic '{}': {}",
-                path, input.topic, e
+                path, topic, e
             )
         })?;
 

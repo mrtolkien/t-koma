@@ -148,19 +148,23 @@ conversation are auto-saved to `_web-cache`. You MUST handle every item:
       topic="_web-cache")` to find all cached items.
    2. Read each item with `knowledge_get` to assess content quality.
    3. For each item, choose ONE action:
-      - **Move useful content**: Read full content with `knowledge_get` →
-        save verbatim to a proper topic with `reference_write` → delete
-        the `_web-cache` original with `reference_manage(action="delete")`
+      - **Move useful content** — use `reference_manage(action="move")`:
+        ```
+        reference_manage(
+          action="move",
+          note_id="<id from search>",
+          target_topic="<proper topic name>",
+          target_filename="descriptive-name.md",
+          target_collection="optional-subcollection"
+        )
+        ```
+        This relocates the file server-side — content is never re-output through
+        you. One tool call replaces the old read → write → delete workflow.
       - **Delete garbage**: 403 pages, empty content, irrelevant material →
-        `reference_manage(action="delete")` directly
+        `reference_manage(action="delete", note_id="<id>")`
    4. When finished, `_web-cache` should be empty.
 
-> **References preserve source content verbatim.** Your summaries and
-> interpretations belong in notes. When moving content from `_web-cache` to a
-> reference topic, pass the original content from `knowledge_get` as-is via
-> the `content` field of `reference_write`.
-
-   After creating a new topic, set its description with:
+   After creating a new topic via move, set its description with:
    `reference_manage(action="update", topic="...", body="Description of what
    this topic covers.")`
 
@@ -193,8 +197,8 @@ reflection run. Summarize:
 - References = source preservation. Notes = your interpretation. Never rewrite
   source material in references.
 - Empty the `_web-cache` completely — any remaining item is a mistake.
-- `knowledge_get` returns the true source content in its `body` field. Search
-  snippets may contain index metadata — always use `knowledge_get` for content
-  you'll pass to `reference_write`.
+- Use `reference_manage(action="move")` to relocate web-cache files to proper
+  topics. Never manually read and re-write reference content — the move action
+  handles it server-side.
 - Non-2xx web_fetch results (403 blocks, timeouts) are NOT auto-saved. If the
   transcript shows a failed fetch, don't search for it in `_web-cache`.

@@ -596,6 +596,93 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
     }
 }
 
+/// Move a reference file from one topic to another without touching the content.
+///
+/// Reads the raw file from disk, gets source metadata from the DB, saves to the
+/// target topic via `reference_save`, then deletes the original. The content is
+/// never exposed to the caller — it stays server-side.
+pub(crate) async fn reference_file_move(
+    engine: &KnowledgeEngine,
+    ghost_name: &str,
+    note_id: &str,
+    target_topic: &str,
+    target_filename: Option<&str>,
+    target_collection: Option<&str>,
+) -> KnowledgeResult<crate::models::ReferenceSaveResult> {
+    let pool = engine.pool();
+
+    // 1. Get the note's file path and scope
+    let row =
+        sqlx::query_as::<_, (String, String)>("SELECT path, scope FROM notes WHERE id = ? LIMIT 1")
+            .bind(note_id)
+            .fetch_optional(pool)
+            .await?;
+
+    let (disk_path, scope) = row.ok_or_else(|| KnowledgeError::UnknownNote(note_id.to_string()))?;
+
+    if !scope.contains("reference") {
+        return Err(KnowledgeError::AccessDenied(format!(
+            "note '{}' is not a reference (scope={})",
+            note_id, scope
+        )));
+    }
+
+    // 2. Read file content from disk
+    let content = tokio::fs::read_to_string(&disk_path).await.map_err(|e| {
+        KnowledgeError::Io(std::io::Error::new(
+            e.kind(),
+            format!("reading reference file '{}': {}", disk_path, e),
+        ))
+    })?;
+
+    // 3. Get source_url and role from reference_files table
+    let meta = sqlx::query_as::<_, (Option<String>, String)>(
+        "SELECT source_url, role FROM reference_files WHERE note_id = ? LIMIT 1",
+    )
+    .bind(note_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let (source_url, role_str) = meta.unwrap_or((None, "docs".to_string()));
+    let role: crate::models::SourceRole =
+        role_str.parse().unwrap_or(crate::models::SourceRole::Docs);
+
+    // 4. Determine target filename — use provided or derive from source path
+    let original_filename = std::path::Path::new(&disk_path)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("unnamed.md");
+    let filename = target_filename.unwrap_or(original_filename);
+
+    // Build the save path (collection/filename or just filename)
+    let save_path = match target_collection {
+        Some(coll) => format!("{}/{}", coll, filename),
+        None => filename.to_string(),
+    };
+
+    // 5. Save to target topic
+    let request = crate::models::ReferenceSaveRequest {
+        topic: target_topic.to_string(),
+        path: save_path,
+        content,
+        source_url,
+        role: Some(role),
+        title: None,
+        collection_title: None,
+        collection_description: None,
+        collection_tags: None,
+        tags: None,
+        topic_description: None,
+    };
+
+    let result = super::save::reference_save(engine, ghost_name, request).await?;
+
+    // 6. Delete the original
+    reference_file_delete(engine, note_id).await?;
+
+    Ok(result)
+}
+
 /// Delete a reference file by note ID.
 ///
 /// Unlike `note_delete` which searches note/diary scopes only, this does a

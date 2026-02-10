@@ -204,6 +204,29 @@ impl KnowledgeEngine {
         reference::reference_file_delete(self, note_id).await
     }
 
+    /// Move a reference file from one topic to another without exposing content.
+    ///
+    /// Reads the file from disk, saves to the target topic, deletes the original.
+    /// Content never passes through the caller — stays server-side.
+    pub async fn reference_file_move(
+        &self,
+        ghost_name: &str,
+        note_id: &str,
+        target_topic: &str,
+        target_filename: Option<&str>,
+        target_collection: Option<&str>,
+    ) -> KnowledgeResult<ReferenceSaveResult> {
+        reference::reference_file_move(
+            self,
+            ghost_name,
+            note_id,
+            target_topic,
+            target_filename,
+            target_collection,
+        )
+        .await
+    }
+
     /// Get a reference file by note_id or by topic + file_path.
     pub async fn reference_get(
         &self,

@@ -440,11 +440,11 @@ pub(crate) async fn hydrate_summaries_boosted(
 /// for embedding relevance, but snippets shown to the ghost shouldn't include
 /// this metadata — it confuses LLMs into thinking it's part of the source content.
 fn strip_context_prefix(chunk_content: &str) -> &str {
-    if chunk_content.starts_with('[') {
-        if let Some(after_bracket) = chunk_content.find("]\n") {
-            let rest = &chunk_content[after_bracket + 2..];
-            return rest.trim_start_matches('\n');
-        }
+    if chunk_content.starts_with('[')
+        && let Some(after_bracket) = chunk_content.find("]\n")
+    {
+        let rest = &chunk_content[after_bracket + 2..];
+        return rest.trim_start_matches('\n');
     }
     chunk_content
 }

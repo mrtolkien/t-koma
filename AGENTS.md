@@ -416,7 +416,10 @@ Reflection tools (knowledge writing):
   (required), `filename` (required), `content` or `content_ref` (one required),
   `collection` (optional), `source_url` (optional). No approval needed.
 - `reference_manage`: Curation tool for reference topics and files. Actions:
-  `update` (change file status, topic description/tags), `delete` (remove file).
+  `update` (change file status, topic description/tags), `delete` (remove file),
+  `move` (relocate file between topics server-side — content is never exposed to
+  the caller). Files can be identified by `note_id` alone (globally unique) or
+  `topic` + `path`.
 - `identity_edit`: Read/update ghost identity files (BOOT.md, SOUL.md, USER.md).
 - `diary_write`: Create or append to diary entries (YYYY-MM-DD.md format).
 - `reflection_todo`: Structured TODO list for reflection planning. Actions:
