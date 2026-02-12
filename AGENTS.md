@@ -360,9 +360,9 @@ Cross-scope rule: ghost notes can link to shared notes and reference topics via
 
 Notes have two classification axes:
 
-- **`entry_type`** (structural): `Note`, `ReferenceDocs`, `ReferenceCode`, `Diary`.
-  Used in WHERE clauses for scope discrimination. Set automatically by the ingest
-  pipeline. Topics are regular `Note` entries in `shared_note` scope — discovered via
+- **`entry_type`** (structural): `Note`, `ReferenceDocs`, `ReferenceCode`, `Diary`. Used
+  in WHERE clauses for scope discrimination. Set automatically by the ingest pipeline.
+  Topics are regular `Note` entries in `shared_note` scope — discovered via
   `reference_files` table joins.
 - **`archetype`** (semantic, optional): `person`, `concept`, `decision`, `event`,
   `place`, `project`, `organization`, `procedure`, `media`, `quote`. Optional

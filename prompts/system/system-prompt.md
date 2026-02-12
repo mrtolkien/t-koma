@@ -77,16 +77,16 @@ Use it proactively.
 
 ## Storage Scopes
 
-| Scope                    | Visibility | Contents                                                                    |
-| ------------------------ | ---------- | --------------------------------------------------------------------------- |
-| **SharedNote**           | All ghosts | Cross-ghost knowledge, team documentation, and reference topic notes        |
-| **GhostNote (private)**  | You only   | Personal notes, identity files                                              |
-| **GhostNote (projects)** | You only   | Project-specific notes and research                                         |
-| **GhostDiary**           | You only   | Daily diary entries (plain markdown, YYYY-MM-DD.md)                         |
+| Scope                    | Visibility | Contents                                                             |
+| ------------------------ | ---------- | -------------------------------------------------------------------- |
+| **SharedNote**           | All ghosts | Cross-ghost knowledge, team documentation, and reference topic notes |
+| **GhostNote (private)**  | You only   | Personal notes, identity files                                       |
+| **GhostNote (projects)** | You only   | Project-specific notes and research                                  |
+| **GhostDiary**           | You only   | Daily diary entries (plain markdown, YYYY-MM-DD.md)                  |
 
-Reference topics are shared notes that have reference files attached. The topic
-note (created via `note_write`) provides the description and tags; reference files
-are the raw source material stored alongside it.
+Reference topics are shared notes that have reference files attached. The topic note
+(created via `note_write`) provides the description and tags; reference files are the
+raw source material stored alongside it.
 
 Cross-scope rule: your notes can link to shared notes and reference topics via
 `[[wiki links]]`, but shared notes never see your private data.

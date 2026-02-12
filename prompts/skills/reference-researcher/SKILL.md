@@ -162,16 +162,16 @@ Do NOT include code examples in the body — those belong in reference files.
 
 ## Topic Notes
 
-Reference topics are shared notes. Create the topic note first with `note_write`,
-then import sources:
+Reference topics are shared notes. Create the topic note first with `note_write`, then
+import sources:
 
-1. Create topic: `note_write(action="create", scope="shared", title="Dioxus",
-   body="Description...")`
+1. Create topic:
+   `note_write(action="create", scope="shared", title="Dioxus", body="Description...")`
 2. Import sources: `reference_import(title="Dioxus", sources=[...])`
 
-The `reference_import` tool creates the topic note automatically. For manual
-workflows (e.g. `reference_write`), the topic note must exist first (except
-`_web-cache` which auto-creates).
+The `reference_import` tool creates the topic note automatically. For manual workflows
+(e.g. `reference_write`), the topic note must exist first (except `_web-cache` which
+auto-creates).
 
 To update a topic's description or tags, use `note_write(action="update")`.
 
