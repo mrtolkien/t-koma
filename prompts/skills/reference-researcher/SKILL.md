@@ -11,17 +11,17 @@ metadata:
 
 # Reference Researcher
 
-You are a research specialist. This skill covers advanced strategies for
-building high-quality reference topics. Basic reference_write and
-reference_import usage is in the system prompt — this skill adds depth.
+You are a research specialist. This skill covers advanced strategies for building
+high-quality reference topics. Basic reference_write and reference_import usage is in
+the system prompt — this skill adds depth.
 
 ## Research Strategy
 
 Follow this priority order to understand a topic before importing:
 
-1. **Find documentation first**: Use `web_search` to find official docs. Many
-   projects have a dedicated docsite repo (e.g. `org/docs`, `org/website`) that
-   contains more useful content than the code repo itself.
+1. **Find documentation first**: Use `web_search` to find official docs. Many projects
+   have a dedicated docsite repo (e.g. `org/docs`, `org/website`) that contains more
+   useful content than the code repo itself.
 
    ```
    web_search(query="dioxus official documentation site")
@@ -45,15 +45,15 @@ Follow this priority order to understand a topic before importing:
    run_shell_command(command="gh api repos/DioxusLabs/dioxus --jq '.description, .stargazers_count, .topics'")
    ```
 
-5. **Understand before creating**: Read enough to write a meaningful topic
-   description and pick the right sources.
+5. **Understand before creating**: Read enough to write a meaningful topic description
+   and pick the right sources.
 
 ## Import Patterns
 
 ### Default: Fetch the Entire Repository
 
-The embedding system handles large codebases well (tree-sitter chunking, hybrid
-search). Default to full repo imports:
+The embedding system handles large codebases well (tree-sitter chunking, hybrid search).
+Default to full repo imports:
 
 ```json
 {
@@ -144,22 +144,36 @@ documentation site:
 
 **When to crawl vs list individual pages:**
 
-- **Crawl**: Documentation sites with clear navigation structure, API reference
-  sites with many sub-pages, wikis.
-- **Individual pages**: Sites with noisy navigation (forums, blogs), when you
-  only need specific pages, landing pages with irrelevant links.
+- **Crawl**: Documentation sites with clear navigation structure, API reference sites
+  with many sub-pages, wikis.
+- **Individual pages**: Sites with noisy navigation (forums, blogs), when you only need
+  specific pages, landing pages with irrelevant links.
 
 ## Writing a Good Topic Description
 
-The `body` is passed IN FULL to the LLM as context. Write it as a concise
-briefing:
+The `body` is passed IN FULL to the LLM as context. Write it as a concise briefing:
 
 1. **Opening paragraph**: 2-3 sentence recap (good for embeddings).
 2. **Key concepts**: Bullet-point core abstractions and patterns.
-3. **Content notes**: Caveats about reference contents — known gaps, version
-   issues, weak documentation areas.
+3. **Content notes**: Caveats about reference contents — known gaps, version issues,
+   weak documentation areas.
 
 Do NOT include code examples in the body — those belong in reference files.
+
+## Topic Notes
+
+Reference topics are shared notes. Create the topic note first with `note_write`,
+then import sources:
+
+1. Create topic: `note_write(action="create", scope="shared", title="Dioxus",
+   body="Description...")`
+2. Import sources: `reference_import(title="Dioxus", sources=[...])`
+
+The `reference_import` tool creates the topic note automatically. For manual
+workflows (e.g. `reference_write`), the topic note must exist first (except
+`_web-cache` which auto-creates).
+
+To update a topic's description or tags, use `note_write(action="update")`.
 
 ## Staleness Management
 
@@ -171,14 +185,14 @@ Do NOT include code examples in the body — those belong in reference files.
 
 ### Managing Quality
 
-Use `reference_write` with action `update` to manage file status:
+Use `reference_manage` with action `update` to manage file status:
 
-- Update tags and body on existing topics as you learn more.
 - Mark files as `problematic` when you find partial inaccuracies.
 - Mark files as `obsolete` when they would actively mislead.
-- Always provide a reason — it's appended to the topic body as a warning.
+- Always provide a reason.
+- To update topic metadata (description, tags), use `note_write(action="update")`.
 
 ```
-reference_write(action="update", topic="dioxus", note_id="abc123",
+reference_manage(action="update", note_id="abc123",
   status="problematic", reason="API examples use v0.4 syntax, current is v0.6")
 ```

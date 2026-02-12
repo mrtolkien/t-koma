@@ -1,10 +1,12 @@
 # t-koma Skills
 
-This directory contains [Agent Skills](https://agentskills.io) that extend the capabilities of the t-koma agent.
+This directory contains [Agent Skills](https://agentskills.io) that extend the
+capabilities of the t-koma agent.
 
 ## What are Skills?
 
-Skills are folders of instructions, scripts, and resources that agents can discover and use to do things more accurately and efficiently. They provide:
+Skills are folders of instructions, scripts, and resources that agents can discover and
+use to do things more accurately and efficiently. They provide:
 
 - **Domain expertise**: Specialized knowledge for specific tasks
 - **New capabilities**: Extended functionality through instructions and scripts
@@ -56,7 +58,8 @@ Detailed instructions for the agent...
 
 ## Using Skills
 
-The agent automatically discovers skills in this directory at startup. To use a skill, the agent:
+The agent automatically discovers skills in this directory at startup. To use a skill,
+the agent:
 
 1. Identifies relevant skills based on the task
 2. Loads the full skill content when needed

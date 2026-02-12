@@ -1,6 +1,6 @@
 # {title}
 
-**Status**: active | paused | completed | abandoned
+- **Status**: active | paused | completed | abandoned
 
 ## Overview
 

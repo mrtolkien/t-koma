@@ -1,7 +1,7 @@
 # {title}
 
-**Location**:
-**Type**:
+- **Location**:
+- **Type**:
 
 ## Description
 

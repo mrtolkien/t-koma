@@ -13,7 +13,8 @@ This guide helps you create effective Agent Skills that extend t-koma's capabili
 
 ## What is a Skill?
 
-A skill is a self-contained directory with instructions, scripts, and resources that help the agent perform specific tasks more accurately and efficiently.
+A skill is a self-contained directory with instructions, scripts, and resources that
+help the agent perform specific tasks more accurately and efficiently.
 
 ## When to Create a Skill
 
@@ -87,13 +88,11 @@ Brief explanation of the skill's purpose.
 
 ### Example 1: Common Use Case
 
-Input: ...
-Output: ...
+Input: ... Output: ...
 
 ### Example 2: Edge Case
 
-Input: ...
-Output: ...
+Input: ... Output: ...
 
 ## Common Pitfalls
 
@@ -181,13 +180,8 @@ Before using a skill:
 ## Example: Complete Skill
 ```
 
-prompts/skills/data-extraction/
-├── SKILL.md
-├── scripts/
-│ ├── extract_csv.py
-│ └── clean_data.py
-└── references/
-└── DATA_FORMATS.md
+prompts/skills/data-extraction/ ├── SKILL.md ├── scripts/ │ ├── extract_csv.py │ └──
+clean_data.py └── references/ └── DATA_FORMATS.md
 
 ````
 **SKILL.md:**

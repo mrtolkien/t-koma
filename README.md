@@ -1,23 +1,23 @@
 # t-koma
 
-A Rust-based AI system with multi-provider model support, featuring the
-T-KOMA (ティーコマ) server and a terminal UI client.
+A Rust-based AI system with multi-provider model support, featuring the T-KOMA
+(ティーコマ) server and a terminal UI client.
 
 ## Overview
 
 t-koma is an AI system consisting of:
 
-- **t-koma-gateway**: The T-KOMA (ティーコマ) server that proxies requests to
-  the configured model provider and manages operators/ghosts
+- **t-koma-gateway**: The T-KOMA (ティーコマ) server that proxies requests to the
+  configured model provider and manages operators/ghosts
 - **t-koma-cli**: A terminal UI client (interface) for interacting with the system
 - **t-koma-core**: Shared types and configuration
 
 ## Features
 
-- 🤖 **Multi-provider Models**: Supports Anthropic and OpenRouter via a unified
-  provider interface
-- 🌐 **WebSocket Communication**: Real-time bidirectional messaging between CLI
-  and T-KOMA
+- 🤖 **Multi-provider Models**: Supports Anthropic and OpenRouter via a unified provider
+  interface
+- 🌐 **WebSocket Communication**: Real-time bidirectional messaging between CLI and
+  T-KOMA
 - 🖥️ **Terminal UI**: Built with ratatui for a rich terminal experience
 - 🚀 **Auto-start for Chat**: CLI can start T-KOMA for chat sessions
 - 👤 **Operator + Ghost Model**: Operators own ghosts, with per-ghost sessions
@@ -65,18 +65,16 @@ cargo run --release --bin t-koma-cli
 cargo run --release --bin t-koma-cli
 ```
 
-The TUI will automatically detect if T-KOMA is running and start it if
-needed.
+The TUI will automatically detect if T-KOMA is running and start it if needed.
 
 ### Operator/Ghost Flow
 
-1. First message on an interface (Discord or TUI) prompts whether the interface
-   belongs to a NEW or EXISTING operator.
-2. NEW operator creation is supported; EXISTING operator linking is not yet
-   implemented.
+1. First message on an interface (Discord or TUI) prompts whether the interface belongs
+   to a NEW or EXISTING operator.
+2. NEW operator creation is supported; EXISTING operator linking is not yet implemented.
 3. Operators must be approved via the management CLI before interacting.
-4. GHOST creation happens in Discord. The bot prompts for a name, then boots
-   the GHOST with `prompts/system/bootstrap.md` as the first user message.
+4. GHOST creation happens in Discord. The bot prompts for a name, then boots the GHOST
+   with `prompts/system/bootstrap.md` as the first user message.
 
 ### TUI Controls
 
@@ -91,7 +89,8 @@ needed.
 
 Configuration is loaded from a TOML file and environment variables:
 
-- Settings: `~/.config/t-koma/config.toml` (Linux/macOS) or `%APPDATA%/t-koma/config.toml` (Windows)
+- Settings: `~/.config/t-koma/config.toml` (Linux/macOS) or
+  `%APPDATA%/t-koma/config.toml` (Windows)
 - Secrets: `.env` or environment variables for API keys
 
 ### Example `config.toml`

@@ -1,8 +1,8 @@
 # {title}
 
-**Date**:
-**Location**:
-**Participants**:
+- **Date**:
+- **Location**:
+- **Participants**:
 
 ## Summary
 

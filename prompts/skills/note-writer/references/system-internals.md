@@ -1,8 +1,8 @@
 # Knowledge System Internals
 
-Physical file layout, formats, and indexing pipeline for the knowledge system.
-Use this reference when you need to understand how content is stored on disk,
-debug indexing issues, or work with knowledge files directly.
+Physical file layout, formats, and indexing pipeline for the knowledge system. Use this
+reference when you need to understand how content is stored on disk, debug indexing
+issues, or work with knowledge files directly.
 
 ## Folder Hierarchy
 
@@ -56,8 +56,8 @@ model = "claude-sonnet-4-5-20250929"
 
 Note body in markdown.
 
-Link to other notes: [[Note Title]] or [[Note Title|alias]].
-Links can target any shared note or reference topic by title.
+Link to other notes: [[Note Title]] or [[Note Title|alias]]. Links can target any shared
+note or reference topic by title.
 ```
 
 ### Front Matter Fields
@@ -85,8 +85,8 @@ Each file is one day's entry. The system generates a deterministic ID
 
 ## Inbox Format
 
-Raw markdown captured via `memory_capture`. **Not indexed** — these are staging
-areas for later curation into structured notes during reflection.
+Raw markdown captured via `memory_capture`. **Not indexed** — these are staging areas
+for later curation into structured notes during reflection.
 
 Format: `{unix-timestamp}-{slug}.md`. Optional provenance comment at top:
 
@@ -98,8 +98,8 @@ Raw captured content here...
 
 ## Reference Topic Structure
 
-Each reference topic is a directory containing `topic.md` (with front matter)
-plus fetched source files:
+Each reference topic is a directory containing `topic.md` (with front matter) plus
+fetched source files:
 
 ```
 reference/
@@ -150,8 +150,8 @@ Cross-scope rule: ghost notes can link to shared notes and reference topics via
 Single SQLite database (`knowledge/index.sqlite3`) with:
 
 - **notes**: All note metadata across all scopes
-- **chunks**: Text chunks for each note (heading-based for markdown,
-  tree-sitter-based for code)
+- **chunks**: Text chunks for each note (heading-based for markdown, tree-sitter-based
+  for code)
 - **chunk_fts**: FTS5 full-text search index on chunks
 - **chunk_vec**: sqlite-vec embedding index for dense retrieval
 - **links**: Wiki-link edges between notes

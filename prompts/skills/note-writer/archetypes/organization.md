@@ -1,7 +1,7 @@
 # {title}
 
-**Type**:
-**Relation**:
+- **Type**:
+- **Relation**:
 
 ## Overview
 

@@ -2,8 +2,8 @@
 
 > {quote text}
 
-**Attribution**:
-**Source**:
+- **Attribution**:
+- **Source**:
 
 ## Context
 

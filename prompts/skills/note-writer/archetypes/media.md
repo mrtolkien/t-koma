@@ -1,8 +1,8 @@
 # {title}
 
-**Author/Creator**:
-**Type**: book | article | film | podcast | other
-**Year**:
+- **Author/Creator**:
+- **Type**: book | article | film | podcast | other
+- **Year**:
 
 ## Summary
 

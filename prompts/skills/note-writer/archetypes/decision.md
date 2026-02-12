@@ -1,7 +1,7 @@
 # {title}
 
-**Status**: proposed | accepted | superseded
-**Date**:
+- **Status**: proposed | accepted | superseded
+- **Date**:
 
 ## Context
 

@@ -3,7 +3,8 @@
   "lineWidth": 88,
   "indentWidth": 2,
   "markdown": {
-    "lineWidth": 88
+    "lineWidth": 88,
+    "textWrap": "always"
   },
   "excludes": [
     "**/node_modules",

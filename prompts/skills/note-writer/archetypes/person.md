@@ -1,7 +1,7 @@
 # {title}
 
-**Role**:
-**Relation**:
+- **Role**:
+- **Relation**:
 
 ## Context
 

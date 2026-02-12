@@ -12,9 +12,9 @@ metadata:
 
 # Note Writer Skill
 
-You are now in note-writing mode. This skill covers creating, updating,
-validating, and commenting on structured knowledge notes, as well as diary
-conventions and identity file management.
+You are now in note-writing mode. This skill covers creating, updating, validating, and
+commenting on structured knowledge notes, as well as diary conventions and identity file
+management.
 
 ## When to Create Notes
 
@@ -33,9 +33,9 @@ Do NOT create notes for:
 
 ## Archetypes
 
-Archetypes are **optional** semantic classifications. Notes without an archetype
-are valid unclassified notes. Set the `archetype` field in front matter
-(lowercase) when it adds discoverability.
+Archetypes are **optional** semantic classifications. Notes without an archetype are
+valid unclassified notes. Set the `archetype` field in front matter (lowercase) when it
+adds discoverability.
 
 | Archetype      | Purpose                                 |
 | -------------- | --------------------------------------- |
@@ -57,18 +57,17 @@ are valid unclassified notes. Set the `archetype` field in front matter
 - **7-8**: Well-verified, cross-referenced with multiple sources
 - **9-10**: Authoritative, confirmed by operator or primary sources
 
-Start at 5 for most notes. Adjust with `note_write` action `validate` as
-confidence changes.
+Start at 5 for most notes. Adjust with `note_write` action `validate` as confidence
+changes.
 
 ## Tags
 
-Use consistent, lowercase, hierarchical tags separated by slashes. Prefer
-existing tags over creating new ones. Check what tags exist with
-`knowledge_search` before creating notes.
+Use consistent, lowercase, hierarchical tags separated by slashes. Prefer existing tags
+over creating new ones. Check what tags exist with `knowledge_search` before creating
+notes.
 
-Tags participate in search — they are prepended to the note's first chunk for
-both FTS and embedding indexing. The first tag determines the note's subfolder
-on disk.
+Tags participate in search — they are prepended to the note's first chunk for both FTS
+and embedding indexing. The first tag determines the note's subfolder on disk.
 
 - Good tags: `rust/library`, `architecture/decisions`, `debugging/patterns`
 - Bad tags: `Important`, `TODO`, `misc`
@@ -79,14 +78,14 @@ Aim for atomic, information-dense notes:
 
 - **Typical**: 100-400 words
 - **Maximum**: ~1000 words
-- Notes under ~1500 characters are indexed as a single embedding vector for
-  precise retrieval. Keep notes concise to benefit from this optimization.
+- Notes under ~1500 characters are indexed as a single embedding vector for precise
+  retrieval. Keep notes concise to benefit from this optimization.
 
 ## Wiki Links
 
-Link to related notes using `[[Title]]` or `[[Title|alias]]` syntax. Create
-links even if the target note doesn't exist yet — they will be resolved when the
-target is created. Links enable graph-depth traversal during search.
+Link to related notes using `[[Title]]` or `[[Title|alias]]` syntax. Create links even
+if the target note doesn't exist yet — they will be resolved when the target is created.
+Links enable graph-depth traversal during search.
 
 ## Updating vs. Creating
 
@@ -98,8 +97,8 @@ Before creating a new note, search first:
 
 ## Comments
 
-Use `note_write` action `comment` to append timestamped observations to existing
-notes without changing the main body. Good for:
+Use `note_write` action `comment` to append timestamped observations to existing notes
+without changing the main body. Good for:
 
 - Recording when a note was confirmed or contradicted
 - Adding context from new conversations
@@ -107,38 +106,36 @@ notes without changing the main body. Good for:
 
 ## Deleting Notes
 
-Use `note_write` action `delete` to remove a note that is no longer relevant.
-This removes the file from disk and all associated DB records (chunks, tags,
-links).
+Use `note_write` action `delete` to remove a note that is no longer relevant. This
+removes the file from disk and all associated DB records (chunks, tags, links).
 
 ## Scope
 
-- **private** (default): Private to you. Use for personal observations and
-  working notes.
+- **private** (default): Private to you. Use for personal observations and working
+  notes.
 - **shared**: Visible to all ghosts. Use for established knowledge that benefits
   everyone.
 
-Start with ghost scope. Promote to shared when the note is validated and broadly
-useful.
+Start with ghost scope. Promote to shared when the note is validated and broadly useful.
 
 ## Diary Conventions
 
-Diary entries are date-based (`YYYY-MM-DD.md`), plain markdown with no front
-matter. They are append-only.
+Diary entries are date-based (`YYYY-MM-DD.md`), plain markdown with no front matter.
+They are append-only.
 
 - Use bullet points for events, decisions, and observations.
 - Keep entries brief — details belong in notes, diary is the timeline.
-- The system generates a deterministic ID (`diary:{ghost}:{date}`) so
-  re-indexing produces upserts, not duplicates.
+- The system generates a deterministic ID (`diary:{ghost}:{date}`) so re-indexing
+  produces upserts, not duplicates.
 
 ## Identity Files
 
 Ghosts maintain three identity files in the workspace root:
 
-- **BOOT.md**: Core personality, values, and behavioral constraints. Rarely
-  changes. Only modify when explicitly directed by the operator.
-- **SOUL.md**: Evolving self-model, communication style, and preferences. Update
-  during reflection when significant self-awareness insights emerge.
+- **BOOT.md**: Core personality, values, and behavioral constraints. Rarely changes.
+  Only modify when explicitly directed by the operator.
+- **SOUL.md**: Evolving self-model, communication style, and preferences. Update during
+  reflection when significant self-awareness insights emerge.
 - **USER.md**: Accumulated knowledge about the operator (preferences, context,
   communication style). Update when new operator information is captured.
 

@@ -86,7 +86,8 @@ dprint check  # Check only
 Install these extensions:
 
 - **Rust**: rust-analyzer (includes rustfmt)
-- **dprint**: [dprint VS Code extension](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
+- **dprint**:
+  [dprint VS Code extension](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
 
 Add to `.vscode/settings.json`:
 
