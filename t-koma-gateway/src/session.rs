@@ -432,6 +432,7 @@ impl SessionChat {
         session_id: &str,
         operator_id: &str,
         message: &str,
+        message_already_persisted: bool,
         tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
         // Verify session exists and belongs to operator
@@ -448,19 +449,21 @@ impl SessionChat {
             "[session:{}] Chat message from operator {}", session_id, operator_id
         );
 
-        // Save operator message to database
-        let user_content = vec![DbContentBlock::Text {
-            text: message.to_string(),
-        }];
-        SessionRepository::add_message(
-            pool.pool(),
-            ghost_id,
-            session_id,
-            MessageRole::Operator,
-            user_content,
-            None,
-        )
-        .await?;
+        // Save operator message to database (skip on retry — already persisted)
+        if !message_already_persisted {
+            let user_content = vec![DbContentBlock::Text {
+                text: message.to_string(),
+            }];
+            SessionRepository::add_message(
+                pool.pool(),
+                ghost_id,
+                session_id,
+                MessageRole::Operator,
+                user_content,
+                None,
+            )
+            .await?;
+        }
 
         // Build system prompt with ghost context (cached for 5 min)
         let system_blocks = self
