@@ -44,9 +44,15 @@ Background jobs are orchestrated by scheduler state in
 
 ## Web Cache Interaction
 
-- `web_search`/`web_fetch` results are auto-saved to `.web-cache` during chat.
-- Reflection is responsible for curating `.web-cache` into proper reference topics or
-  deleting noise.
+- `web_fetch` results (2xx only) and `web_search` results are auto-saved as plain files
+  to `.web-cache/` in the ghost workspace during chat. Files have YAML front matter
+  (`source_url`, `fetched_at`). No DB records or embeddings are created.
+- Reflection sees the file list via the `web_cache_files` template variable in its
+  system prompt.
+- Reflection curates files into proper reference topics using
+  `reference_manage(action="move", cache_file=".web-cache/<file>")` or deletes noise
+  with `reference_manage(action="delete", cache_file=...)`.
+- `.web-cache/` is auto-cleared after successful reflection.
 
 ## Key Files
 
