@@ -32,8 +32,8 @@ pub enum ChatError {
     #[error("Database error: {0}")]
     Database(#[from] t_koma_db::DbError),
 
-    #[error("Provider API error: {0}")]
-    Api(String),
+    #[error("Provider error: {0}")]
+    Provider(ProviderError),
 
     #[error("Session not found or access denied")]
     SessionNotFound,
@@ -49,6 +49,9 @@ pub enum ChatError {
 
     #[error("Provider returned an empty final response")]
     EmptyResponse,
+
+    #[error("All models in fallback chain exhausted")]
+    AllModelsExhausted,
 }
 
 #[derive(Debug, Clone)]
@@ -634,7 +637,7 @@ impl SessionChat {
         .await
         .map_err(|e| {
             warn!("Job initial send failed after retries: {e:#}");
-            ChatError::Api(format!("{e:#}"))
+            ChatError::Provider(e)
         })?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
@@ -703,7 +706,7 @@ impl SessionChat {
             .await
             .map_err(|e| {
                 warn!("Job tool-loop send failed after retries (iteration {iteration}): {e:#}");
-                ChatError::Api(format!("{e:#}"))
+                ChatError::Provider(e)
             })?;
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
@@ -788,7 +791,7 @@ impl SessionChat {
                 None,
             )
             .await
-            .map_err(|e| ChatError::Api(e.to_string()))?;
+            .map_err(ChatError::Provider)?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
         // Handle tool use loop (bounded to prevent infinite loops)
@@ -874,7 +877,7 @@ impl SessionChat {
                     None,
                 )
                 .await
-                .map_err(|e| ChatError::Api(e.to_string()))?;
+                .map_err(ChatError::Provider)?;
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
 
