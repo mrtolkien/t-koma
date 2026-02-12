@@ -79,7 +79,7 @@ impl Tool for KnowledgeSearchTool {
                 },
                 "archetype": {
                     "type": "string",
-                    "description": "Filter notes by archetype (e.g. person, concept, decision, event, project)."
+                    "description": "Filter notes by archetype (e.g. person, concept, decision, event, project, topic)."
                 }
             },
             "required": ["query"],

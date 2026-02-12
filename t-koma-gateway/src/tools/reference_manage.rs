@@ -143,7 +143,7 @@ async fn execute_delete(
 ) -> Result<String, String> {
     // Handle cache_file deletion (plain filesystem)
     if let Some(cache_path) = &input.cache_file {
-        let abs_path = workspace_root.join(cache_path);
+        let abs_path = validate_cache_file_path(workspace_root, cache_path)?;
         tokio::fs::remove_file(&abs_path)
             .await
             .map_err(|e| format!("Failed to delete cache file: {e}"))?;
@@ -181,7 +181,7 @@ async fn execute_move(
 
     // Handle cache_file move (read from filesystem → save to knowledge DB)
     if let Some(cache_path) = &input.cache_file {
-        let abs_path = workspace_root.join(cache_path);
+        let abs_path = validate_cache_file_path(workspace_root, cache_path)?;
         let raw = tokio::fs::read_to_string(&abs_path)
             .await
             .map_err(|e| format!("Failed to read cache file: {e}"))?;
@@ -245,7 +245,38 @@ async fn execute_move(
     .to_string())
 }
 
-// ── Web-cache front matter helpers ─────────────────────────────────
+// ── Web-cache helpers ─────────────────────────────────────────────
+
+/// Validate that a `cache_file` path resolves to within `.web-cache/`.
+///
+/// Prevents path traversal (e.g. `../../etc/passwd`) by canonicalizing
+/// relative segments and checking the result stays under `.web-cache/`.
+fn validate_cache_file_path(
+    workspace_root: &std::path::Path,
+    cache_path: &str,
+) -> Result<std::path::PathBuf, String> {
+    let cache_dir = workspace_root.join(".web-cache");
+    let joined = workspace_root.join(cache_path);
+
+    // Resolve `..` components without touching the filesystem
+    let mut normalized = std::path::PathBuf::new();
+    for component in joined.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => normalized.push(other),
+        }
+    }
+
+    if !normalized.starts_with(&cache_dir) {
+        return Err(format!(
+            "cache_file must be within .web-cache/, got: {cache_path}"
+        ));
+    }
+    Ok(normalized)
+}
 
 struct CacheMeta {
     source_url: Option<String>,

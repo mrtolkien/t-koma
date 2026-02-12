@@ -62,19 +62,19 @@ note or reference topic by title.
 
 ### Front Matter Fields
 
-| Field              | Required | Description                                                                                                                                                       |
-| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`               | yes      | Unique note ID (UUID)                                                                                                                                             |
-| `title`            | yes      | Human-readable title                                                                                                                                              |
-| `archetype`        | no       | Optional semantic classification (lowercase). One of: `person`, `concept`, `decision`, `event`, `place`, `project`, `organization`, `procedure`, `media`, `quote` |
-| `created_at`       | yes      | ISO 8601 timestamp                                                                                                                                                |
-| `trust_score`      | yes      | 0-10, higher = more trusted                                                                                                                                       |
-| `created_by.ghost` | yes      | Ghost that created the note                                                                                                                                       |
-| `created_by.model` | yes      | Model used                                                                                                                                                        |
-| `tags`             | no       | String array for categorization                                                                                                                                   |
-| `parent`           | no       | ID of parent note (for hierarchy)                                                                                                                                 |
-| `version`          | no       | Integer version counter                                                                                                                                           |
-| `source`           | no       | Provenance array (URLs, "user stated", etc.)                                                                                                                      |
+| Field              | Required | Description                                                                                                                                                                |
+| ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | yes      | Unique note ID (UUID)                                                                                                                                                      |
+| `title`            | yes      | Human-readable title                                                                                                                                                       |
+| `archetype`        | no       | Optional semantic classification (lowercase). One of: `person`, `concept`, `decision`, `event`, `place`, `project`, `organization`, `procedure`, `media`, `quote`, `topic` |
+| `created_at`       | yes      | ISO 8601 timestamp                                                                                                                                                         |
+| `trust_score`      | yes      | 0-10, higher = more trusted                                                                                                                                                |
+| `created_by.ghost` | yes      | Ghost that created the note                                                                                                                                                |
+| `created_by.model` | yes      | Model used                                                                                                                                                                 |
+| `tags`             | no       | String array for categorization                                                                                                                                            |
+| `parent`           | no       | ID of parent note (for hierarchy)                                                                                                                                          |
+| `version`          | no       | Integer version counter                                                                                                                                                    |
+| `source`           | no       | Provenance array (URLs, "user stated", etc.)                                                                                                                               |
 
 ## Diary Format
 

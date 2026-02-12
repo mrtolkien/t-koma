@@ -369,7 +369,7 @@ Notes have two classification axes:
   Topics are regular `Note` entries in `shared_note` scope — discovered via
   `reference_files` table joins.
 - **`archetype`** (semantic, optional): `person`, `concept`, `decision`, `event`,
-  `place`, `project`, `organization`, `procedure`, `media`, `quote`. Optional
+  `place`, `project`, `organization`, `procedure`, `media`, `quote`, `topic`. Optional
   classification for notes — omit when no archetype fits. Filterable via
   `knowledge_search`. Templates in `prompts/skills/note-writer/archetypes/`.
 

@@ -62,7 +62,7 @@ impl Tool for NoteWriteTool {
                 },
                 "archetype": {
                     "type": "string",
-                    "description": "Note archetype, e.g. 'person', 'concept', 'decision', 'project', 'procedure' (optional)."
+                    "description": "Note archetype, e.g. 'person', 'concept', 'decision', 'project', 'procedure', 'topic' (optional)."
                 },
                 "scope": {
                     "type": "string",
