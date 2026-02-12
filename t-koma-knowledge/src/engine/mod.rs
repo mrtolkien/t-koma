@@ -140,9 +140,10 @@ impl KnowledgeEngine {
     pub async fn note_create(
         &self,
         ghost_name: &str,
+        model: &str,
         request: NoteCreateRequest,
     ) -> KnowledgeResult<NoteWriteResult> {
-        notes::note_create(self, ghost_name, request).await
+        notes::note_create(self, ghost_name, model, request).await
     }
 
     /// Update an existing note (title, body, tags, trust, parent).
@@ -158,20 +159,22 @@ impl KnowledgeEngine {
     pub async fn note_validate(
         &self,
         ghost_name: &str,
+        model: &str,
         note_id: &str,
         trust_score: Option<i64>,
     ) -> KnowledgeResult<NoteWriteResult> {
-        notes::note_validate(self, ghost_name, note_id, trust_score).await
+        notes::note_validate(self, ghost_name, model, note_id, trust_score).await
     }
 
     /// Append a comment entry to a note's front matter.
     pub async fn note_comment(
         &self,
         ghost_name: &str,
+        model: &str,
         note_id: &str,
         text: &str,
     ) -> KnowledgeResult<NoteWriteResult> {
-        notes::note_comment(self, ghost_name, note_id, text).await
+        notes::note_comment(self, ghost_name, model, note_id, text).await
     }
 
     /// Delete a note and all associated DB records (chunks, tags, links).
@@ -211,6 +214,7 @@ impl KnowledgeEngine {
     pub async fn reference_file_move(
         &self,
         ghost_name: &str,
+        model: &str,
         note_id: &str,
         target_topic: &str,
         target_filename: Option<&str>,
@@ -219,6 +223,7 @@ impl KnowledgeEngine {
         reference::reference_file_move(
             self,
             ghost_name,
+            model,
             note_id,
             target_topic,
             target_filename,
@@ -259,9 +264,10 @@ impl KnowledgeEngine {
     pub async fn reference_save(
         &self,
         ghost_name: &str,
+        model: &str,
         request: ReferenceSaveRequest,
     ) -> KnowledgeResult<ReferenceSaveResult> {
-        save::reference_save(self, ghost_name, request).await
+        save::reference_save(self, ghost_name, model, request).await
     }
 
     /// Build an approval summary for a topic creation request (Phase 1).
@@ -276,9 +282,10 @@ impl KnowledgeEngine {
     pub async fn topic_create(
         &self,
         ghost_name: &str,
+        model: &str,
         request: TopicCreateRequest,
     ) -> KnowledgeResult<TopicCreateResult> {
-        topics::topic_create_execute(self, ghost_name, request).await
+        topics::topic_create_execute(self, ghost_name, model, request).await
     }
 
     /// Semantic search over reference topics.

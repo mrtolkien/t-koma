@@ -130,7 +130,7 @@ impl DioxusFixture {
         };
 
         let result = engine
-            .topic_create(&ghost_name, request)
+            .topic_create(&ghost_name, "test-model", request)
             .await
             .expect("topic_create should succeed");
 

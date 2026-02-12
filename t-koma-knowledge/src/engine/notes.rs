@@ -15,6 +15,7 @@ use super::KnowledgeEngine;
 pub(crate) async fn note_create(
     engine: &KnowledgeEngine,
     ghost_name: &str,
+    model: &str,
     request: NoteCreateRequest,
 ) -> KnowledgeResult<NoteWriteResult> {
     let note_id = generate_note_id();
@@ -40,6 +41,7 @@ pub(crate) async fn note_create(
         &request.title,
         request.archetype.as_deref(),
         ghost_name,
+        model,
         trust_score,
         request.parent.as_deref(),
         request.tags.as_deref(),
@@ -178,6 +180,7 @@ pub(crate) async fn note_update(
 pub(crate) async fn note_validate(
     engine: &KnowledgeEngine,
     ghost_name: &str,
+    model: &str,
     note_id: &str,
     trust_score: Option<i64>,
 ) -> KnowledgeResult<NoteWriteResult> {
@@ -194,7 +197,7 @@ pub(crate) async fn note_validate(
     front.last_validated_at = Some(now);
     front.last_validated_by = Some(crate::parser::CreatedBy {
         ghost: ghost_name.to_string(),
-        model: "tool".to_string(),
+        model: model.to_string(),
     });
     if let Some(score) = trust_score {
         front.trust_score = score;
@@ -228,6 +231,7 @@ pub(crate) async fn note_validate(
 pub(crate) async fn note_comment(
     engine: &KnowledgeEngine,
     ghost_name: &str,
+    model: &str,
     note_id: &str,
     text: &str,
 ) -> KnowledgeResult<NoteWriteResult> {
@@ -242,7 +246,7 @@ pub(crate) async fn note_comment(
 
     let comment = CommentEntry {
         ghost: ghost_name.to_string(),
-        model: "tool".to_string(),
+        model: model.to_string(),
         at: Utc::now(),
         text: text.to_string(),
     };
@@ -315,6 +319,7 @@ pub(crate) fn build_front_matter(
     title: &str,
     archetype: Option<&str>,
     ghost_name: &str,
+    model: &str,
     trust_score: i64,
     parent: Option<&str>,
     tags: Option<&[String]>,
@@ -343,7 +348,7 @@ pub(crate) fn build_front_matter(
     lines.push(String::new());
     lines.push("[created_by]".to_string());
     lines.push(format!("ghost = \"{}\"", ghost_name));
-    lines.push("model = \"tool\"".to_string());
+    lines.push(format!("model = \"{}\"", model));
     lines.join("\n")
 }
 

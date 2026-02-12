@@ -59,7 +59,7 @@ async fn create_private_note() {
         trust_score: None,
     };
 
-    let result = engine.note_create(&ghost_name, request).await;
+    let result = engine.note_create(&ghost_name, "test-model", request).await;
     // Will fail on embedding (bogus URL) but the file should be written
     // The engine indexes inline which calls embeddings. Since we use a bogus
     // URL, we expect an error. This is expected — the file was still written.
@@ -100,7 +100,7 @@ async fn create_shared_note() {
         trust_score: Some(8),
     };
 
-    let result = engine.note_create(&ghost_name, request).await;
+    let result = engine.note_create(&ghost_name, "test-model", request).await;
     match result {
         Ok(write_result) => {
             // Path should be under shared/notes
@@ -425,7 +425,9 @@ Content.
     };
     upsert_note(store.pool(), &note).await.unwrap();
 
-    let result = engine.note_validate(&ghost_name, "val-note", Some(9)).await;
+    let result = engine
+        .note_validate(&ghost_name, "test-model", "val-note", Some(9))
+        .await;
     match result {
         Ok(write_result) => {
             assert_eq!(write_result.note_id, "val-note");
@@ -497,7 +499,12 @@ Body text.
     upsert_note(store.pool(), &note).await.unwrap();
 
     let result = engine
-        .note_comment(&ghost_name, "comment-note", "This is my review comment.")
+        .note_comment(
+            &ghost_name,
+            "test-model",
+            "comment-note",
+            "This is my review comment.",
+        )
         .await;
     match result {
         Ok(write_result) => {
@@ -825,7 +832,7 @@ mod slow {
         };
 
         let write_result = engine
-            .note_create(&ghost_name, request)
+            .note_create(&ghost_name, "test-model", request)
             .await
             .expect("create should succeed with Ollama running");
 

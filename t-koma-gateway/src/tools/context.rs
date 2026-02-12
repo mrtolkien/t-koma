@@ -133,6 +133,7 @@ pub struct CachedToolResult {
 #[derive(Debug)]
 pub struct ToolContext {
     ghost_name: String,
+    model_id: String,
     workspace_root: PathBuf,
     cwd: PathBuf,
     allow_outside_workspace: bool,
@@ -156,6 +157,7 @@ impl ToolContext {
     ) -> Self {
         Self {
             ghost_name,
+            model_id: String::new(),
             workspace_root,
             cwd,
             allow_outside_workspace,
@@ -180,6 +182,16 @@ impl ToolContext {
 
     pub fn ghost_name(&self) -> &str {
         &self.ghost_name
+    }
+
+    /// The model ID powering this session (e.g. "claude-sonnet-4-5-20250929").
+    /// Set by the session layer — never by the model itself.
+    pub fn model_id(&self) -> &str {
+        &self.model_id
+    }
+
+    pub fn set_model_id(&mut self, model_id: String) {
+        self.model_id = model_id;
     }
 
     pub fn workspace_root(&self) -> &Path {
@@ -307,7 +319,10 @@ impl ToolContext {
             topic_description: Some("Auto-saved web content awaiting curation".to_string()),
         };
 
-        if let Err(err) = engine.reference_save(&self.ghost_name, request).await {
+        if let Err(err) = engine
+            .reference_save(&self.ghost_name, &self.model_id, request)
+            .await
+        {
             tracing::debug!("auto-save web result to _web-cache failed: {err}");
         }
     }
@@ -315,6 +330,7 @@ impl ToolContext {
     pub fn new_for_tests(root: &Path) -> Self {
         Self {
             ghost_name: "test-ghost".to_string(),
+            model_id: "test-model".to_string(),
             workspace_root: root.to_path_buf(),
             cwd: root.to_path_buf(),
             allow_outside_workspace: false,

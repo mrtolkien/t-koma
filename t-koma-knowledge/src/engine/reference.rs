@@ -604,6 +604,7 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
 pub(crate) async fn reference_file_move(
     engine: &KnowledgeEngine,
     ghost_name: &str,
+    model: &str,
     note_id: &str,
     target_topic: &str,
     target_filename: Option<&str>,
@@ -675,7 +676,7 @@ pub(crate) async fn reference_file_move(
         topic_description: None,
     };
 
-    let result = super::save::reference_save(engine, ghost_name, request).await?;
+    let result = super::save::reference_save(engine, ghost_name, model, request).await?;
 
     // 6. Delete the original
     reference_file_delete(engine, note_id).await?;

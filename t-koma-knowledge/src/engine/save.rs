@@ -20,6 +20,7 @@ use super::topics::build_topic_front_matter;
 pub(crate) async fn reference_save(
     engine: &KnowledgeEngine,
     ghost_name: &str,
+    model: &str,
     request: ReferenceSaveRequest,
 ) -> KnowledgeResult<ReferenceSaveResult> {
     let pool = engine.pool();
@@ -31,7 +32,8 @@ pub(crate) async fn reference_save(
 
     // 1. Resolve or create topic
     let (topic_id, topic_title) =
-        match resolve_or_create_topic(pool, settings, embedder, ghost_name, &request).await? {
+        match resolve_or_create_topic(pool, settings, embedder, ghost_name, model, &request).await?
+        {
             TopicResolution::Existing { id, title } => (id, title),
             TopicResolution::Created { id, title } => {
                 created_topic = true;
@@ -76,6 +78,7 @@ pub(crate) async fn reference_save(
                 coll_description,
                 coll_tags,
                 ghost_name,
+                model,
             )
             .await?;
             created_collection = true;
@@ -209,6 +212,7 @@ async fn resolve_or_create_topic(
     settings: &crate::KnowledgeSettings,
     embedder: &crate::embeddings::EmbeddingClient,
     ghost_name: &str,
+    model: &str,
     request: &ReferenceSaveRequest,
 ) -> KnowledgeResult<TopicResolution> {
     if let Some((id, title)) = find_existing_topic(pool, &request.topic).await? {
@@ -229,6 +233,7 @@ async fn resolve_or_create_topic(
         &topic_id,
         &title,
         ghost_name,
+        model,
         8, // default trust score
         request.tags.as_deref(),
         &now,
@@ -283,6 +288,7 @@ async fn create_collection_index(
     description: &str,
     tags: Option<&[String]>,
     ghost_name: &str,
+    model: &str,
 ) -> KnowledgeResult<()> {
     let coll_id = generate_note_id();
     let now = Utc::now();
@@ -301,7 +307,7 @@ async fn create_collection_index(
     lines.push(String::new());
     lines.push("[created_by]".to_string());
     lines.push(format!("ghost = \"{}\"", ghost_name));
-    lines.push("model = \"tool\"".to_string());
+    lines.push(format!("model = \"{}\"", model));
 
     let front_matter = lines.join("\n");
     let content = format!("+++\n{}\n+++\n\n{}\n", front_matter, description);

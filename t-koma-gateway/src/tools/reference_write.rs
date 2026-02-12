@@ -89,7 +89,7 @@ impl Tool for ReferenceWriteTool {
         };
 
         let result = engine
-            .reference_save(context.ghost_name(), request)
+            .reference_save(context.ghost_name(), context.model_id(), request)
             .await
             .map_err(|e| e.to_string())?;
 

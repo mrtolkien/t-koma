@@ -258,6 +258,7 @@ async fn scope_isolation_ghost_vs_reference() {
         .engine
         .note_create(
             &f.ghost_name,
+            "test-model",
             NoteCreateRequest {
                 title: "Private Search Notes".to_string(),
                 archetype: Some("concept".to_string()),

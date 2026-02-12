@@ -638,7 +638,9 @@ impl SessionChat {
         })?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
-        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
+        let mut tool_context = self
+            .load_tool_context(pool, ghost_id, operator_id, model)
+            .await?;
         tool_context.job_handle = job_handle;
 
         for iteration in 0..max_iterations {
@@ -790,7 +792,9 @@ impl SessionChat {
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
         // Handle tool use loop (bounded to prevent infinite loops)
-        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
+        let mut tool_context = self
+            .load_tool_context(pool, ghost_id, operator_id, model)
+            .await?;
         for iteration in 0..max_iterations {
             let has_tool_use = has_tool_uses(&response);
 
@@ -1025,7 +1029,9 @@ impl SessionChat {
         pending: PendingToolApproval,
         decision: ToolApprovalDecision,
     ) -> Result<String, ChatError> {
-        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
+        let mut tool_context = self
+            .load_tool_context(pool, ghost_id, operator_id, model)
+            .await?;
 
         let mut tool_results = pending.completed_results;
         match decision {
@@ -1091,7 +1097,9 @@ impl SessionChat {
         pending: PendingToolContinuation,
         extra_iterations: usize,
     ) -> Result<String, ChatError> {
-        let mut tool_context = self.load_tool_context(pool, ghost_id, operator_id).await?;
+        let mut tool_context = self
+            .load_tool_context(pool, ghost_id, operator_id, model)
+            .await?;
         let mut tool_results = Vec::new();
         let mut _resume_tool_log = Vec::new();
         self.execute_tool_uses(
@@ -1178,6 +1186,7 @@ impl SessionChat {
         pool: &KomaDbPool,
         ghost_id: &str,
         operator_id: &str,
+        model: &str,
     ) -> Result<ToolContext, ChatError> {
         // Fetch ghost to get name and derive workspace path
         let ghost = GhostRepository::get_by_id(pool.pool(), ghost_id)
@@ -1198,6 +1207,7 @@ impl SessionChat {
         }
 
         let mut context = ToolContext::new(ghost_name, workspace_root.clone(), cwd, false);
+        context.set_model_id(model.to_string());
         let operator = OperatorRepository::get_by_id(pool.pool(), operator_id)
             .await?
             .ok_or_else(|| t_koma_db::DbError::OperatorNotFound(operator_id.to_string()))?;

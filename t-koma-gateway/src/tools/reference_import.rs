@@ -135,7 +135,7 @@ impl Tool for ReferenceImportTool {
         // Phase 2: if we already have approval, proceed with creation
         if context.has_approval("reference_import") {
             let result = engine
-                .topic_create(context.ghost_name(), request)
+                .topic_create(context.ghost_name(), context.model_id(), request)
                 .await
                 .map_err(|e| e.to_string())?;
 

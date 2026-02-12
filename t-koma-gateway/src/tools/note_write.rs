@@ -126,7 +126,7 @@ impl Tool for NoteWriteTool {
                     trust_score: input.trust_score,
                 };
                 let result = engine
-                    .note_create(context.ghost_name(), request)
+                    .note_create(context.ghost_name(), context.model_id(), request)
                     .await
                     .map_err(|e| e.to_string())?;
                 serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
@@ -150,7 +150,12 @@ impl Tool for NoteWriteTool {
             "validate" => {
                 let note_id = input.note_id.ok_or("'note_id' is required for validate")?;
                 let result = engine
-                    .note_validate(context.ghost_name(), &note_id, input.trust_score)
+                    .note_validate(
+                        context.ghost_name(),
+                        context.model_id(),
+                        &note_id,
+                        input.trust_score,
+                    )
                     .await
                     .map_err(|e| e.to_string())?;
                 serde_json::to_string_pretty(&result).map_err(|e| e.to_string())
@@ -161,7 +166,7 @@ impl Tool for NoteWriteTool {
                     .comment
                     .ok_or("'comment' is required for comment action")?;
                 let result = engine
-                    .note_comment(context.ghost_name(), &note_id, &text)
+                    .note_comment(context.ghost_name(), context.model_id(), &note_id, &text)
                     .await
                     .map_err(|e| e.to_string())?;
                 serde_json::to_string_pretty(&result).map_err(|e| e.to_string())

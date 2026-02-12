@@ -101,7 +101,7 @@ impl Tool for ReferenceManageTool {
         match input.action.as_str() {
             "update" => execute_update(&engine, context.ghost_name(), input).await,
             "delete" => execute_delete(&engine, input).await,
-            "move" => execute_move(&engine, context.ghost_name(), input).await,
+            "move" => execute_move(&engine, context.ghost_name(), context.model_id(), input).await,
             other => Err(format!(
                 "Unknown action '{}'. Use update, delete, or move.",
                 other
@@ -179,6 +179,7 @@ async fn execute_delete(
 async fn execute_move(
     engine: &t_koma_knowledge::KnowledgeEngine,
     ghost_name: &str,
+    model: &str,
     input: ReferenceManageInput,
 ) -> Result<String, String> {
     let target_topic = input
@@ -195,6 +196,7 @@ async fn execute_move(
     let result = engine
         .reference_file_move(
             ghost_name,
+            model,
             &note_id,
             target_topic,
             input.target_filename.as_deref(),

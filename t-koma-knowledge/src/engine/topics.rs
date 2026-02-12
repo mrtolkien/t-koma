@@ -33,6 +33,7 @@ pub(crate) async fn build_topic_approval_summary(
 pub(crate) async fn topic_create_execute(
     engine: &KnowledgeEngine,
     ghost_name: &str,
+    model: &str,
     request: TopicCreateRequest,
 ) -> KnowledgeResult<TopicCreateResult> {
     let settings = engine.settings();
@@ -72,6 +73,7 @@ pub(crate) async fn topic_create_execute(
         &topic_id,
         &request.title,
         ghost_name,
+        model,
         trust_score,
         request.tags.as_deref(),
         &now,
@@ -466,6 +468,7 @@ pub(crate) fn build_topic_front_matter(
     id: &str,
     title: &str,
     ghost_name: &str,
+    model: &str,
     trust_score: i64,
     tags: Option<&[String]>,
     now: &chrono::DateTime<Utc>,
@@ -484,7 +487,7 @@ pub(crate) fn build_topic_front_matter(
     lines.push(String::new());
     lines.push("[created_by]".to_string());
     lines.push(format!("ghost = \"{}\"", ghost_name));
-    lines.push("model = \"tool\"".to_string());
+    lines.push(format!("model = \"{}\"", model));
 
     lines.join("\n")
 }
