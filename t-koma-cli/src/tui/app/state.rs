@@ -18,6 +18,7 @@ pub(super) enum PromptKind {
     GateSearch,
     SetOperatorRateLimits,
     KnowledgeSearch,
+    AddProviderApiKey, // Enter API key for selected provider
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +70,7 @@ pub(super) struct SelectionItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SelectionAction {
     SetAccessLevel,
+    SelectProvider, // Select provider to add
 }
 
 #[derive(Debug, Clone)]

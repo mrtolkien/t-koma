@@ -25,7 +25,7 @@ use crate::client::WsClient;
 use super::{
     TuiApp,
     state::{
-        ContentView, GhostRow, Metrics, OperatorView, SelectionAction, SelectionItem,
+        ContentView, GhostRow, Metrics, OperatorView, PromptKind, SelectionAction, SelectionItem,
         SelectionModal,
     },
     util::{load_disk_config, shell_quote, ws_url_for_cli},
@@ -726,6 +726,33 @@ impl TuiApp {
         });
     }
 
+    pub(super) fn open_provider_selection_modal(&mut self) {
+        self.modal = Some(SelectionModal {
+            title: "Select Provider".to_string(),
+            items: vec![
+                SelectionItem {
+                    label: "Anthropic".to_string(),
+                    value: "anthropic".to_string(),
+                },
+                SelectionItem {
+                    label: "OpenRouter".to_string(),
+                    value: "openrouter".to_string(),
+                },
+                SelectionItem {
+                    label: "Gemini (Google)".to_string(),
+                    value: "gemini".to_string(),
+                },
+                SelectionItem {
+                    label: "OpenAI Compatible".to_string(),
+                    value: "openai_compatible".to_string(),
+                },
+            ],
+            selected_idx: 0,
+            on_select: SelectionAction::SelectProvider,
+            context: None,
+        });
+    }
+
     pub(super) async fn handle_modal_selection(&mut self, modal: SelectionModal) {
         let Some(selected) = modal.items.get(modal.selected_idx) else {
             return;
@@ -738,6 +765,69 @@ impl TuiApp {
                 };
                 self.set_operator_access_level(&operator_id, &selected.value)
                     .await;
+            }
+            SelectionAction::SelectProvider => {
+                self.show_provider_instructions_and_prompt(&selected.value);
+            }
+        }
+    }
+
+    fn show_provider_instructions_and_prompt(&mut self, provider: &str) {
+        self.begin_prompt(
+            PromptKind::AddProviderApiKey,
+            Some(provider.to_string()),
+            None,
+        );
+    }
+
+    pub(super) fn write_provider_api_key(&mut self, provider: &str, api_key: &str) {
+        let env_var = match provider {
+            "anthropic" => "ANTHROPIC_API_KEY",
+            "openrouter" => "OPENROUTER_API_KEY",
+            "gemini" => "GEMINI_API_KEY",
+            "openai_compatible" => "OPENAI_API_KEY",
+            _ => {
+                self.status = format!("Unknown provider: {}", provider);
+                return;
+            }
+        };
+
+        // Get the config directory
+        let config_path = match Settings::config_path() {
+            Ok(path) => path,
+            Err(e) => {
+                self.status = format!("Failed to get config path: {}", e);
+                return;
+            }
+        };
+
+        let Some(config_dir) = config_path.parent() else {
+            self.status = "Invalid config path".to_string();
+            return;
+        };
+
+        let env_path = config_dir.join(".env");
+
+        // Read existing .env content if it exists
+        let existing_content = fs::read_to_string(&env_path).unwrap_or_default();
+
+        // Check if this env var already exists
+        let mut lines: Vec<String> = existing_content
+            .lines()
+            .filter(|line| !line.starts_with(&format!("{}=", env_var)))
+            .map(|s| s.to_string())
+            .collect();
+
+        // Add the new line
+        lines.push(format!("{}={}", env_var, api_key));
+
+        // Write back to file
+        match fs::write(&env_path, lines.join("\n") + "\n") {
+            Ok(_) => {
+                self.status = format!("{} written to {}", env_var, env_path.display());
+            }
+            Err(e) => {
+                self.status = format!("Failed to write .env: {}", e);
             }
         }
     }

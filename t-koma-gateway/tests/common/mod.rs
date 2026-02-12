@@ -7,6 +7,7 @@ use t_koma_core::Config;
 use t_koma_db::{GhostRepository, KomaDbPool, Operator, OperatorRepository, Platform};
 use t_koma_gateway::providers::Provider;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::gemini::GeminiClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::state::{AppState, ModelEntry};
@@ -70,6 +71,18 @@ pub fn load_default_model() -> DefaultModelInfo {
                 &model_config.model,
                 "openai_compatible",
             );
+            DefaultModelInfo {
+                alias,
+                provider: model_config.provider.to_string(),
+                model: model_config.model.clone(),
+                client: Arc::new(client),
+            }
+        }
+        "gemini" => {
+            let api_key = config
+                .gemini_api_key()
+                .expect("GEMINI_API_KEY must be set for live tests");
+            let client = GeminiClient::new(api_key, &model_config.model);
             DefaultModelInfo {
                 alias,
                 provider: model_config.provider.to_string(),

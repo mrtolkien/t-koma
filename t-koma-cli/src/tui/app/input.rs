@@ -322,21 +322,22 @@ impl TuiApp {
         match self.selected_category() {
             Category::Config => match self.options_idx {
                 0 => self.begin_prompt(PromptKind::AddModel, None, None),
-                1 => self.begin_prompt(PromptKind::SetDefaultModel, None, None),
-                2 => {
+                1 => self.open_provider_selection_modal(),
+                2 => self.begin_prompt(PromptKind::SetDefaultModel, None, None),
+                3 => {
                     self.settings.discord.enabled = !self.settings.discord.enabled;
                     self.settings_dirty = true;
                     self.refresh_settings_toml();
                     self.status = format!("discord.enabled={}", self.settings.discord.enabled);
                 }
-                3 => {
+                4 => {
                     if let Err(e) = self.edit_in_editor() {
                         self.status = format!("Editor failed: {}", e);
                     }
                 }
-                4 => self.reload_settings(),
-                5 => self.save_settings(),
-                6 => self.restore_backup(),
+                5 => self.reload_settings(),
+                6 => self.save_settings(),
+                7 => self.restore_backup(),
                 _ => {}
             },
             Category::Operators => match self.options_idx {
@@ -475,7 +476,7 @@ impl TuiApp {
         }
     }
 
-    fn begin_prompt(
+    pub(super) fn begin_prompt(
         &mut self,
         kind: PromptKind,
         target_ghost: Option<String>,
@@ -532,6 +533,13 @@ impl TuiApp {
                     }
                     Some(PromptKind::KnowledgeSearch) => {
                         self.search_knowledge(&input).await;
+                    }
+                    Some(PromptKind::AddProviderApiKey) => {
+                        if let Some(provider) = target {
+                            self.write_provider_api_key(&provider, &input);
+                        } else {
+                            self.status = "No provider selected".to_string();
+                        }
                     }
                     None => {}
                 }
