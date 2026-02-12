@@ -34,8 +34,8 @@ Per ghost:
 - `$DATA_DIR/ghosts/$slug/skills/`
 - `$DATA_DIR/ghosts/$slug/.web-cache/` (transient, plain files, auto-cleared)
 
-Notes are organized into tag-based subfolders derived from the first tag at creation time
-(e.g., `rust/library/` for tag `rust/library`). Files don't move on tag changes.
+Notes are organized into tag-based subfolders derived from the first tag at creation
+time (e.g., `rust/library/` for tag `rust/library`). Files don't move on tag changes.
 
 ## Note Classification
 

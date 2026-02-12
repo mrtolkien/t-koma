@@ -491,17 +491,16 @@ pub async fn run_heartbeat_tick(
                 }
                 Err(err) => {
                     // Update circuit breaker for retryable provider failures
-                    if let Some(alias) = &resolved_alias {
-                        if let ChatError::Provider(ref e) = err {
-                            if e.is_retryable() {
-                                let reason = if e.is_rate_limited() {
-                                    CooldownReason::RateLimited
-                                } else {
-                                    CooldownReason::ServerError
-                                };
-                                state.circuit_breaker.record_failure(alias, reason);
-                            }
-                        }
+                    if let Some(alias) = &resolved_alias
+                        && let ChatError::Provider(ref e) = err
+                        && e.is_retryable()
+                    {
+                        let reason = if e.is_rate_limited() {
+                            CooldownReason::RateLimited
+                        } else {
+                            CooldownReason::ServerError
+                        };
+                        state.circuit_breaker.record_failure(alias, reason);
                     }
 
                     // Write error job log

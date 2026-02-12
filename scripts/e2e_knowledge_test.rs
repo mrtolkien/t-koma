@@ -503,7 +503,7 @@ async fn setup_env(config: &TestConfig, model_alias: &str) -> (Arc<AppState>, Ko
     );
 
     let state = Arc::new(AppState::new(
-        default_alias,
+        vec![default_alias],
         models,
         koma_db.clone(),
         knowledge_engine,

@@ -151,9 +151,10 @@ impl Config {
                 if alias.is_empty() {
                     continue;
                 }
-                let model = settings.models.get(alias).ok_or_else(|| {
-                    ConfigError::HeartbeatModelNotFound(alias.to_string())
-                })?;
+                let model = settings
+                    .models
+                    .get(alias)
+                    .ok_or_else(|| ConfigError::HeartbeatModelNotFound(alias.to_string()))?;
                 Self::validate_model(&secrets, alias, model, true)?;
             }
         }
@@ -384,10 +385,10 @@ impl Config {
 /// exported for use in other contexts.
 pub fn load_dotenv() {
     let _ = dotenvy::dotenv();
-    if let Ok(config_path) = Settings::config_path() {
-        if let Some(config_dir) = config_path.parent() {
-            let _ = dotenvy::from_path(config_dir.join(".env"));
-        }
+    if let Ok(config_path) = Settings::config_path()
+        && let Some(config_dir) = config_path.parent()
+    {
+        let _ = dotenvy::from_path(config_dir.join(".env"));
     }
 }
 

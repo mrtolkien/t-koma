@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde::de::{self, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::message::ProviderType;
 
@@ -17,7 +17,7 @@ use crate::message::ProviderType;
 ///
 /// Accepts either a single string (`"kimi25"`) or a list (`["kimi25", "gemma3"]`)
 /// in the TOML configuration. Serializes back as a string when len==1, list otherwise.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelAliases(Vec<String>);
 
 impl ModelAliases {
@@ -59,12 +59,6 @@ impl ModelAliases {
     /// Borrow as a slice.
     pub fn as_slice(&self) -> &[String] {
         &self.0
-    }
-}
-
-impl Default for ModelAliases {
-    fn default() -> Self {
-        Self(Vec::new())
     }
 }
 
@@ -1028,17 +1022,34 @@ host = "0.0.0.0"
 
     #[test]
     fn test_model_aliases_roundtrip_single() {
-        let aliases = ModelAliases::single("kimi25");
-        let toml_str = toml::to_string(&aliases).unwrap();
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Wrapper {
+            default_model: ModelAliases,
+        }
+        let w = Wrapper {
+            default_model: ModelAliases::single("kimi25"),
+        };
+        let toml_str = toml::to_string(&w).unwrap();
         assert!(toml_str.contains("kimi25"));
+        // Single alias serializes as a plain string, not a list
         assert!(!toml_str.contains('['));
+        let roundtrip: Wrapper = toml::from_str(&toml_str).unwrap();
+        assert_eq!(roundtrip.default_model.first(), Some("kimi25"));
     }
 
     #[test]
     fn test_model_aliases_roundtrip_multiple() {
-        let aliases = ModelAliases::many(vec!["a".to_string(), "b".to_string()]);
-        let toml_str = toml::to_string(&aliases).unwrap();
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Wrapper {
+            default_model: ModelAliases,
+        }
+        let w = Wrapper {
+            default_model: ModelAliases::many(vec!["a".to_string(), "b".to_string()]),
+        };
+        let toml_str = toml::to_string(&w).unwrap();
         assert!(toml_str.contains('['));
+        let roundtrip: Wrapper = toml::from_str(&toml_str).unwrap();
+        assert_eq!(roundtrip.default_model.len(), 2);
     }
 
     #[test]

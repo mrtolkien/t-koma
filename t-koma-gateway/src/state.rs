@@ -467,10 +467,12 @@ impl AppState {
     /// Uses the circuit breaker to skip models on cooldown, falling back
     /// to the first model in the chain as a last resort.
     pub fn default_model(&self) -> &ModelEntry {
-        if let Some(alias) = self.circuit_breaker.first_available(&self.default_model_chain) {
-            if let Some(entry) = self.models.get(alias) {
-                return entry;
-            }
+        if let Some(alias) = self
+            .circuit_breaker
+            .first_available(&self.default_model_chain)
+            && let Some(entry) = self.models.get(alias)
+        {
+            return entry;
         }
         // Last resort: first alias in the chain regardless of cooldown
         let first = self
