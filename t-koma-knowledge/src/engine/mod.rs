@@ -12,7 +12,7 @@ use crate::models::{
     NoteQuery, NoteResult, NoteSummary, NoteUpdateRequest, NoteWriteResult, OwnershipScope,
     ReferenceFileStatus, ReferenceQuery, ReferenceSaveRequest, ReferenceSaveResult,
     ReferenceSearchOutput, ReferenceSearchResult, SearchCategory, TopicCreateRequest,
-    TopicCreateResult, TopicListEntry, TopicSearchResult, TopicUpdateRequest, WriteScope,
+    TopicCreateResult, TopicListEntry, TopicSearchResult, WriteScope,
 };
 use crate::paths::knowledge_db_path;
 use crate::storage::KnowledgeStore;
@@ -296,15 +296,6 @@ impl KnowledgeEngine {
     /// List all reference topics with staleness info.
     pub async fn topic_list(&self, include_obsolete: bool) -> KnowledgeResult<Vec<TopicListEntry>> {
         topics::topic_list(self, include_obsolete).await
-    }
-
-    /// Update topic metadata.
-    pub async fn topic_update(
-        &self,
-        ghost_name: &str,
-        request: TopicUpdateRequest,
-    ) -> KnowledgeResult<()> {
-        topics::topic_update(self, ghost_name, request).await
     }
 
     /// Get recent reference topics for system prompt injection.

@@ -18,70 +18,6 @@ pub struct IngestedNote {
     pub tags: Vec<String>,
 }
 
-/// Result of ingesting a reference topic's `topic.md`.
-pub struct IngestedTopic {
-    pub note: IngestedNote,
-}
-
-pub async fn ingest_reference_topic(
-    settings: &KnowledgeSettings,
-    path: &Path,
-    raw: &str,
-) -> KnowledgeResult<IngestedTopic> {
-    let parsed = parse_note(raw)?;
-    let hash = compute_hash(raw);
-
-    let note = NoteRecord {
-        id: parsed.front.id.clone(),
-        title: parsed.front.title.clone(),
-        entry_type: "ReferenceTopic".to_string(),
-        archetype: None,
-        path: path.to_path_buf(),
-        scope: KnowledgeScope::SharedReference.as_str().to_string(),
-        owner_ghost: None,
-        created_at: parsed.front.created_at.to_rfc3339(),
-        created_by_ghost: parsed.front.created_by.ghost.clone(),
-        created_by_model: parsed.front.created_by.model.clone(),
-        trust_score: parsed.front.trust_score,
-        last_validated_at: parsed.front.last_validated_at.map(|dt| dt.to_rfc3339()),
-        last_validated_by_ghost: parsed
-            .front
-            .last_validated_by
-            .as_ref()
-            .map(|entry| entry.ghost.clone()),
-        last_validated_by_model: parsed
-            .front
-            .last_validated_by
-            .as_ref()
-            .map(|entry| entry.model.clone()),
-        version: parsed.front.version,
-        parent_id: parsed.front.parent.clone(),
-        comments_json: parsed
-            .front
-            .comments
-            .as_ref()
-            .map(|value| serde_json::to_string(value).unwrap_or_default()),
-        content_hash: hash,
-    };
-
-    let tags = parsed.front.tags.clone().unwrap_or_default();
-    let chunks = build_markdown_chunks(settings, &parsed, &note, &tags);
-    let links = parsed
-        .links
-        .iter()
-        .map(|link| (link.target.clone(), link.alias.clone()))
-        .collect();
-
-    Ok(IngestedTopic {
-        note: IngestedNote {
-            note,
-            chunks,
-            links,
-            tags,
-        },
-    })
-}
-
 pub async fn ingest_markdown(
     settings: &KnowledgeSettings,
     scope: KnowledgeScope,
@@ -236,68 +172,6 @@ pub async fn ingest_reference_file_with_context(
         chunks: chunk_records,
         links: Vec::new(),
         tags: Vec::new(),
-    })
-}
-
-/// Ingest a `_index.md` file as a `ReferenceCollection` note.
-///
-/// Collections are sub-groupings within a reference topic. Their `_index.md`
-/// files have front matter with `type = "ReferenceCollection"` and are indexed
-/// for search just like topic notes.
-pub async fn ingest_reference_collection(
-    settings: &KnowledgeSettings,
-    path: &Path,
-    raw: &str,
-) -> KnowledgeResult<IngestedNote> {
-    let parsed = parse_note(raw)?;
-    let hash = compute_hash(raw);
-
-    let note = NoteRecord {
-        id: parsed.front.id.clone(),
-        title: parsed.front.title.clone(),
-        entry_type: "ReferenceCollection".to_string(),
-        archetype: None,
-        path: path.to_path_buf(),
-        scope: KnowledgeScope::SharedReference.as_str().to_string(),
-        owner_ghost: None,
-        created_at: parsed.front.created_at.to_rfc3339(),
-        created_by_ghost: parsed.front.created_by.ghost.clone(),
-        created_by_model: parsed.front.created_by.model.clone(),
-        trust_score: parsed.front.trust_score,
-        last_validated_at: parsed.front.last_validated_at.map(|dt| dt.to_rfc3339()),
-        last_validated_by_ghost: parsed
-            .front
-            .last_validated_by
-            .as_ref()
-            .map(|entry| entry.ghost.clone()),
-        last_validated_by_model: parsed
-            .front
-            .last_validated_by
-            .as_ref()
-            .map(|entry| entry.model.clone()),
-        version: parsed.front.version,
-        parent_id: parsed.front.parent.clone(),
-        comments_json: parsed
-            .front
-            .comments
-            .as_ref()
-            .map(|value| serde_json::to_string(value).unwrap_or_default()),
-        content_hash: hash,
-    };
-
-    let tags = parsed.front.tags.clone().unwrap_or_default();
-    let chunks = build_markdown_chunks(settings, &parsed, &note, &tags);
-    let links = parsed
-        .links
-        .iter()
-        .map(|link| (link.target.clone(), link.alias.clone()))
-        .collect();
-
-    Ok(IngestedNote {
-        note,
-        chunks,
-        links,
-        tags,
     })
 }
 

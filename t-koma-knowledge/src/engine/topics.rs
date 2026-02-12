@@ -1,20 +1,20 @@
 //! Engine methods for reference topic management.
 //!
-//! Handles topic creation (two-phase with approval), searching,
-//! listing, and metadata updates.
+//! Topics are regular shared notes. This module handles topic creation
+//! (two-phase with approval), searching, and listing via joins against
+//! the `reference_files` table.
 
 use chrono::Utc;
 use sqlx::SqlitePool;
 
-use crate::errors::{KnowledgeError, KnowledgeResult};
+use crate::errors::KnowledgeResult;
 use crate::models::{
-    CollectionSummary, KnowledgeScope, SourceRole, TopicCreateRequest, TopicCreateResult,
-    TopicListEntry, TopicSearchResult, TopicUpdateRequest, generate_note_id,
+    KnowledgeScope, NoteCreateRequest, SourceRole, TopicCreateRequest, TopicCreateResult,
+    TopicListEntry, TopicSearchResult, WriteScope, generate_note_id,
 };
 use crate::sources::{self, TopicSource};
 
 use super::KnowledgeEngine;
-use super::notes::{rebuild_front_matter, sanitize_filename};
 use super::search::{dense_search, hydrate_summaries, rrf_fuse, sanitize_fts5_query};
 
 /// Build an approval summary for Phase 1 (metadata gathering).
@@ -27,7 +27,7 @@ pub(crate) async fn build_topic_approval_summary(
     Ok(sources::build_approval_summary(&request.sources).await)
 }
 
-/// Execute Phase 2: fetch sources, write topic.md, index everything.
+/// Execute Phase 2: create a shared note for the topic, fetch sources, index everything.
 ///
 /// Called after operator approval. Returns topic ID, file count, and chunk count.
 pub(crate) async fn topic_create_execute(
@@ -40,9 +40,9 @@ pub(crate) async fn topic_create_execute(
     let pool = engine.pool();
     let embedder = engine.embedder();
 
-    // Create topic directory
+    // Create topic directory for reference files
     let reference_root = crate::paths::shared_references_root(settings)?;
-    let topic_dir_name = sanitize_filename(&request.title);
+    let topic_dir_name = super::notes::sanitize_filename(&request.title);
     let topic_dir = reference_root.join(&topic_dir_name);
     tokio::fs::create_dir_all(&topic_dir).await?;
 
@@ -64,62 +64,31 @@ pub(crate) async fn topic_create_execute(
     }
     let all_files: Vec<String> = file_roles.iter().map(|(f, _)| f.clone()).collect();
 
-    // Write topic.md
-    let topic_id = generate_note_id();
-    let now = Utc::now();
-    let trust_score = request.trust_score.unwrap_or(8);
-
-    let front_matter = build_topic_front_matter(
-        &topic_id,
-        &request.title,
-        ghost_name,
-        model,
-        trust_score,
-        request.tags.as_deref(),
-        &now,
-    );
-
-    let content = format!("+++\n{}\n+++\n\n{}\n", front_matter, request.body);
-    let topic_path = topic_dir.join("topic.md");
-
-    let tmp_path = topic_path.with_extension("md.tmp");
-    tokio::fs::write(&tmp_path, &content).await?;
-    tokio::fs::rename(&tmp_path, &topic_path).await?;
-
-    // Index the topic.md itself
-    let ingested = crate::ingest::ingest_markdown(
-        settings,
-        KnowledgeScope::SharedReference,
-        None,
-        &topic_path,
-        &content,
-    )
-    .await?;
-    crate::storage::upsert_note(pool, &ingested.note).await?;
-    crate::storage::replace_tags(pool, &topic_id, &ingested.tags).await?;
-    crate::storage::replace_links(pool, &topic_id, None, &ingested.links).await?;
-    let chunk_ids = crate::storage::replace_chunks(
-        pool,
-        &topic_id,
-        &request.title,
-        "ReferenceTopic",
-        None,
-        &ingested.chunks,
-    )
-    .await?;
-    crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
+    // Create the topic as a shared note via note_create
+    let note_request = NoteCreateRequest {
+        title: request.title.clone(),
+        archetype: None,
+        scope: WriteScope::SharedNote,
+        body: request.body.clone(),
+        parent: None,
+        tags: request.tags.clone(),
+        source: None,
+        trust_score: request.trust_score,
+    };
+    let note_result = super::notes::note_create(engine, ghost_name, model, note_request).await?;
+    let topic_id = note_result.note_id;
 
     // Store reference_files mapping with role
+    let now = Utc::now();
     for (file_name, role) in &file_roles {
         let file_path = topic_dir.join(file_name);
         let file_content = match tokio::fs::read_to_string(&file_path).await {
             Ok(c) => c,
-            Err(_) => continue, // skip unreadable files (binary that slipped through)
+            Err(_) => continue,
         };
 
         let note_type = role.to_entry_type();
         let file_note_id = generate_note_id();
-        // Use topic title as context prefix for chunk enrichment during initial import
         let context_prefix = format!("[{}]", request.title);
         let file_ingested = crate::ingest::ingest_reference_file_with_context(
             settings,
@@ -195,7 +164,7 @@ pub(crate) async fn topic_create_execute(
     })
 }
 
-/// Semantic search over reference topics (not their files).
+/// Semantic search over reference topics (shared notes that have reference files).
 pub(crate) async fn topic_search(
     engine: &KnowledgeEngine,
     query: &str,
@@ -204,9 +173,11 @@ pub(crate) async fn topic_search(
     let settings = engine.settings();
     let embedder = engine.embedder();
 
-    // Find all ReferenceTopic note IDs
+    // Find topic IDs: shared notes that have reference files
     let topic_ids = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
+        "SELECT DISTINCT n.id FROM notes n \
+         JOIN reference_files rf ON rf.topic_id = n.id \
+         WHERE n.scope = 'shared_note'",
     )
     .fetch_all(pool)
     .await?
@@ -233,14 +204,14 @@ pub(crate) async fn topic_search(
     qb = qb.bind(settings.search.bm25_limit as i64);
     let bm25_hits = qb.fetch_all(pool).await?;
 
-    // Dense search
+    // Dense search — use SharedNote scope since topics are now shared notes
     let dense_hits = dense_search(
         embedder,
         pool,
         query,
         settings.search.dense_limit,
         Some(&topic_ids),
-        KnowledgeScope::SharedReference,
+        KnowledgeScope::SharedNote,
         "",
         None,
     )
@@ -252,7 +223,7 @@ pub(crate) async fn topic_search(
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     ranked.truncate(settings.search.max_results);
 
-    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::SharedReference, "").await?;
+    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::SharedNote, "").await?;
 
     let mut results = Vec::new();
     for summary in summaries {
@@ -268,7 +239,7 @@ pub(crate) async fn topic_search(
     Ok(results)
 }
 
-/// List all reference topics.
+/// List all reference topics (shared notes with reference files).
 pub(crate) async fn topic_list(
     engine: &KnowledgeEngine,
     _include_obsolete: bool,
@@ -276,7 +247,11 @@ pub(crate) async fn topic_list(
     let pool = engine.pool();
 
     let rows = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, title, created_by_ghost FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC",
+        "SELECT DISTINCT n.id, n.title, n.created_by_ghost \
+         FROM notes n \
+         JOIN reference_files rf ON rf.topic_id = n.id \
+         WHERE n.scope = 'shared_note' \
+         ORDER BY n.created_at DESC",
     )
     .fetch_all(pool)
     .await?;
@@ -293,56 +268,28 @@ pub(crate) async fn topic_list(
 
         let tags = load_topic_tags(pool, &id).await?;
 
-        // Load collection summaries: ReferenceCollection notes with parent_id = topic id
-        let collection_rows = sqlx::query_as::<_, (String, String)>(
-            "SELECT id, title FROM notes WHERE entry_type = 'ReferenceCollection' AND parent_id = ? ORDER BY title",
+        // Derive collection directories from reference file paths
+        let dir_rows = sqlx::query_as::<_, (String,)>(
+            "SELECT DISTINCT SUBSTR(path, 1, INSTR(path, '/') - 1) \
+             FROM reference_files \
+             WHERE topic_id = ? AND path LIKE '%/%'",
         )
         .bind(&id)
         .fetch_all(pool)
         .await?;
 
-        let mut collections = Vec::new();
-        for (coll_id, coll_title) in collection_rows {
-            let coll_file_count = sqlx::query_as::<_, (i64,)>(
-                "SELECT COUNT(*) FROM reference_files WHERE topic_id = ? AND path LIKE ? || '%'",
-            )
-            .bind(&id)
-            .bind(format!("{}%", coll_title))
-            .fetch_one(pool)
-            .await
-            .map(|(c,)| c as usize)
-            .unwrap_or(0);
-
-            // Derive path from the collection note's filesystem path relative to topic
-            let coll_path =
-                sqlx::query_as::<_, (String,)>("SELECT path FROM notes WHERE id = ? LIMIT 1")
-                    .bind(&coll_id)
-                    .fetch_optional(pool)
-                    .await?
-                    .map(|(p,)| {
-                        // Extract the subdirectory name from the path (parent of _index.md)
-                        let path = std::path::Path::new(&p);
-                        path.parent()
-                            .and_then(|p| p.file_name())
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("")
-                            .to_string()
-                    })
-                    .unwrap_or_default();
-
-            collections.push(CollectionSummary {
-                title: coll_title,
-                path: coll_path,
-                file_count: coll_file_count,
-            });
-        }
+        let collection_dirs: Vec<String> = dir_rows
+            .into_iter()
+            .map(|(d,)| d)
+            .filter(|d| !d.is_empty())
+            .collect();
 
         entries.push(TopicListEntry {
             topic_id: id,
             title,
             created_by_ghost: ghost,
             file_count,
-            collections,
+            collection_dirs,
             tags,
         });
     }
@@ -350,92 +297,16 @@ pub(crate) async fn topic_list(
     Ok(entries)
 }
 
-/// Update topic metadata without re-fetching sources.
-pub(crate) async fn topic_update(
-    engine: &KnowledgeEngine,
-    _ghost_name: &str,
-    request: TopicUpdateRequest,
-) -> KnowledgeResult<()> {
-    let pool = engine.pool();
-
-    // Fetch the topic note directly from the reference scope
-    let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT path, entry_type FROM notes WHERE id = ? AND scope = 'shared_reference' LIMIT 1",
-    )
-    .bind(&request.topic_id)
-    .fetch_optional(pool)
-    .await?;
-
-    let (path_str, entry_type) =
-        row.ok_or_else(|| KnowledgeError::UnknownNote(request.topic_id.clone()))?;
-
-    if entry_type != "ReferenceTopic" {
-        return Err(KnowledgeError::AccessDenied(format!(
-            "note '{}' is not a ReferenceTopic",
-            request.topic_id
-        )));
-    }
-
-    let doc_path = std::path::PathBuf::from(&path_str);
-
-    // Read and parse existing file
-    let raw = tokio::fs::read_to_string(&doc_path).await?;
-    let parsed = crate::parser::parse_note(&raw)?;
-    let mut front = parsed.front;
-
-    // Apply patches
-    if let Some(tags) = &request.tags {
-        front.tags = Some(tags.clone());
-    }
-
-    let body = request.body.as_deref().unwrap_or(&parsed.body);
-    let front_toml = rebuild_front_matter(&front);
-    let content = format!("+++\n{}\n+++\n\n{}\n", front_toml, body);
-
-    // Atomic write
-    let tmp_path = doc_path.with_extension("md.tmp");
-    tokio::fs::write(&tmp_path, &content).await?;
-    tokio::fs::rename(&tmp_path, &doc_path).await?;
-
-    // Re-index the topic note
-    let ingested = crate::ingest::ingest_markdown(
-        engine.settings(),
-        KnowledgeScope::SharedReference,
-        None,
-        &doc_path,
-        &content,
-    )
-    .await?;
-    crate::storage::upsert_note(pool, &ingested.note).await?;
-    crate::storage::replace_tags(pool, &request.topic_id, &ingested.tags).await?;
-    crate::storage::replace_links(pool, &request.topic_id, None, &ingested.links).await?;
-    let chunk_ids = crate::storage::replace_chunks(
-        pool,
-        &request.topic_id,
-        &front.title,
-        "ReferenceTopic",
-        None,
-        &ingested.chunks,
-    )
-    .await?;
-    crate::index::embed_chunks(
-        engine.settings(),
-        engine.embedder(),
-        pool,
-        &ingested.chunks,
-        &chunk_ids,
-    )
-    .await?;
-
-    Ok(())
-}
-
 /// Load the 10 most recent reference topics for system prompt injection.
 pub(crate) async fn recent_topics(
     pool: &SqlitePool,
 ) -> KnowledgeResult<Vec<(String, String, Vec<String>)>> {
     let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' ORDER BY created_at DESC LIMIT 10",
+        "SELECT DISTINCT n.id, n.title \
+         FROM notes n \
+         JOIN reference_files rf ON rf.topic_id = n.id \
+         WHERE n.scope = 'shared_note' \
+         ORDER BY n.created_at DESC LIMIT 10",
     )
     .fetch_all(pool)
     .await?;
@@ -458,36 +329,4 @@ async fn load_topic_tags(pool: &SqlitePool, topic_id: &str) -> KnowledgeResult<V
         .await?;
 
     Ok(rows.into_iter().map(|(t,)| t).collect())
-}
-
-/// Build TOML front matter for a reference topic.
-///
-/// v2 topics are lean: just id, title, type, created_at, trust_score, tags, created_by.
-/// Per-file provenance (source_url, fetched_at, max_age_days) is stored in the DB.
-pub(crate) fn build_topic_front_matter(
-    id: &str,
-    title: &str,
-    ghost_name: &str,
-    model: &str,
-    trust_score: i64,
-    tags: Option<&[String]>,
-    now: &chrono::DateTime<Utc>,
-) -> String {
-    let mut lines = Vec::new();
-    lines.push(format!("id = \"{}\"", id));
-    lines.push(format!("title = \"{}\"", title.replace('"', "\\\"")));
-    lines.push("type = \"ReferenceTopic\"".to_string());
-    lines.push(format!("created_at = \"{}\"", now.to_rfc3339()));
-    lines.push(format!("trust_score = {}", trust_score));
-    if let Some(tag_list) = tags {
-        let formatted: Vec<String> = tag_list.iter().map(|t| format!("\"{}\"", t)).collect();
-        lines.push(format!("tags = [{}]", formatted.join(", ")));
-    }
-
-    lines.push(String::new());
-    lines.push("[created_by]".to_string());
-    lines.push(format!("ghost = \"{}\"", ghost_name));
-    lines.push(format!("model = \"{}\"", model));
-
-    lines.join("\n")
 }

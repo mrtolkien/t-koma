@@ -559,7 +559,7 @@ async fn capture_to_shared_inbox() {
 
 // ── reference topic CRUD ─────────────────────────────────────────────
 
-/// Helper: insert a ReferenceTopic note directly via DB + file.
+/// Helper: insert a topic note (shared note with reference files) directly via DB + file.
 #[allow(clippy::too_many_arguments)]
 async fn insert_topic_note(
     store: &KnowledgeStore,
@@ -567,26 +567,20 @@ async fn insert_topic_note(
     id: &str,
     title: &str,
     ghost: &str,
-    status: &str,
-    max_age_days: i64,
+    _status: &str,
+    _max_age_days: i64,
     fetched_at: &str,
     tags: &[&str],
 ) -> std::path::PathBuf {
-    let topic_dir = shared_root.join(format!("ref_{}", id));
-    tokio::fs::create_dir_all(&topic_dir).await.unwrap();
-
     let tags_toml: Vec<String> = tags.iter().map(|t| format!("\"{}\"", t)).collect();
     let content = format!(
         r#"+++
 id = "{id}"
 title = "{title}"
-type = "ReferenceTopic"
+type = "Note"
 created_at = "{fetched_at}"
 trust_score = 8
 tags = [{tags}]
-status = "{status}"
-fetched_at = "{fetched_at}"
-max_age_days = {max_age_days}
 
 [created_by]
 ghost = "{ghost}"
@@ -601,21 +595,19 @@ Description of {title}.
         title = title,
         fetched_at = fetched_at,
         tags = tags_toml.join(", "),
-        status = status,
-        max_age_days = max_age_days,
         ghost = ghost,
     );
 
-    let path = topic_dir.join("topic.md");
+    let path = shared_root.join(format!("{}.md", id));
     tokio::fs::write(&path, &content).await.unwrap();
 
     let note = NoteRecord {
         id: id.to_string(),
         title: title.to_string(),
-        entry_type: "ReferenceTopic".to_string(),
+        entry_type: "Note".to_string(),
         archetype: None,
         path: path.clone(),
-        scope: "shared_reference".to_string(),
+        scope: "shared_note".to_string(),
         owner_ghost: None,
         created_at: fetched_at.to_string(),
         created_by_ghost: ghost.to_string(),
@@ -634,6 +626,16 @@ Description of {title}.
     // Insert tags
     let tag_strings: Vec<String> = tags.iter().map(|t| t.to_string()).collect();
     replace_tags(store.pool(), id, &tag_strings).await.unwrap();
+
+    // Insert a dummy reference_files row so JOIN-based topic queries find this topic
+    sqlx::query("INSERT INTO reference_files (topic_id, note_id, path, role) VALUES (?, ?, ?, ?)")
+        .bind(id)
+        .bind(format!("ref:{}:dummy.md", id))
+        .bind("dummy.md")
+        .bind("docs")
+        .execute(store.pool())
+        .await
+        .unwrap();
 
     path
 }
@@ -684,61 +686,6 @@ async fn topic_list_returns_inserted_topics() {
 
     let list_all = engine.topic_list(true).await.unwrap();
     assert_eq!(list_all.len(), 2);
-}
-
-#[tokio::test]
-async fn topic_update_changes_status_and_tags() {
-    let (engine, ghost_name, temp) = setup().await;
-    let data_root = temp.path().join("data");
-    let shared_root = data_root.join("shared").join("notes");
-
-    let db_path = data_root.join("shared").join("index.sqlite3");
-    let store = KnowledgeStore::open(&db_path, Some(8)).await.unwrap();
-
-    insert_topic_note(
-        &store,
-        &shared_root,
-        "topic-upd",
-        "Updatable Topic",
-        "ghost-a",
-        "active",
-        30,
-        "2025-06-01T00:00:00Z",
-        &["original"],
-    )
-    .await;
-
-    let request = t_koma_knowledge::TopicUpdateRequest {
-        topic_id: "topic-upd".to_string(),
-        body: Some("Updated description.".to_string()),
-        tags: Some(vec!["updated".to_string(), "changed".to_string()]),
-    };
-
-    let result = engine.topic_update(&ghost_name, request).await;
-    match result {
-        Ok(()) => {
-            // Verify file was updated
-            let topic_dir = shared_root.join("ref_topic-upd");
-            let content = tokio::fs::read_to_string(topic_dir.join("topic.md"))
-                .await
-                .unwrap();
-            assert!(
-                content.contains("Updated description."),
-                "body should be updated"
-            );
-            assert!(content.contains("updated"), "tags should be updated");
-        }
-        Err(e) => {
-            // Embedding errors are acceptable in non-slow-tests
-            let err_str = e.to_string();
-            assert!(
-                err_str.contains("embedding")
-                    || err_str.contains("http")
-                    || err_str.contains("error sending request"),
-                "unexpected error: {err_str}"
-            );
-        }
-    }
 }
 
 #[tokio::test]

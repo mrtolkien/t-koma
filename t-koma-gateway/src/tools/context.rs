@@ -312,11 +312,6 @@ impl ToolContext {
             source_url: Some(url.to_string()),
             role: Some(t_koma_knowledge::models::SourceRole::Docs),
             title: None,
-            collection_title: None,
-            collection_description: None,
-            collection_tags: None,
-            tags: None,
-            topic_description: Some("Auto-saved web content awaiting curation".to_string()),
         };
 
         if let Err(err) = engine

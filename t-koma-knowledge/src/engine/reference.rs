@@ -32,9 +32,9 @@ pub(crate) async fn reference_search(
         let results =
             search_reference_files(pool, settings, embedder, &topic_id, query, doc_boost).await?;
 
-        // Fetch the topic note body for LLM context
+        // Fetch the topic note body for LLM context (topics are shared notes)
         let topic_doc =
-            super::get::fetch_note(pool, &topic_id, KnowledgeScope::SharedReference, "").await?;
+            super::get::fetch_note(pool, &topic_id, KnowledgeScope::SharedNote, "").await?;
         let (topic_title, topic_body) = match topic_doc {
             Some(doc) => (doc.title, extract_topic_body(&doc.body)),
             None => (String::new(), String::new()),
@@ -182,8 +182,11 @@ async fn search_reference_topics(
     pool: &SqlitePool,
     query: &ReferenceQuery,
 ) -> KnowledgeResult<Vec<NoteResult>> {
+    // Topics are shared notes that have reference files
     let topic_ids = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE entry_type = 'ReferenceTopic' AND scope = 'shared_reference' AND owner_ghost IS NULL",
+        "SELECT DISTINCT n.id FROM notes n \
+         JOIN reference_files rf ON rf.topic_id = n.id \
+         WHERE n.scope = 'shared_note'",
     )
     .fetch_all(pool)
     .await?
@@ -215,7 +218,7 @@ async fn search_reference_topics(
         &query.topic,
         settings.search.dense_limit,
         Some(&topic_ids),
-        KnowledgeScope::SharedReference,
+        KnowledgeScope::SharedNote,
         "",
         None,
     )
@@ -224,16 +227,16 @@ async fn search_reference_topics(
     let mut ranked: Vec<(i64, f32)> = fused.into_iter().collect();
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     ranked.truncate(settings.search.max_results);
-    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::SharedReference, "").await?;
+    let summaries = hydrate_summaries(pool, &ranked, KnowledgeScope::SharedNote, "").await?;
 
     let mut results = Vec::new();
     for summary in summaries {
-        let parents = load_parent(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        let parents = load_parent(pool, &summary.id, KnowledgeScope::SharedNote, "").await?;
         let links_out = load_links_out(
             pool,
             &summary.id,
             settings.search.graph_max,
-            KnowledgeScope::SharedReference,
+            KnowledgeScope::SharedNote,
             "",
         )
         .await?;
@@ -241,11 +244,11 @@ async fn search_reference_topics(
             pool,
             &summary.id,
             settings.search.graph_max,
-            KnowledgeScope::SharedReference,
+            KnowledgeScope::SharedNote,
             "",
         )
         .await?;
-        let tags = load_tags(pool, &summary.id, KnowledgeScope::SharedReference, "").await?;
+        let tags = load_tags(pool, &summary.id, KnowledgeScope::SharedNote, "").await?;
         results.push(NoteResult {
             summary,
             parents,
@@ -373,16 +376,15 @@ pub(crate) async fn search_all_reference_files(
     Ok(results)
 }
 
-/// Set the status of a reference file and optionally record a reason in the topic body.
+/// Set the status of a reference file (DB-only, no topic file modification).
 pub(crate) async fn reference_file_set_status(
     engine: &KnowledgeEngine,
     note_id: &str,
     status: ReferenceFileStatus,
-    reason: Option<&str>,
+    _reason: Option<&str>,
 ) -> KnowledgeResult<()> {
     let pool = engine.pool();
 
-    // Update the status in reference_files
     let updated = sqlx::query("UPDATE reference_files SET status = ? WHERE note_id = ?")
         .bind(status.as_str())
         .bind(note_id)
@@ -392,80 +394,6 @@ pub(crate) async fn reference_file_set_status(
     if updated.rows_affected() == 0 {
         return Err(KnowledgeError::UnknownNote(note_id.to_string()));
     }
-
-    // If marking as problematic or obsolete, append a warning to the topic body
-    if matches!(
-        status,
-        ReferenceFileStatus::Problematic | ReferenceFileStatus::Obsolete
-    ) && let Some(reason_text) = reason
-    {
-        // Find the topic_id for this file
-        let topic_row = sqlx::query_as::<_, (String, String)>(
-            "SELECT topic_id, path FROM reference_files WHERE note_id = ? LIMIT 1",
-        )
-        .bind(note_id)
-        .fetch_optional(pool)
-        .await?;
-
-        if let Some((topic_id, file_path)) = topic_row {
-            append_topic_warning(engine, &topic_id, &file_path, status, reason_text).await?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Append a warning line to a topic's body about a file status change.
-async fn append_topic_warning(
-    engine: &KnowledgeEngine,
-    topic_id: &str,
-    file_path: &str,
-    status: ReferenceFileStatus,
-    reason: &str,
-) -> KnowledgeResult<()> {
-    let pool = engine.pool();
-
-    let row = sqlx::query_as::<_, (String,)>(
-        "SELECT path FROM notes WHERE id = ? AND scope = 'shared_reference' LIMIT 1",
-    )
-    .bind(topic_id)
-    .fetch_optional(pool)
-    .await?;
-
-    let doc_path = match row {
-        Some((p,)) => std::path::PathBuf::from(p),
-        None => return Ok(()),
-    };
-
-    let raw = tokio::fs::read_to_string(&doc_path).await?;
-    let parsed = crate::parser::parse_note(&raw)?;
-    let front = parsed.front;
-
-    let warning = format!(
-        "\n> **{}** `{}`: {}\n",
-        status.as_str().to_uppercase(),
-        file_path,
-        reason
-    );
-    let new_body = format!("{}{}", parsed.body, warning);
-
-    let front_toml = super::notes::rebuild_front_matter(&front);
-    let content = format!("+++\n{}\n+++\n\n{}\n", front_toml, new_body);
-
-    let tmp_path = doc_path.with_extension("md.tmp");
-    tokio::fs::write(&tmp_path, &content).await?;
-    tokio::fs::rename(&tmp_path, &doc_path).await?;
-
-    // Re-index the topic note
-    let ingested = crate::ingest::ingest_markdown(
-        engine.settings(),
-        KnowledgeScope::SharedReference,
-        None,
-        &doc_path,
-        &content,
-    )
-    .await?;
-    crate::storage::upsert_note(pool, &ingested.note).await?;
 
     Ok(())
 }
@@ -508,8 +436,17 @@ pub(crate) async fn reference_get(
         ));
     };
 
-    let doc = super::get::fetch_note(pool, &resolved_note_id, KnowledgeScope::SharedReference, "")
-        .await?;
+    // Try SharedReference first (file notes), then SharedNote (topic notes)
+    let doc =
+        match super::get::fetch_note(pool, &resolved_note_id, KnowledgeScope::SharedReference, "")
+            .await?
+        {
+            Some(d) => Some(d),
+            None => {
+                super::get::fetch_note(pool, &resolved_note_id, KnowledgeScope::SharedNote, "")
+                    .await?
+            }
+        };
     match doc {
         Some(mut d) => {
             if let Some(limit) = max_chars
@@ -563,13 +500,13 @@ pub(crate) async fn recent_reference_files(
         .collect())
 }
 
-/// Resolve a topic name to its topic_id by searching.
+/// Resolve a topic name to its topic_id by searching shared notes.
 async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> KnowledgeResult<String> {
     let pool = engine.pool();
 
     // Try exact title match first
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE title = ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id FROM notes WHERE title = ? AND scope = 'shared_note' LIMIT 1",
     )
     .bind(topic_name)
     .fetch_optional(pool)
@@ -581,7 +518,7 @@ async fn resolve_topic_id(engine: &KnowledgeEngine, topic_name: &str) -> Knowled
 
     // Fall back to case-insensitive LIKE match
     let row = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM notes WHERE title LIKE ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id FROM notes WHERE title LIKE ? AND scope = 'shared_note' LIMIT 1",
     )
     .bind(format!("%{}%", topic_name))
     .fetch_optional(pool)
@@ -648,17 +585,34 @@ pub(crate) async fn reference_file_move(
     let role: crate::models::SourceRole =
         role_str.parse().unwrap_or(crate::models::SourceRole::Docs);
 
-    // 4. Determine target filename — use provided or derive from source path
-    let original_filename = std::path::Path::new(&disk_path)
+    // 4. Determine target filename — preserve original file extension
+    let original_path = std::path::Path::new(&disk_path);
+    let original_ext = original_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("md");
+    let original_filename = original_path
         .file_name()
         .and_then(|f| f.to_str())
         .unwrap_or("unnamed.md");
-    let filename = target_filename.unwrap_or(original_filename);
+
+    let filename = match target_filename {
+        Some(name) => {
+            // Preserve original extension if the target doesn't specify one
+            let target_path = std::path::Path::new(name);
+            if target_path.extension().is_some() {
+                name.to_string()
+            } else {
+                format!("{}.{}", name, original_ext)
+            }
+        }
+        None => original_filename.to_string(),
+    };
 
     // Build the save path (collection/filename or just filename)
     let save_path = match target_collection {
         Some(coll) => format!("{}/{}", coll, filename),
-        None => filename.to_string(),
+        None => filename,
     };
 
     // 5. Save to target topic
@@ -669,11 +623,6 @@ pub(crate) async fn reference_file_move(
         source_url,
         role: Some(role),
         title: None,
-        collection_title: None,
-        collection_description: None,
-        collection_tags: None,
-        tags: None,
-        topic_description: None,
     };
 
     let result = super::save::reference_save(engine, ghost_name, model, request).await?;

@@ -20,12 +20,11 @@ pub use engine::KnowledgeEngine;
 pub use engine::RecentRefSummary;
 pub use errors::KnowledgeError;
 pub use models::{
-    CollectionSummary, DiaryQuery, DiarySearchResult, IndexStats, IndexStatsEntry,
-    KnowledgeGetQuery, KnowledgeScope, KnowledgeSearchQuery, KnowledgeSearchResult, MatchedTopic,
-    NoteCreateRequest, NoteDocument, NoteQuery, NoteResult, NoteSummary, NoteUpdateRequest,
-    NoteWriteResult, OwnershipScope, ReferenceFileStatus, ReferenceQuery, ReferenceSaveRequest,
-    ReferenceSaveResult, ReferenceSearchOutput, ReferenceSearchResult, SearchCategory, SourceRole,
-    TopicCreateRequest, TopicCreateResult, TopicListEntry, TopicSearchResult, TopicSourceInput,
-    TopicUpdateRequest, WriteScope,
+    DiaryQuery, DiarySearchResult, IndexStats, IndexStatsEntry, KnowledgeGetQuery, KnowledgeScope,
+    KnowledgeSearchQuery, KnowledgeSearchResult, MatchedTopic, NoteCreateRequest, NoteDocument,
+    NoteQuery, NoteResult, NoteSummary, NoteUpdateRequest, NoteWriteResult, OwnershipScope,
+    ReferenceFileStatus, ReferenceQuery, ReferenceSaveRequest, ReferenceSaveResult,
+    ReferenceSearchOutput, ReferenceSearchResult, SearchCategory, SourceRole, TopicCreateRequest,
+    TopicCreateResult, TopicListEntry, TopicSearchResult, TopicSourceInput, WriteScope,
 };
 pub use t_koma_core::config::{KnowledgeSettings, SearchDefaults};

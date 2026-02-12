@@ -1,22 +1,24 @@
 //! Engine method for saving content to reference topics.
 //!
 //! `reference_save` is the primary write path for incremental knowledge
-//! accumulation. It creates topics and collections implicitly, writes
-//! content files, and indexes everything with context enrichment.
+//! accumulation. The topic must already exist as a shared note (created via
+//! `note_write`), except for the special `_web-cache` topic which is
+//! auto-created on first use.
 
 use chrono::Utc;
 use sqlx::SqlitePool;
 
-use crate::errors::KnowledgeResult;
+use crate::errors::{KnowledgeError, KnowledgeResult};
 use crate::models::{
-    KnowledgeScope, ReferenceSaveRequest, ReferenceSaveResult, SourceRole, generate_note_id,
+    NoteCreateRequest, ReferenceSaveRequest, ReferenceSaveResult, SourceRole, WriteScope,
+    generate_note_id,
 };
 
 use super::KnowledgeEngine;
 use super::notes::sanitize_filename;
-use super::topics::build_topic_front_matter;
 
-/// Save content to a reference topic, creating the topic and collection if needed.
+/// Save content to a reference topic. The topic note must already exist as a
+/// shared note, except `_web-cache` which is auto-created.
 pub(crate) async fn reference_save(
     engine: &KnowledgeEngine,
     ghost_name: &str,
@@ -27,19 +29,9 @@ pub(crate) async fn reference_save(
     let settings = engine.settings();
     let embedder = engine.embedder();
 
-    let mut created_topic = false;
-    let mut created_collection = false;
-
-    // 1. Resolve or create topic
+    // 1. Resolve topic — must exist as a shared note (or auto-create _web-cache)
     let (topic_id, topic_title) =
-        match resolve_or_create_topic(pool, settings, embedder, ghost_name, model, &request).await?
-        {
-            TopicResolution::Existing { id, title } => (id, title),
-            TopicResolution::Created { id, title } => {
-                created_topic = true;
-                (id, title)
-            }
-        };
+        resolve_or_error(engine, ghost_name, model, &request.topic).await?;
 
     // 2. Determine filesystem paths
     let reference_root = crate::paths::shared_references_root(settings)?;
@@ -54,49 +46,10 @@ pub(crate) async fn reference_save(
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    // 3. Handle collection creation if path has a subdirectory component
+    // 3. Determine context prefix from path structure
     let context_prefix = if let Some(subdir) = extract_subdir(&request.path) {
-        let subdir_path = topic_dir.join(subdir);
-        let index_path = subdir_path.join("_index.md");
-
-        if !index_path.exists() {
-            // Create _index.md for the collection
-            let coll_title = request
-                .collection_title
-                .as_deref()
-                .unwrap_or_else(|| unsanitize_dirname(subdir));
-            let coll_description = request.collection_description.as_deref().unwrap_or("");
-            let coll_tags = request.collection_tags.as_deref();
-
-            create_collection_index(
-                pool,
-                settings,
-                embedder,
-                &topic_id,
-                &index_path,
-                coll_title,
-                coll_description,
-                coll_tags,
-                ghost_name,
-                model,
-            )
-            .await?;
-            created_collection = true;
-        }
-
-        // Build context prefix from collection
-        let coll_title = request
-            .collection_title
-            .as_deref()
-            .unwrap_or_else(|| unsanitize_dirname(subdir));
-        let coll_desc = request.collection_description.as_deref().unwrap_or("");
-        if coll_desc.is_empty() {
-            format!("[{}]", coll_title)
-        } else {
-            format!("[{}: {}]", coll_title, coll_desc)
-        }
+        format!("[{}/{}]", topic_title, subdir)
     } else {
-        // Root-level file: use topic title as context
         format!("[{}]", topic_title)
     };
 
@@ -157,19 +110,12 @@ pub(crate) async fn reference_save(
         topic_id,
         note_id: file_note_id,
         path: request.path,
-        created_topic,
-        created_collection,
     })
 }
 
 // ── Internal helpers ────────────────────────────────────────────────
 
-enum TopicResolution {
-    Existing { id: String, title: String },
-    Created { id: String, title: String },
-}
-
-/// Find an existing reference topic by fuzzy matching.
+/// Find an existing topic note (shared note with reference files) by fuzzy matching.
 ///
 /// Tries: exact match → case-insensitive → LIKE.
 /// Returns `(id, title)` if found, `None` otherwise.
@@ -177,8 +123,9 @@ pub(crate) async fn find_existing_topic(
     pool: &SqlitePool,
     name: &str,
 ) -> KnowledgeResult<Option<(String, String)>> {
+    // Exact match
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE title = ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id, title FROM notes WHERE title = ? AND scope = 'shared_note' LIMIT 1",
     )
     .bind(name)
     .fetch_optional(pool)
@@ -187,8 +134,9 @@ pub(crate) async fn find_existing_topic(
         return Ok(Some(found));
     }
 
+    // Case-insensitive match
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE LOWER(title) = LOWER(?) AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id, title FROM notes WHERE LOWER(title) = LOWER(?) AND scope = 'shared_note' LIMIT 1",
     )
     .bind(name)
     .fetch_optional(pool)
@@ -197,8 +145,9 @@ pub(crate) async fn find_existing_topic(
         return Ok(Some(found));
     }
 
+    // LIKE match
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, title FROM notes WHERE title LIKE ? AND entry_type = 'ReferenceTopic' AND scope = 'shared_reference' LIMIT 1",
+        "SELECT id, title FROM notes WHERE title LIKE ? AND scope = 'shared_note' LIMIT 1",
     )
     .bind(format!("%{}%", name))
     .fetch_optional(pool)
@@ -206,140 +155,37 @@ pub(crate) async fn find_existing_topic(
     Ok(row)
 }
 
-/// Resolve topic by fuzzy matching, or create a new one.
-async fn resolve_or_create_topic(
-    pool: &SqlitePool,
-    settings: &crate::KnowledgeSettings,
-    embedder: &crate::embeddings::EmbeddingClient,
+/// Resolve topic by fuzzy matching, or auto-create `_web-cache`, or error.
+async fn resolve_or_error(
+    engine: &KnowledgeEngine,
     ghost_name: &str,
     model: &str,
-    request: &ReferenceSaveRequest,
-) -> KnowledgeResult<TopicResolution> {
-    if let Some((id, title)) = find_existing_topic(pool, &request.topic).await? {
-        return Ok(TopicResolution::Existing { id, title });
+    topic_name: &str,
+) -> KnowledgeResult<(String, String)> {
+    if let Some(found) = find_existing_topic(engine.pool(), topic_name).await? {
+        return Ok(found);
     }
 
-    // No match — create new topic
-    let topic_id = generate_note_id();
-    let now = Utc::now();
-    let title = request.topic.clone();
-
-    let reference_root = crate::paths::shared_references_root(settings)?;
-    let topic_dir_name = sanitize_filename(&title);
-    let topic_dir = reference_root.join(&topic_dir_name);
-    tokio::fs::create_dir_all(&topic_dir).await?;
-
-    let front_matter = build_topic_front_matter(
-        &topic_id,
-        &title,
-        ghost_name,
-        model,
-        8, // default trust score
-        request.tags.as_deref(),
-        &now,
-    );
-
-    let body = request.topic_description.as_deref().unwrap_or("");
-    let content = format!("+++\n{}\n+++\n\n{}\n", front_matter, body);
-    let topic_path = topic_dir.join("topic.md");
-
-    let tmp_path = topic_path.with_extension("md.tmp");
-    tokio::fs::write(&tmp_path, &content).await?;
-    tokio::fs::rename(&tmp_path, &topic_path).await?;
-
-    // Index the topic note
-    let ingested = crate::ingest::ingest_markdown(
-        settings,
-        KnowledgeScope::SharedReference,
-        None,
-        &topic_path,
-        &content,
-    )
-    .await?;
-    crate::storage::upsert_note(pool, &ingested.note).await?;
-    crate::storage::replace_tags(pool, &topic_id, &ingested.tags).await?;
-    crate::storage::replace_links(pool, &topic_id, None, &ingested.links).await?;
-    let chunk_ids = crate::storage::replace_chunks(
-        pool,
-        &topic_id,
-        &title,
-        "ReferenceTopic",
-        None,
-        &ingested.chunks,
-    )
-    .await?;
-    crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
-
-    Ok(TopicResolution::Created {
-        id: topic_id,
-        title,
-    })
-}
-
-/// Create a `_index.md` for a new collection.
-#[allow(clippy::too_many_arguments)]
-async fn create_collection_index(
-    pool: &SqlitePool,
-    settings: &crate::KnowledgeSettings,
-    embedder: &crate::embeddings::EmbeddingClient,
-    topic_id: &str,
-    index_path: &std::path::Path,
-    title: &str,
-    description: &str,
-    tags: Option<&[String]>,
-    ghost_name: &str,
-    model: &str,
-) -> KnowledgeResult<()> {
-    let coll_id = generate_note_id();
-    let now = Utc::now();
-
-    let mut lines = Vec::new();
-    lines.push(format!("id = \"{}\"", coll_id));
-    lines.push(format!("title = \"{}\"", title.replace('"', "\\\"")));
-    lines.push("type = \"ReferenceCollection\"".to_string());
-    lines.push(format!("created_at = \"{}\"", now.to_rfc3339()));
-    lines.push("trust_score = 8".to_string());
-    lines.push(format!("parent = \"{}\"", topic_id));
-    if let Some(tag_list) = tags {
-        let formatted: Vec<String> = tag_list.iter().map(|t| format!("\"{}\"", t)).collect();
-        lines.push(format!("tags = [{}]", formatted.join(", ")));
+    // Auto-create _web-cache as a system topic note
+    if topic_name == "_web-cache" {
+        let request = NoteCreateRequest {
+            title: "_web-cache".to_string(),
+            archetype: None,
+            scope: WriteScope::SharedNote,
+            body: "Auto-saved web content awaiting curation by reflection.".to_string(),
+            parent: None,
+            tags: Some(vec!["system".to_string(), "web-cache".to_string()]),
+            source: None,
+            trust_score: Some(8),
+        };
+        let result = super::notes::note_create(engine, ghost_name, model, request).await?;
+        return Ok((result.note_id, "_web-cache".to_string()));
     }
-    lines.push(String::new());
-    lines.push("[created_by]".to_string());
-    lines.push(format!("ghost = \"{}\"", ghost_name));
-    lines.push(format!("model = \"{}\"", model));
 
-    let front_matter = lines.join("\n");
-    let content = format!("+++\n{}\n+++\n\n{}\n", front_matter, description);
-
-    // Create directory and write
-    if let Some(parent) = index_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    let tmp_path = index_path.with_extension("md.tmp");
-    tokio::fs::write(&tmp_path, &content).await?;
-    tokio::fs::rename(&tmp_path, index_path).await?;
-
-    // Index the collection note
-    let ingested =
-        crate::ingest::ingest_reference_collection(settings, index_path, &content).await?;
-    let mut note = ingested.note.clone();
-    note.parent_id = Some(topic_id.to_string());
-    crate::storage::upsert_note(pool, &note).await?;
-    crate::storage::replace_tags(pool, &coll_id, &ingested.tags).await?;
-    crate::storage::replace_links(pool, &coll_id, None, &ingested.links).await?;
-    let chunk_ids = crate::storage::replace_chunks(
-        pool,
-        &coll_id,
-        title,
-        "ReferenceCollection",
-        None,
-        &ingested.chunks,
-    )
-    .await?;
-    crate::index::embed_chunks(settings, embedder, pool, &ingested.chunks, &chunk_ids).await?;
-
-    Ok(())
+    Err(KnowledgeError::UnknownNote(format!(
+        "Topic note '{}' not found. Create it with note_write first.",
+        topic_name
+    )))
 }
 
 /// Extract the subdirectory component from a path like "bambulab-a1/specs.md".
@@ -352,11 +198,4 @@ fn extract_subdir(path: &str) -> Option<&str> {
     } else {
         Some(subdir)
     }
-}
-
-/// Reverse a sanitized directory name back to a human-readable title.
-/// E.g., "bambulab-a1" → "bambulab a1" (hyphens to spaces, title case not applied).
-fn unsanitize_dirname(dirname: &str) -> &str {
-    // Just return as-is — the user can provide collection_title for nicer names
-    dirname
 }

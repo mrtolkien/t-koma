@@ -22,7 +22,7 @@ impl Tool for ReferenceWriteTool {
     }
 
     fn description(&self) -> &str {
-        "Save web content or notes as a reference file. Use content_ref to reference a cached web_fetch/web_search result instead of passing content directly."
+        "Save web content or notes as a reference file. The topic must already exist as a shared note (create with note_write first), except _web-cache which is auto-created. Use content_ref to reference a cached web_fetch/web_search result instead of passing content directly."
     }
 
     fn input_schema(&self) -> Value {
@@ -31,7 +31,7 @@ impl Tool for ReferenceWriteTool {
             "properties": {
                 "topic": {
                     "type": "string",
-                    "description": "Topic name (e.g. '3d-printers', 'dioxus'). Auto-created if new."
+                    "description": "Topic name — must match an existing shared note (create with note_write first). Exception: '_web-cache' is auto-created."
                 },
                 "collection": {
                     "type": "string",
@@ -81,11 +81,6 @@ impl Tool for ReferenceWriteTool {
             source_url: input.source_url,
             role: Some(t_koma_knowledge::SourceRole::Docs),
             title: None,
-            collection_title: None,
-            collection_description: None,
-            collection_tags: None,
-            tags: None,
-            topic_description: None,
         };
 
         let result = engine

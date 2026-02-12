@@ -7,10 +7,7 @@ use walkdir::WalkDir;
 use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeResult;
-use crate::ingest::{
-    ingest_diary_entry, ingest_markdown, ingest_reference_collection,
-    ingest_reference_file_with_context, ingest_reference_topic,
-};
+use crate::ingest::{ingest_diary_entry, ingest_markdown, ingest_reference_file_with_context};
 use crate::models::{KnowledgeScope, SourceRole};
 use crate::paths::{ghost_diary_root, ghost_notes_root, shared_notes_root, shared_references_root};
 use crate::storage::{
@@ -57,13 +54,14 @@ pub async fn reconcile_ghost(
     .await?;
     index_diary_tree(settings, store, embedder, &diary_root, ghost_name).await?;
 
-    // TODO: ghost reference indexing — GhostReference scope exists in the enum
-    // but index_reference_topics() and reference_search() hardcode SharedReference.
-    // Add ghost-scoped reference indexing here when needed.
-
     Ok(())
 }
 
+/// DB-driven reference topic indexing.
+///
+/// Instead of walking the filesystem for `topic.md` files, queries the DB
+/// for known topics (shared notes that have reference files) and indexes
+/// their reference file directories.
 async fn index_reference_topics(
     settings: &KnowledgeSettings,
     store: &SqlitePool,
@@ -74,159 +72,32 @@ async fn index_reference_topics(
         return Ok(());
     }
 
-    for entry in WalkDir::new(&root)
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-    {
-        if !entry.file_type().is_file() {
+    // Get known topics from reference_files table joined with notes
+    let topics = sqlx::query_as::<_, (String, String)>(
+        "SELECT DISTINCT rf.topic_id, n.title \
+         FROM reference_files rf \
+         JOIN notes n ON n.id = rf.topic_id \
+         WHERE n.scope = 'shared_note'",
+    )
+    .fetch_all(store)
+    .await?;
+
+    for (topic_id, title) in topics {
+        let topic_dir_name = crate::engine::notes::sanitize_filename(&title);
+        let topic_dir = root.join(&topic_dir_name);
+        if !topic_dir.exists() {
             continue;
         }
-        let path = entry.path();
-        // Only process topic.md files — other .md files in reference dirs
-        // are fetched content (no front matter) handled by index_reference_files.
-        if path.file_name().and_then(|v| v.to_str()) != Some("topic.md") {
-            continue;
-        }
 
-        let raw = tokio::fs::read_to_string(path).await?;
-        let topic = ingest_reference_topic(settings, path, &raw).await?;
-
-        let note = &topic.note;
-        upsert_note(store, &note.note).await?;
-        replace_tags(store, &note.note.id, &note.tags).await?;
-        replace_links(store, &note.note.id, None, &note.links).await?;
-        let chunk_ids = replace_chunks(
-            store,
-            &note.note.id,
-            &note.note.title,
-            &note.note.entry_type,
-            note.note.archetype.as_deref(),
-            &note.chunks,
-        )
-        .await?;
-        embed_chunks(settings, embedder, store, &note.chunks, &chunk_ids).await?;
-
-        let topic_dir = path.parent().unwrap_or(&root);
-
-        // Index _index.md files in subdirectories as ReferenceCollection notes
-        let collection_contexts = index_collections(
-            settings,
-            store,
-            embedder,
-            &note.note.id,
-            &note.note.title,
-            topic_dir,
-        )
-        .await?;
-
-        // Walk filesystem for reference files and index them
-        index_reference_files(
-            settings,
-            store,
-            embedder,
-            &note.note.id,
-            &note.note.title,
-            topic_dir,
-            &collection_contexts,
-        )
-        .await?;
+        index_reference_files(settings, store, embedder, &topic_id, &title, &topic_dir).await?;
     }
 
     Ok(())
 }
 
-/// Context info for a collection, used for chunk enrichment.
-struct CollectionContext {
-    /// Directory name of the collection (relative to topic dir).
-    dir_name: String,
-    /// Context prefix to prepend to chunks: "[Title: Description]"
-    prefix: String,
-}
-
-/// Index `_index.md` files found in subdirectories of a topic.
-///
-/// Returns a list of `CollectionContext` entries mapping subdirectory names
-/// to their enrichment prefixes.
-async fn index_collections(
-    settings: &KnowledgeSettings,
-    store: &SqlitePool,
-    embedder: &EmbeddingClient,
-    topic_id: &str,
-    _topic_title: &str,
-    topic_dir: &Path,
-) -> KnowledgeResult<Vec<CollectionContext>> {
-    let mut contexts = Vec::new();
-
-    if !topic_dir.exists() {
-        return Ok(contexts);
-    }
-
-    let mut entries = tokio::fs::read_dir(topic_dir).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        if !entry.file_type().await?.is_dir() {
-            continue;
-        }
-        let subdir = entry.path();
-        let index_path = subdir.join("_index.md");
-        if !index_path.exists() {
-            continue;
-        }
-
-        let raw = tokio::fs::read_to_string(&index_path).await?;
-        let ingested = ingest_reference_collection(settings, &index_path, &raw).await?;
-
-        // Set parent_id to the topic note
-        let mut note = ingested.note.clone();
-        note.parent_id = Some(topic_id.to_string());
-
-        if !is_unchanged(store, &index_path, &note.content_hash).await? {
-            upsert_note(store, &note).await?;
-            replace_tags(store, &note.id, &ingested.tags).await?;
-            replace_links(store, &note.id, None, &ingested.links).await?;
-            let chunk_ids = replace_chunks(
-                store,
-                &note.id,
-                &note.title,
-                &note.entry_type,
-                note.archetype.as_deref(),
-                &ingested.chunks,
-            )
-            .await?;
-            embed_chunks(settings, embedder, store, &ingested.chunks, &chunk_ids).await?;
-        }
-
-        // Build context prefix from collection title and body
-        let dir_name = subdir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
-
-        // Extract description from the parsed body (first ~200 chars)
-        let description = {
-            let body = raw.split("\n+++\n").nth(1).unwrap_or("").trim();
-            if body.is_empty() {
-                String::new()
-            } else {
-                body.chars().take(200).collect::<String>()
-            }
-        };
-
-        let prefix = if description.is_empty() {
-            format!("[{}]", ingested.note.title)
-        } else {
-            format!("[{}: {}]", ingested.note.title, description)
-        };
-
-        contexts.push(CollectionContext { dir_name, prefix });
-    }
-
-    Ok(contexts)
-}
-
 /// Index reference files by walking the topic directory.
 ///
-/// Discovers files on the filesystem (skipping `topic.md` and `_index.md`),
+/// Discovers files on the filesystem (skipping hidden files),
 /// looks up existing roles from the DB, and indexes with context enrichment.
 async fn index_reference_files(
     settings: &KnowledgeSettings,
@@ -235,16 +106,15 @@ async fn index_reference_files(
     topic_id: &str,
     topic_title: &str,
     topic_dir: &Path,
-    collection_contexts: &[CollectionContext],
 ) -> KnowledgeResult<()> {
-    // Collect all content files under the topic dir (skip topic.md and _index.md)
     let mut files: Vec<(String, std::path::PathBuf)> = Vec::new();
     for entry in WalkDir::new(topic_dir).into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }
         let filename = entry.file_name().to_str().unwrap_or("");
-        if filename == "topic.md" || filename == "_index.md" || filename.starts_with('.') {
+        // Skip hidden files and legacy topic.md/_index.md files
+        if filename.starts_with('.') || filename == "topic.md" || filename == "_index.md" {
             continue;
         }
         if let Ok(rel) = entry.path().strip_prefix(topic_dir) {
@@ -256,7 +126,7 @@ async fn index_reference_files(
     for (rel_path, abs_path) in &files {
         let raw = match tokio::fs::read_to_string(abs_path).await {
             Ok(c) => c,
-            Err(_) => continue, // skip binary/unreadable files
+            Err(_) => continue,
         };
 
         // Look up existing role from DB; default to Code for new files
@@ -277,7 +147,13 @@ async fn index_reference_files(
             .unwrap_or(rel_path);
         let entry_type = role.to_entry_type();
 
-        let context_prefix = determine_context_prefix(rel_path, topic_title, collection_contexts);
+        // Context prefix: [topic/subdir] for nested files, [topic] for root-level
+        let context_prefix = if let Some(pos) = rel_path.find('/') {
+            let subdir = &rel_path[..pos];
+            format!("[{}/{}]", topic_title, subdir)
+        } else {
+            format!("[{}]", topic_title)
+        };
 
         let ingested = ingest_reference_file_with_context(
             settings,
@@ -320,27 +196,6 @@ async fn index_reference_files(
     }
 
     Ok(())
-}
-
-/// Determine the context prefix for a reference file based on its path.
-///
-/// If the file is inside a collection subdirectory, use that collection's prefix.
-/// Otherwise, use the topic title.
-fn determine_context_prefix(
-    file_path: &str,
-    topic_title: &str,
-    collection_contexts: &[CollectionContext],
-) -> String {
-    // Check if the file path starts with a collection directory
-    for ctx in collection_contexts {
-        if file_path.starts_with(&format!("{}/", ctx.dir_name))
-            || file_path.starts_with(&format!("{}\\", ctx.dir_name))
-        {
-            return ctx.prefix.clone();
-        }
-    }
-    // Root-level file: use topic title
-    format!("[{}]", topic_title)
 }
 
 /// Index diary entries — plain markdown files named `YYYY-MM-DD.md` (no front matter).

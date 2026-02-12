@@ -504,7 +504,7 @@ async fn dioxus_full_pipeline() {
                 "count": list.len(),
                 "title": &list[0].title,
                 "file_count": list[0].file_count,
-                "collections": list[0].collections,
+                "collection_dirs": list[0].collection_dirs,
                 "tags": &list[0].tags,
             },
             "recent_topics": {

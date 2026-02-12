@@ -432,14 +432,6 @@ pub struct TopicCreateResult {
     pub chunk_count: usize,
 }
 
-/// Summary of a collection within a topic.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CollectionSummary {
-    pub title: String,
-    pub path: String,
-    pub file_count: usize,
-}
-
 /// Entry in a topic listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicListEntry {
@@ -447,7 +439,8 @@ pub struct TopicListEntry {
     pub title: String,
     pub created_by_ghost: String,
     pub file_count: usize,
-    pub collections: Vec<CollectionSummary>,
+    /// Subdirectory names derived from reference file paths.
+    pub collection_dirs: Vec<String>,
     pub tags: Vec<String>,
 }
 
@@ -461,22 +454,15 @@ pub struct TopicSearchResult {
     pub snippet: String,
 }
 
-/// Input for updating an existing reference topic's metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TopicUpdateRequest {
-    pub topic_id: String,
-    pub body: Option<String>,
-    pub tags: Option<Vec<String>>,
-}
-
 // ── Reference save models ──────────────────────────────────────────
 
 /// Input for saving content to a reference topic.
 ///
-/// Creates topic and collection implicitly if they don't exist.
+/// The topic must already exist as a shared note (created via `note_write`),
+/// except for `_web-cache` which is auto-created.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReferenceSaveRequest {
-    /// Topic name (fuzzy-matched against existing topics).
+    /// Topic name (fuzzy-matched against existing topic notes).
     pub topic: String,
     /// Relative path within the topic directory (e.g. "bambulab-a1/specs.md").
     pub path: String,
@@ -488,16 +474,6 @@ pub struct ReferenceSaveRequest {
     pub role: Option<SourceRole>,
     /// Title for the file note.
     pub title: Option<String>,
-    /// Title for auto-created collection.
-    pub collection_title: Option<String>,
-    /// Description for auto-created collection.
-    pub collection_description: Option<String>,
-    /// Tags for auto-created collection.
-    pub collection_tags: Option<Vec<String>>,
-    /// Tags for auto-created topic.
-    pub tags: Option<Vec<String>>,
-    /// Description for auto-created topic.
-    pub topic_description: Option<String>,
 }
 
 /// Result of a reference_save operation.
@@ -506,8 +482,6 @@ pub struct ReferenceSaveResult {
     pub topic_id: String,
     pub note_id: String,
     pub path: String,
-    pub created_topic: bool,
-    pub created_collection: bool,
 }
 
 /// Result of a `reference_search` query, including full topic context.

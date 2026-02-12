@@ -16,7 +16,8 @@ use serde::Serialize;
 use tempfile::TempDir;
 
 use t_koma_knowledge::models::{
-    NoteCreateRequest, NoteQuery, NoteResult, OwnershipScope, ReferenceQuery, WriteScope,
+    NoteCreateRequest, NoteQuery, NoteResult, OwnershipScope, ReferenceQuery, SourceRole,
+    WriteScope,
 };
 use t_koma_knowledge::{KnowledgeEngine, KnowledgeSettings};
 
@@ -50,7 +51,7 @@ impl CodebaseFixture {
         let data_root = temp.path().join("data");
         let shared_notes = data_root.join("shared").join("notes");
         let reference_root = data_root.join("shared").join("references");
-        let topic_dir = reference_root.join("t-koma-knowledge-src");
+        let topic_dir = reference_root.join("t-koma-knowledge-source");
         let ghost_notes = data_root.join("ghosts").join("ghost-a").join("notes");
 
         tokio::fs::create_dir_all(&shared_notes).await.unwrap();
@@ -91,53 +92,6 @@ impl CodebaseFixture {
             });
         }
 
-        // Build the combined files list
-        let all_files: Vec<String> = CODE_FILES
-            .iter()
-            .chain(DOC_FILES.iter())
-            .map(|f| format!("\"{}\"", f))
-            .collect();
-
-        // Write topic.md with TOML front matter including [[sources]] with roles
-        let topic_md = format!(
-            r#"+++
-id = "topic-knowledge-src"
-title = "t-koma-knowledge source"
-type = "ReferenceTopic"
-created_at = "2025-06-01T00:00:00Z"
-trust_score = 10
-tags = ["rust", "knowledge", "t-koma"]
-files = [{files}]
-
-[created_by]
-ghost = "system"
-model = "indexer"
-
-[[sources]]
-type = "git"
-url = "https://github.com/example/t-koma"
-role = "code"
-paths = ["models.rs", "graph.rs", "parser.rs", "chunker.rs", "storage.rs", "search.rs"]
-
-[[sources]]
-type = "web"
-url = "https://example.com/docs"
-role = "docs"
-paths = ["system-prompt.md", "reflection-prompt.md"]
-+++
-
-# t-koma-knowledge Source Code & Documentation
-
-This reference topic contains the core source files and documentation of the
-t-koma-knowledge crate, including models, search pipeline, graph traversal,
-parsing, chunking, storage, and usage guides.
-"#,
-            files = all_files.join(", ")
-        );
-        tokio::fs::write(topic_dir.join("topic.md"), &topic_md)
-            .await
-            .unwrap();
-
         let settings = KnowledgeSettings {
             data_root_override: Some(data_root),
             // Use a short reconcile window so we can trigger indexing
@@ -147,6 +101,89 @@ parsing, chunking, storage, and usage guides.
 
         let engine = KnowledgeEngine::open(settings).await.expect("open engine");
         let ghost_name = "ghost-a".to_string();
+
+        // Create the topic as a shared note in the DB (replaces old topic.md approach)
+        let topic_note = t_koma_knowledge::storage::NoteRecord {
+            id: "topic-knowledge-src".to_string(),
+            title: "t-koma-knowledge source".to_string(),
+            entry_type: "Note".to_string(),
+            archetype: None,
+            path: shared_notes.join("t-koma-knowledge-source.md"),
+            scope: "shared_note".to_string(),
+            owner_ghost: None,
+            created_at: "2025-06-01T00:00:00Z".to_string(),
+            created_by_ghost: "system".to_string(),
+            created_by_model: "indexer".to_string(),
+            trust_score: 10,
+            last_validated_at: None,
+            last_validated_by_ghost: None,
+            last_validated_by_model: None,
+            version: Some(1),
+            parent_id: None,
+            comments_json: None,
+            content_hash: "codebase-fixture-hash".to_string(),
+        };
+        t_koma_knowledge::storage::upsert_note(engine.pool(), &topic_note)
+            .await
+            .unwrap();
+
+        // Write a shared note file on disk
+        let note_content = r#"+++
+id = "topic-knowledge-src"
+title = "t-koma-knowledge source"
+type = "Note"
+created_at = "2025-06-01T00:00:00Z"
+trust_score = 10
+tags = ["rust", "knowledge", "t-koma"]
+
+[created_by]
+ghost = "system"
+model = "indexer"
++++
+
+# t-koma-knowledge Source Code & Documentation
+
+This reference topic contains the core source files and documentation of the
+t-koma-knowledge crate, including models, search pipeline, graph traversal,
+parsing, chunking, storage, and usage guides.
+"#;
+        tokio::fs::write(&topic_note.path, note_content)
+            .await
+            .unwrap();
+
+        // Insert tags
+        t_koma_knowledge::storage::replace_tags(
+            engine.pool(),
+            "topic-knowledge-src",
+            &[
+                "rust".to_string(),
+                "knowledge".to_string(),
+                "t-koma".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert reference_files rows so the DB-driven reconciler discovers this topic
+        let all_files: Vec<(&str, SourceRole)> = CODE_FILES
+            .iter()
+            .map(|f| (*f, SourceRole::Code))
+            .chain(DOC_FILES.iter().map(|f| (*f, SourceRole::Docs)))
+            .collect();
+
+        for (file_name, role) in &all_files {
+            let note_id = format!("ref:topic-knowledge-src:{}", file_name);
+            sqlx::query(
+                "INSERT INTO reference_files (topic_id, note_id, path, role) VALUES (?, ?, ?, ?)",
+            )
+            .bind("topic-knowledge-src")
+            .bind(&note_id)
+            .bind(*file_name)
+            .bind(role.as_str())
+            .execute(engine.pool())
+            .await
+            .unwrap();
+        }
 
         // Trigger reconcile by doing a reference search (reconcile_seconds=0 -> always runs)
         let _ = engine

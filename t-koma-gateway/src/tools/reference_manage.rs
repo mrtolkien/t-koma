@@ -12,8 +12,6 @@ struct ReferenceManageInput {
     // update fields
     status: Option<String>,
     reason: Option<String>,
-    body: Option<String>,
-    tags: Option<Vec<String>>,
     // move fields
     target_topic: Option<String>,
     target_filename: Option<String>,
@@ -29,7 +27,7 @@ impl Tool for ReferenceManageTool {
     }
 
     fn description(&self) -> &str {
-        "Manage reference files and topics. Actions: update (change status/metadata), delete (remove file), move (relocate file between topics without copying content)."
+        "Manage reference files. Actions: update (change file status), delete (remove file), move (relocate file between topics without copying content). To update topic metadata, use note_write instead."
     }
 
     fn input_schema(&self) -> Value {
@@ -39,11 +37,11 @@ impl Tool for ReferenceManageTool {
                 "action": {
                     "type": "string",
                     "enum": ["update", "delete", "move"],
-                    "description": "update: change file status or topic metadata. delete: remove a reference file. move: relocate a file to another topic (content stays server-side)."
+                    "description": "update: change file status. delete: remove a reference file. move: relocate a file to another topic (content stays server-side)."
                 },
                 "topic": {
                     "type": "string",
-                    "description": "Source topic name. Required for update and path-based lookups. Optional for delete/move when note_id is provided."
+                    "description": "Source topic name. Required for path-based lookups. Optional for delete/move when note_id is provided."
                 },
                 "note_id": {
                     "type": "string",
@@ -62,26 +60,17 @@ impl Tool for ReferenceManageTool {
                     "type": "string",
                     "description": "Why the file is being updated/deleted/moved."
                 },
-                "body": {
-                    "type": "string",
-                    "description": "New topic description (update without note_id/path)."
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "New topic tags (update without note_id/path)."
-                },
                 "target_topic": {
                     "type": "string",
-                    "description": "Destination topic (move action). Created if it doesn't exist."
+                    "description": "Destination topic (move action). Must exist as a shared note."
                 },
                 "target_filename": {
                     "type": "string",
-                    "description": "New filename in target topic (move action). Defaults to the original filename."
+                    "description": "New filename in target topic (move action). Defaults to the original filename. File extension is preserved automatically."
                 },
                 "target_collection": {
                     "type": "string",
-                    "description": "Collection within target topic (move action). E.g. 'comparisons' or 'guides'."
+                    "description": "Subdirectory within target topic (move action). E.g. 'comparisons' or 'guides'."
                 }
             },
             "required": ["action"],
@@ -99,7 +88,7 @@ impl Tool for ReferenceManageTool {
             .clone();
 
         match input.action.as_str() {
-            "update" => execute_update(&engine, context.ghost_name(), input).await,
+            "update" => execute_update(&engine, input).await,
             "delete" => execute_delete(&engine, input).await,
             "move" => execute_move(&engine, context.ghost_name(), context.model_id(), input).await,
             other => Err(format!(
@@ -112,50 +101,29 @@ impl Tool for ReferenceManageTool {
 
 async fn execute_update(
     engine: &t_koma_knowledge::KnowledgeEngine,
-    ghost_name: &str,
     input: ReferenceManageInput,
 ) -> Result<String, String> {
-    let topic = input
-        .topic
-        .as_deref()
-        .ok_or("'topic' is required for update")?;
-
-    if input.note_id.is_some() || input.path.is_some() {
-        // File-level update — change status
-        let note_id = resolve_file_id(engine, &input).await?;
-        let status_str = input.status.ok_or("'status' is required for file update")?;
-        let status: t_koma_knowledge::ReferenceFileStatus =
-            status_str.parse().map_err(|e: String| e)?;
-
-        engine
-            .reference_file_set_status(&note_id, status, input.reason.as_deref())
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(format!(
-            "Reference file {} marked as {}",
-            note_id, status_str
-        ))
-    } else {
-        // Topic-level update
-        let (topic_id, _title) = engine
-            .resolve_topic(topic)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let request = t_koma_knowledge::TopicUpdateRequest {
-            topic_id,
-            body: input.body,
-            tags: input.tags,
-        };
-
-        engine
-            .topic_update(ghost_name, request)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(json!({"status": "updated"}).to_string())
+    // File-level update only — change status
+    if input.note_id.is_none() && input.path.is_none() {
+        return Err(
+            "Provide 'note_id' or 'topic' + 'path' to identify the file. To update topic metadata, use note_write(action=\"update\").".to_string(),
+        );
     }
+
+    let note_id = resolve_file_id(engine, &input).await?;
+    let status_str = input.status.ok_or("'status' is required for file update")?;
+    let status: t_koma_knowledge::ReferenceFileStatus =
+        status_str.parse().map_err(|e: String| e)?;
+
+    engine
+        .reference_file_set_status(&note_id, status, input.reason.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "Reference file {} marked as {}",
+        note_id, status_str
+    ))
 }
 
 async fn execute_delete(
@@ -209,8 +177,6 @@ async fn execute_move(
         "moved": note_id,
         "target_topic": result.topic_id,
         "target_path": result.path,
-        "created_topic": result.created_topic,
-        "created_collection": result.created_collection,
     })
     .to_string())
 }
