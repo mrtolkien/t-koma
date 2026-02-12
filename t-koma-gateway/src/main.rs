@@ -243,11 +243,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     state.set_discord_bot_token(discord_token.clone()).await;
     state.start_shared_knowledge_watcher().await;
     let heartbeat_model_alias = config
-        .settings
-        .heartbeat_model
-        .as_deref()
-        .map(str::trim)
-        .filter(|alias| !alias.is_empty())
+        .heartbeat_model_aliases()
+        .and_then(|aliases| aliases.first())
         .map(|alias| alias.to_string());
     state
         .start_heartbeat_runner(

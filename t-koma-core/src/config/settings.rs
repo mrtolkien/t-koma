@@ -9,8 +9,120 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::de::{self, SeqAccess, Visitor};
 
 use crate::message::ProviderType;
+
+/// Ordered list of model aliases for fallback chains.
+///
+/// Accepts either a single string (`"kimi25"`) or a list (`["kimi25", "gemma3"]`)
+/// in the TOML configuration. Serializes back as a string when len==1, list otherwise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelAliases(Vec<String>);
+
+impl ModelAliases {
+    /// Create from a single alias.
+    pub fn single(alias: impl Into<String>) -> Self {
+        Self(vec![alias.into()])
+    }
+
+    /// Create from multiple aliases.
+    pub fn many(aliases: Vec<String>) -> Self {
+        Self(aliases)
+    }
+
+    /// The first (highest-priority) alias.
+    pub fn first(&self) -> Option<&str> {
+        self.0.first().map(|s| s.as_str())
+    }
+
+    /// Iterate over all aliases in priority order.
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|s| s.as_str())
+    }
+
+    /// Whether the list is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Number of aliases in the chain.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Convert into the inner Vec.
+    pub fn into_vec(self) -> Vec<String> {
+        self.0
+    }
+
+    /// Borrow as a slice.
+    pub fn as_slice(&self) -> &[String] {
+        &self.0
+    }
+}
+
+impl Default for ModelAliases {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelAliases {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ModelAliasesVisitor;
+
+        impl<'de> Visitor<'de> for ModelAliasesVisitor {
+            type Value = ModelAliases;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a model alias string or a list of model alias strings")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<ModelAliases, E>
+            where
+                E: de::Error,
+            {
+                if value.is_empty() {
+                    Ok(ModelAliases(Vec::new()))
+                } else {
+                    Ok(ModelAliases(vec![value.to_string()]))
+                }
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<ModelAliases, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut aliases = Vec::new();
+                while let Some(alias) = seq.next_element::<String>()? {
+                    if !alias.trim().is_empty() {
+                        aliases.push(alias);
+                    }
+                }
+                Ok(ModelAliases(aliases))
+            }
+        }
+
+        deserializer.deserialize_any(ModelAliasesVisitor)
+    }
+}
+
+impl Serialize for ModelAliases {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if self.0.len() == 1 {
+            serializer.serialize_str(&self.0[0])
+        } else {
+            self.0.serialize(serializer)
+        }
+    }
+}
 
 /// Default TOML configuration file content
 /// TODO: REVIEW WHY WE NEED DEFAULTS THEN?
@@ -25,10 +137,13 @@ const DEFAULT_CONFIG_TOML: &str = r#"# t-koma configuration file
 #   - OPENAI_API_KEY (optional, for openai_compatible models)
 #   - DISCORD_BOT_TOKEN
 
-# Default model alias (must exist under [models])
+# Default model alias or fallback chain (must exist under [models])
+# Single model:   default_model = "kimi25"
+# Fallback chain: default_model = ["kimi25", "gemma3", "qwen3"]
 default_model = ""
-# Optional heartbeat model alias (falls back to default_model when unset)
-# heartbeat_model = ""
+# Optional heartbeat model alias or chain (falls back to default_model when unset)
+# heartbeat_model = "alpha"
+# heartbeat_model = ["alpha", "kimi25"]
 
 [models]
 # Example:
@@ -96,13 +211,17 @@ pub struct Settings {
     #[serde(default)]
     pub models: BTreeMap<String, ModelConfig>,
 
-    /// Default model alias (must exist in `models`)
+    /// Default model alias or fallback chain (must exist in `models`).
+    ///
+    /// Accepts a single string (`"kimi25"`) or a list (`["kimi25", "gemma3"]`).
+    /// When multiple aliases are provided, they form an ordered fallback chain:
+    /// the gateway tries each in order if the previous one is rate-limited.
     #[serde(default)]
-    pub default_model: String,
+    pub default_model: ModelAliases,
 
-    /// Optional model alias for heartbeat runs (falls back to default_model)
-    #[serde(default)]
-    pub heartbeat_model: Option<String>,
+    /// Optional model alias (or chain) for heartbeat runs (falls back to default_model).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heartbeat_model: Option<ModelAliases>,
 
     /// Gateway server configuration
     #[serde(default)]
@@ -531,9 +650,11 @@ impl Default for WebFetchSettings {
 }
 
 impl Settings {
-    /// Resolve the default model config from the alias.
+    /// Resolve the default (first) model config from the alias chain.
     pub fn default_model_config(&self) -> Option<&ModelConfig> {
-        self.models.get(&self.default_model)
+        self.default_model
+            .first()
+            .and_then(|alias| self.models.get(alias))
     }
 }
 
@@ -673,6 +794,7 @@ mod tests {
         assert!(settings.models.is_empty());
         assert!(settings.default_model.is_empty());
         assert!(settings.heartbeat_model.is_none());
+        assert_eq!(settings.default_model.len(), 0);
 
         assert_eq!(settings.gateway.host, "127.0.0.1");
         assert_eq!(settings.gateway.port, 3000);
@@ -769,8 +891,11 @@ cache_ttl_minutes = 2
 
         let settings = Settings::from_toml(toml).unwrap();
 
-        assert_eq!(settings.default_model, "kimi25");
-        assert_eq!(settings.heartbeat_model.as_deref(), Some("alpha"));
+        assert_eq!(settings.default_model, ModelAliases::single("kimi25"));
+        assert_eq!(
+            settings.heartbeat_model,
+            Some(ModelAliases::single("alpha"))
+        );
         assert_eq!(
             settings.models.get("kimi25").unwrap().model,
             "moonshotai/kimi-k2.5"
@@ -840,7 +965,7 @@ host = "0.0.0.0"
                 context_window: None,
             },
         );
-        settings.default_model = "kimi25".to_string();
+        settings.default_model = ModelAliases::single("kimi25");
         settings.gateway.port = 4000;
 
         let unique = SystemTime::now()
@@ -854,7 +979,7 @@ host = "0.0.0.0"
         let content = fs::read_to_string(&path).expect("read failed");
         let loaded = Settings::from_toml(&content).expect("parse failed");
 
-        assert_eq!(loaded.default_model, "kimi25");
+        assert_eq!(loaded.default_model, ModelAliases::single("kimi25"));
         assert_eq!(
             loaded.models.get("kimi25").unwrap().model,
             "moonshotai/kimi-k2.5"
@@ -882,5 +1007,49 @@ host = "0.0.0.0"
         unsafe { std::env::remove_var("T_KOMA_CONFIG_DIR") };
 
         assert_eq!(path, dir.path().join("config.toml"));
+    }
+
+    #[test]
+    fn test_model_aliases_string_parsing() {
+        let toml = r#"default_model = "kimi25""#;
+        let settings: Settings = toml::from_str(toml).unwrap();
+        assert_eq!(settings.default_model.len(), 1);
+        assert_eq!(settings.default_model.first(), Some("kimi25"));
+    }
+
+    #[test]
+    fn test_model_aliases_list_parsing() {
+        let toml = r#"default_model = ["kimi25", "gemma3", "qwen3"]"#;
+        let settings: Settings = toml::from_str(toml).unwrap();
+        assert_eq!(settings.default_model.len(), 3);
+        let aliases: Vec<&str> = settings.default_model.iter().collect();
+        assert_eq!(aliases, vec!["kimi25", "gemma3", "qwen3"]);
+    }
+
+    #[test]
+    fn test_model_aliases_roundtrip_single() {
+        let aliases = ModelAliases::single("kimi25");
+        let toml_str = toml::to_string(&aliases).unwrap();
+        assert!(toml_str.contains("kimi25"));
+        assert!(!toml_str.contains('['));
+    }
+
+    #[test]
+    fn test_model_aliases_roundtrip_multiple() {
+        let aliases = ModelAliases::many(vec!["a".to_string(), "b".to_string()]);
+        let toml_str = toml::to_string(&aliases).unwrap();
+        assert!(toml_str.contains('['));
+    }
+
+    #[test]
+    fn test_heartbeat_model_list_parsing() {
+        let toml = r#"
+default_model = "kimi25"
+heartbeat_model = ["alpha", "kimi25"]
+"#;
+        let settings: Settings = toml::from_str(toml).unwrap();
+        let hb = settings.heartbeat_model.unwrap();
+        assert_eq!(hb.len(), 2);
+        assert_eq!(hb.first(), Some("alpha"));
     }
 }

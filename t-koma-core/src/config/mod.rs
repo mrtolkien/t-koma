@@ -43,7 +43,8 @@ pub use knowledge::{KnowledgeSettings, SearchDefaults};
 pub use secrets::{Secrets, SecretsError};
 pub use settings::{
     GatewaySettings, HeartbeatTimingSettings, KnowledgeSearchSettings, KnowledgeToolsSettings,
-    ModelConfig, OpenRouterSettings, ReflectionTimingSettings, Settings, SettingsError,
+    ModelAliases, ModelConfig, OpenRouterSettings, ReflectionTimingSettings, Settings,
+    SettingsError,
 };
 
 #[cfg(test)]
@@ -72,6 +73,9 @@ pub enum ConfigError {
 
     #[error("Default model alias is not set")]
     DefaultModelNotSet,
+
+    #[error("Default model alias list is empty")]
+    DefaultModelListEmpty,
 
     #[error("Default model alias '{0}' not found in config")]
     DefaultModelNotFound(String),
@@ -123,29 +127,35 @@ impl Config {
     }
 
     fn from_parts(secrets: Secrets, settings: Settings) -> Result<Self, ConfigError> {
-        let default_alias = settings.default_model.trim();
-        if default_alias.is_empty() {
+        // Validate default model chain
+        if settings.default_model.is_empty() {
             return Err(ConfigError::DefaultModelNotSet);
         }
 
-        let default_model = settings
-            .models
-            .get(default_alias)
-            .ok_or_else(|| ConfigError::DefaultModelNotFound(default_alias.to_string()))?;
-
-        Self::validate_model(&secrets, default_alias, default_model, false)?;
-
-        if let Some(heartbeat_alias) = settings
-            .heartbeat_model
-            .as_deref()
-            .map(str::trim)
-            .filter(|alias| !alias.is_empty())
-        {
-            let heartbeat_model = settings
+        for alias in settings.default_model.iter() {
+            let alias = alias.trim();
+            if alias.is_empty() {
+                continue;
+            }
+            let model = settings
                 .models
-                .get(heartbeat_alias)
-                .ok_or_else(|| ConfigError::HeartbeatModelNotFound(heartbeat_alias.to_string()))?;
-            Self::validate_model(&secrets, heartbeat_alias, heartbeat_model, true)?;
+                .get(alias)
+                .ok_or_else(|| ConfigError::DefaultModelNotFound(alias.to_string()))?;
+            Self::validate_model(&secrets, alias, model, false)?;
+        }
+
+        // Validate heartbeat model chain (if configured)
+        if let Some(ref heartbeat_aliases) = settings.heartbeat_model {
+            for alias in heartbeat_aliases.iter() {
+                let alias = alias.trim();
+                if alias.is_empty() {
+                    continue;
+                }
+                let model = settings.models.get(alias).ok_or_else(|| {
+                    ConfigError::HeartbeatModelNotFound(alias.to_string())
+                })?;
+                Self::validate_model(&secrets, alias, model, true)?;
+            }
         }
 
         Ok(Self { secrets, settings })
@@ -268,9 +278,22 @@ impl Config {
         }
     }
 
-    /// Get the default model alias.
+    /// Get the primary (first) default model alias.
     pub fn default_model_alias(&self) -> &str {
+        self.settings
+            .default_model
+            .first()
+            .expect("default model alias must exist after validation")
+    }
+
+    /// Get the full default model alias chain.
+    pub fn default_model_aliases(&self) -> &ModelAliases {
         &self.settings.default_model
+    }
+
+    /// Get the heartbeat model alias chain (if configured).
+    pub fn heartbeat_model_aliases(&self) -> Option<&ModelAliases> {
+        self.settings.heartbeat_model.as_ref()
     }
 
     /// Get the default model configuration.
@@ -404,7 +427,7 @@ mod tests {
             "default".to_string(),
             model(ProviderType::Anthropic, "test-model"),
         );
-        settings.default_model = "default".to_string();
+        settings.default_model = ModelAliases::single("default");
 
         // Case 1: No API key for default provider - should fail
         let secrets = Secrets::default();
@@ -441,7 +464,7 @@ mod tests {
         settings
             .models
             .insert("b".to_string(), model(ProviderType::OpenRouter, "gpt-4"));
-        settings.default_model = "a".to_string();
+        settings.default_model = ModelAliases::single("a");
 
         let config = Config { secrets, settings };
 
@@ -490,7 +513,7 @@ mod tests {
         let mut default = model(ProviderType::OpenRouter, "anthropic/claude-3.5-sonnet");
         default.routing = Some(vec!["anthropic".to_string()]);
         settings.models.insert("default".to_string(), default);
-        settings.default_model = "default".to_string();
+        settings.default_model = ModelAliases::single("default");
 
         let valid = Config::from_parts(secrets.clone(), settings.clone()).unwrap();
         assert_eq!(valid.default_provider(), ProviderType::OpenRouter);
@@ -501,7 +524,7 @@ mod tests {
         bad_provider_settings
             .models
             .insert("anthropic".to_string(), anthropic);
-        bad_provider_settings.heartbeat_model = Some("anthropic".to_string());
+        bad_provider_settings.heartbeat_model = Some(ModelAliases::single("anthropic"));
         let err = Config::from_parts(secrets.clone(), bad_provider_settings).unwrap_err();
         assert!(matches!(
             err,
@@ -531,7 +554,7 @@ mod tests {
             "local".to_string(),
             model(ProviderType::OpenAiCompatible, "qwen2.5"),
         );
-        missing_url.default_model = "local".to_string();
+        missing_url.default_model = ModelAliases::single("local");
 
         let err = Config::from_parts(secrets.clone(), missing_url).unwrap_err();
         assert!(matches!(
@@ -543,7 +566,7 @@ mod tests {
         let mut local = model(ProviderType::OpenAiCompatible, "qwen2.5");
         local.base_url = Some("http://127.0.0.1:8080".to_string());
         valid.models.insert("local".to_string(), local);
-        valid.default_model = "local".to_string();
+        valid.default_model = ModelAliases::single("local");
 
         let config =
             Config::from_parts(secrets, valid).expect("openai_compatible config should validate");
@@ -564,7 +587,7 @@ mod tests {
         m.base_url = Some("http://127.0.0.1:8080".to_string());
         m.api_key_env = Some("CUSTOM_MODEL_KEY".to_string());
         settings.models.insert("local".to_string(), m);
-        settings.default_model = "local".to_string();
+        settings.default_model = ModelAliases::single("local");
 
         let config = Config::from_parts(secrets, settings).expect("valid config");
         let key = config

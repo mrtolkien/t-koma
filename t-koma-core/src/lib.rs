@@ -10,8 +10,9 @@ pub use skills::{Skill, SkillError};
 
 // Config re-exports
 pub use config::{
-    Config, ConfigError, GatewaySettings, HeartbeatTimingSettings, ModelConfig, OpenRouterSettings,
-    ReflectionTimingSettings, Secrets, SecretsError, Settings, SettingsError, load_dotenv,
+    Config, ConfigError, GatewaySettings, HeartbeatTimingSettings, ModelAliases, ModelConfig,
+    OpenRouterSettings, ReflectionTimingSettings, Secrets, SecretsError, Settings, SettingsError,
+    load_dotenv,
 };
 
 // Message re-exports

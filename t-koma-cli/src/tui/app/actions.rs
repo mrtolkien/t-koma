@@ -524,7 +524,7 @@ impl TuiApp {
             return;
         }
 
-        self.settings.default_model = alias.to_string();
+        self.settings.default_model = t_koma_core::ModelAliases::single(alias);
         self.settings_dirty = true;
         self.refresh_settings_toml();
         self.status = format!("Default model set to {}", alias);
