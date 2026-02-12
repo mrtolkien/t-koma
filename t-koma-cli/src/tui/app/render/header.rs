@@ -18,11 +18,13 @@ impl TuiApp {
         let pulse = glow_color(self.anim_tick);
         let dot_color = pulse_red(self.anim_tick);
         let marquee = marquee_text("ようこそ、パペットマスター様", 36, self.anim_tick / 4);
-        let model = if self.settings.default_model.is_empty() {
-            "(unset)"
-        } else {
-            &self.settings.default_model
-        };
+        let model_display = self
+            .settings
+            .default_model
+            .first()
+            .unwrap_or("(unset)")
+            .to_string();
+        let model = model_display.as_str();
 
         let chunks = Layout::default()
             .direction(Direction::Horizontal)

@@ -116,7 +116,7 @@ pub async fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
             .expect("open knowledge engine for tests"),
     );
     Arc::new(AppState::new(
-        default_model.alias,
+        vec![default_model.alias],
         models,
         db,
         knowledge_engine,

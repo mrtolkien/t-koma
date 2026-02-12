@@ -72,20 +72,36 @@ pub enum ProviderError {
 }
 
 impl ProviderError {
-    /// Whether this error is transient and the request can be retried.
-    pub fn is_retryable(&self) -> bool {
+    /// Whether this error indicates a rate limit (HTTP 429).
+    pub fn is_rate_limited(&self) -> bool {
         match self {
-            Self::HttpError(e) => match e.status() {
-                Some(s) => s.is_server_error() || s.as_u16() == 429,
-                // No status → transport-level failure (body decode, timeout,
-                // connection reset mid-transfer). Always worth retrying.
-                None => true,
-            },
+            Self::HttpError(e) => e.status().is_some_and(|s| s.as_u16() == 429),
+            Self::ApiError { status, .. } => *status == 429,
+            _ => false,
+        }
+    }
+
+    /// Whether this error indicates a server-side failure (5xx or "overloaded").
+    pub fn is_server_error(&self) -> bool {
+        match self {
+            Self::HttpError(e) => e.status().is_some_and(|s| s.is_server_error()),
             Self::ApiError { status, message } => {
-                *status == 429 || (500..600).contains(status) || message.contains("overloaded")
+                (500..600).contains(status) || message.contains("overloaded")
             }
             _ => false,
         }
+    }
+
+    /// Whether this error is transient and the request can be retried.
+    ///
+    /// Superset of `is_rate_limited() || is_server_error()`, plus
+    /// transport-level failures (no HTTP status).
+    pub fn is_retryable(&self) -> bool {
+        if self.is_rate_limited() || self.is_server_error() {
+            return true;
+        }
+        // Transport-level failures (timeouts, connection resets) with no status
+        matches!(self, Self::HttpError(e) if e.status().is_none())
     }
 }
 

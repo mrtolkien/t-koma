@@ -7,11 +7,10 @@ use chrono::Utc;
 use serde::Serialize;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
-#[cfg(feature = "live-tests")]
-use tracing::info;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::chat::compaction::CompactionConfig;
+use crate::circuit_breaker::{CircuitBreaker, CooldownReason};
 use crate::content::ids;
 use crate::gateway_message;
 use crate::providers::provider::Provider;
@@ -244,10 +243,12 @@ fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
 /// This holds all shared resources and provides the main interface for
 /// handling chat conversations through `session_chat`.
 pub struct AppState {
-    /// Default model alias
-    default_model_alias: String,
+    /// Ordered fallback chain of model aliases (first = preferred).
+    default_model_chain: Vec<String>,
     /// Model registry keyed by alias
     models: HashMap<String, ModelEntry>,
+    /// Per-model circuit breaker for fallback decisions.
+    pub circuit_breaker: CircuitBreaker,
     /// Log broadcast channel
     log_tx: broadcast::Sender<LogEntry>,
     /// T-KOMA database pool
@@ -303,9 +304,12 @@ pub struct ModelEntry {
 }
 
 impl AppState {
-    /// Create a new AppState with the given model registry and database
+    /// Create a new AppState with the given model registry and database.
+    ///
+    /// `default_model_chain` is an ordered list of model aliases; the first
+    /// available model (according to the circuit breaker) is used for chat.
     pub fn new(
-        default_model_alias: String,
+        default_model_chain: Vec<String>,
         models: HashMap<String, ModelEntry>,
         koma_db: t_koma_db::KomaDbPool,
         knowledge_engine: Arc<t_koma_knowledge::KnowledgeEngine>,
@@ -321,8 +325,9 @@ impl AppState {
         );
 
         Self {
-            default_model_alias,
+            default_model_chain,
             models,
+            circuit_breaker: CircuitBreaker::new(),
             log_tx,
             koma_db,
             active_ghosts: RwLock::new(HashMap::new()),
@@ -429,7 +434,7 @@ impl AppState {
     /// Start the heartbeat runner if it isn't already running.
     pub async fn start_heartbeat_runner(
         self: &Arc<Self>,
-        heartbeat_model_alias: Option<String>,
+        heartbeat_model_chain: Vec<String>,
         timing: t_koma_core::HeartbeatTimingSettings,
     ) {
         let mut guard = self.heartbeat_runner.write().await;
@@ -441,7 +446,7 @@ impl AppState {
 
         let handle = crate::heartbeat::start_heartbeat_runner(
             Arc::clone(self),
-            heartbeat_model_alias,
+            heartbeat_model_chain,
             timing,
         );
         *guard = Some(handle);
@@ -457,11 +462,31 @@ impl AppState {
         self.knowledge_engine.settings()
     }
 
-    /// Get the default model entry
+    /// Get the best available default model entry.
+    ///
+    /// Uses the circuit breaker to skip models on cooldown, falling back
+    /// to the first model in the chain as a last resort.
     pub fn default_model(&self) -> &ModelEntry {
+        if let Some(alias) = self
+            .circuit_breaker
+            .first_available(&self.default_model_chain)
+            && let Some(entry) = self.models.get(alias)
+        {
+            return entry;
+        }
+        // Last resort: first alias in the chain regardless of cooldown
+        let first = self
+            .default_model_chain
+            .first()
+            .expect("default model chain must not be empty");
         self.models
-            .get(&self.default_model_alias)
-            .expect("default model alias must exist")
+            .get(first.as_str())
+            .expect("first model in chain must exist in registry")
+    }
+
+    /// The ordered default model fallback chain.
+    pub fn default_model_chain(&self) -> &[String] {
+        &self.default_model_chain
     }
 
     /// Get a model entry by alias
@@ -603,7 +628,6 @@ impl AppState {
         })
         .await;
 
-        let model = self.default_model();
         let ghost =
             match t_koma_db::GhostRepository::get_by_name(self.koma_db.pool(), ghost_name).await {
                 Ok(Some(g)) => g,
@@ -628,15 +652,12 @@ impl AppState {
         }
         self.ensure_ghost_watcher(ghost_name).await;
 
-        let response = self
-            .session_chat
-            .chat(
-                &self.koma_db,
+        // Fallback loop: try each model in the default chain
+        let chain = self.default_model_chain.clone();
+        let result = self
+            .try_chat_with_chain(
+                &chain,
                 &ghost.id,
-                model.client.as_ref(),
-                &model.provider,
-                &model.model,
-                model.context_window,
                 session_id,
                 operator_id,
                 &message,
@@ -645,28 +666,7 @@ impl AppState {
             .await;
         self.clear_chat_in_flight(&chat_key).await;
 
-        let (text, tool_calls) = match response {
-            Ok(pair) => pair,
-            Err(ChatError::EmptyResponse) => {
-                let message_preview = if message.len() > 240 {
-                    format!("{}...", &message[..message.floor_char_boundary(240)])
-                } else {
-                    message.clone()
-                };
-                warn!(
-                    event_kind = "chat_io",
-                    operator_id = operator_id,
-                    ghost_name = ghost_name,
-                    session_id = session_id,
-                    provider = model.provider.as_str(),
-                    model = model.model.as_str(),
-                    message_preview = message_preview.as_str(),
-                    "empty final response from provider"
-                );
-                return Err(ChatError::EmptyResponse);
-            }
-            Err(err) => return Err(err),
-        };
+        let (text, tool_calls) = result?;
         let post_compaction_state =
             t_koma_db::SessionRepository::get_by_id(self.koma_db.pool(), session_id).await?;
 
@@ -757,11 +757,6 @@ impl AppState {
         })
         .await;
 
-        let model = self
-            .models
-            .get(model_alias)
-            .unwrap_or_else(|| self.default_model());
-
         let ghost =
             match t_koma_db::GhostRepository::get_by_name(self.koma_db.pool(), ghost_name).await {
                 Ok(Some(g)) => g,
@@ -786,15 +781,12 @@ impl AppState {
         }
         self.ensure_ghost_watcher(ghost_name).await;
 
-        let response = self
-            .session_chat
-            .chat(
-                &self.koma_db,
+        // Build chain: explicit alias first, then the default chain (deduplicated)
+        let chain = Self::build_model_chain(Some(model_alias), &self.default_model_chain);
+        let result = self
+            .try_chat_with_chain(
+                &chain,
                 &ghost.id,
-                model.client.as_ref(),
-                &model.provider,
-                &model.model,
-                model.context_window,
                 session_id,
                 operator_id,
                 &message,
@@ -803,29 +795,7 @@ impl AppState {
             .await;
         self.clear_chat_in_flight(&chat_key).await;
 
-        let (text, tool_calls) = match response {
-            Ok(pair) => pair,
-            Err(ChatError::EmptyResponse) => {
-                let message_preview = if message.len() > 240 {
-                    format!("{}...", &message[..message.floor_char_boundary(240)])
-                } else {
-                    message.clone()
-                };
-                warn!(
-                    event_kind = "chat_io",
-                    operator_id = operator_id,
-                    ghost_name = ghost_name,
-                    session_id = session_id,
-                    provider = model.provider.as_str(),
-                    model = model.model.as_str(),
-                    model_alias = model_alias,
-                    message_preview = message_preview.as_str(),
-                    "empty final response from provider"
-                );
-                return Err(ChatError::EmptyResponse);
-            }
-            Err(err) => return Err(err),
-        };
+        let (text, tool_calls) = result?;
         let post_compaction_state =
             t_koma_db::SessionRepository::get_by_id(self.koma_db.pool(), session_id).await?;
 
@@ -907,6 +877,104 @@ impl AppState {
         });
 
         guard.insert(ghost_name_key, handle);
+    }
+
+    /// Build an ordered model chain, placing `preferred` first (if given) and
+    /// appending the default chain with duplicates removed.
+    fn build_model_chain(preferred: Option<&str>, defaults: &[String]) -> Vec<String> {
+        let mut chain = Vec::with_capacity(defaults.len() + 1);
+        if let Some(alias) = preferred {
+            chain.push(alias.to_string());
+        }
+        for alias in defaults {
+            if !chain.iter().any(|a| a == alias) {
+                chain.push(alias.clone());
+            }
+        }
+        chain
+    }
+
+    /// Try to chat through the model fallback chain.
+    ///
+    /// Iterates `chain`, skipping models on cooldown. On a retryable
+    /// `ProviderError`, records the failure in the circuit breaker and
+    /// advances to the next model. On success, records a success and
+    /// returns the result.
+    #[allow(clippy::too_many_arguments)]
+    async fn try_chat_with_chain(
+        &self,
+        chain: &[String],
+        ghost_id: &str,
+        session_id: &str,
+        operator_id: &str,
+        message: &str,
+        tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
+    ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
+        let mut message_persisted = false;
+        let mut last_error: Option<ChatError> = None;
+
+        for alias in chain {
+            if !self.circuit_breaker.is_available(alias) {
+                continue;
+            }
+            let model = match self.get_model_by_alias(alias) {
+                Some(m) => m,
+                None => continue,
+            };
+
+            let result = self
+                .session_chat
+                .chat(
+                    &self.koma_db,
+                    ghost_id,
+                    model.client.as_ref(),
+                    &model.provider,
+                    &model.model,
+                    model.context_window,
+                    session_id,
+                    operator_id,
+                    message,
+                    message_persisted,
+                    tool_call_tx,
+                )
+                .await;
+
+            match result {
+                Ok(pair) => {
+                    self.circuit_breaker.record_success(alias);
+                    if chain.len() > 1 {
+                        info!(
+                            event_kind = "model_fallback",
+                            model_alias = alias.as_str(),
+                            "chat succeeded with model '{}'",
+                            alias
+                        );
+                    }
+                    return Ok(pair);
+                }
+                Err(ChatError::Provider(e)) if e.is_retryable() => {
+                    let reason = if e.is_rate_limited() {
+                        CooldownReason::RateLimited
+                    } else {
+                        CooldownReason::ServerError
+                    };
+                    self.circuit_breaker.record_failure(alias, reason);
+                    warn!(
+                        event_kind = "model_fallback",
+                        model_alias = alias.as_str(),
+                        reason = ?reason,
+                        "model '{}' failed ({:?}), trying next in chain",
+                        alias,
+                        reason
+                    );
+                    message_persisted = true;
+                    last_error = Some(ChatError::Provider(e));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(last_error.unwrap_or(ChatError::AllModelsExhausted))
     }
 
     /// Set the active ghost for an operator

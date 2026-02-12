@@ -11,7 +11,7 @@ use crossterm::{
 };
 
 use t_koma_core::ModelConfig;
-use t_koma_core::Settings;
+use t_koma_core::{ModelAliases, Settings};
 use t_koma_core::message::ProviderType;
 
 use crate::provider_selection::ProviderSelection;
@@ -25,7 +25,7 @@ pub fn print_models(settings: &Settings) {
     }
 
     for (alias, model) in &settings.models {
-        let default_marker = if settings.default_model == *alias {
+        let default_marker = if settings.default_model.first() == Some(alias.as_str()) {
             " (default)"
         } else {
             ""
@@ -50,7 +50,7 @@ pub fn apply_gateway_selection(
         .iter()
         .find(|(_, entry)| entry.provider == provider && entry.model == model_id)
     {
-        settings.default_model = alias.clone();
+        settings.default_model = ModelAliases::single(alias.clone());
         return Ok(alias.clone());
     }
 
@@ -66,7 +66,7 @@ pub fn apply_gateway_selection(
     };
 
     settings.models.insert(alias.clone(), entry);
-    settings.default_model = alias.clone();
+    settings.default_model = ModelAliases::single(alias.clone());
 
     Ok(alias)
 }
@@ -80,14 +80,20 @@ pub fn configure_models_local(
     if settings.models.is_empty() {
         println!("No models configured yet.");
         let alias = add_or_update_model(settings, None)?;
-        settings.default_model = alias.clone();
+        settings.default_model = ModelAliases::single(alias.clone());
         return Ok(alias);
     }
+
+    let current_default = settings
+        .default_model
+        .first()
+        .unwrap_or("(unset)")
+        .to_string();
 
     loop {
         print!(
             "Enter alias to set default, 'new' to add/update model, or Enter to keep '{}': ",
-            settings.default_model
+            current_default
         );
         io::stdout().flush()?;
 
@@ -96,19 +102,19 @@ pub fn configure_models_local(
         let input = input.trim();
 
         if input.is_empty() {
-            return Ok(settings.default_model.clone());
+            return Ok(current_default.clone());
         }
 
         if input.eq_ignore_ascii_case("new") {
             let alias = add_or_update_model(settings, None)?;
             if prompt_yes_no("Set this model as default?", false)? {
-                settings.default_model = alias.clone();
+                settings.default_model = ModelAliases::single(alias.clone());
             }
-            return Ok(settings.default_model.clone());
+            return Ok(settings.default_model.first().unwrap_or("").to_string());
         }
 
         if settings.models.contains_key(input) {
-            settings.default_model = input.to_string();
+            settings.default_model = ModelAliases::single(input);
             return Ok(input.to_string());
         }
 

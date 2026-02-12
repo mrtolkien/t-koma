@@ -1,4 +1,5 @@
 pub mod chat;
+pub mod circuit_breaker;
 pub mod content;
 pub mod discord;
 pub mod gateway_message;

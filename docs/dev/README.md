@@ -11,5 +11,7 @@ Use `AGENTS.md` for universal rules. Use these docs for feature work:
 - `docs/dev/mcp-usage.md`: MCP usage rules and preferred tooling order.
 - `docs/dev/background-jobs.md`: heartbeat + reflection lifecycle and persistence.
 - `docs/dev/knowledge-system.md`: scopes, tools, storage, and indexing model.
+- `docs/dev/multi-model-fallback.md`: model chain config, circuit breaker, and fallback
+  loop.
 
 If you change behavior covered by one of these guides, update that file in the same PR.

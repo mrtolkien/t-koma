@@ -32,8 +32,8 @@ pub enum ChatError {
     #[error("Database error: {0}")]
     Database(#[from] t_koma_db::DbError),
 
-    #[error("Provider API error: {0}")]
-    Api(String),
+    #[error("Provider error: {0}")]
+    Provider(ProviderError),
 
     #[error("Session not found or access denied")]
     SessionNotFound,
@@ -49,6 +49,9 @@ pub enum ChatError {
 
     #[error("Provider returned an empty final response")]
     EmptyResponse,
+
+    #[error("All models in fallback chain exhausted")]
+    AllModelsExhausted,
 }
 
 #[derive(Debug, Clone)]
@@ -429,6 +432,7 @@ impl SessionChat {
         session_id: &str,
         operator_id: &str,
         message: &str,
+        message_already_persisted: bool,
         tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
     ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
         // Verify session exists and belongs to operator
@@ -445,19 +449,21 @@ impl SessionChat {
             "[session:{}] Chat message from operator {}", session_id, operator_id
         );
 
-        // Save operator message to database
-        let user_content = vec![DbContentBlock::Text {
-            text: message.to_string(),
-        }];
-        SessionRepository::add_message(
-            pool.pool(),
-            ghost_id,
-            session_id,
-            MessageRole::Operator,
-            user_content,
-            None,
-        )
-        .await?;
+        // Save operator message to database (skip on retry — already persisted)
+        if !message_already_persisted {
+            let user_content = vec![DbContentBlock::Text {
+                text: message.to_string(),
+            }];
+            SessionRepository::add_message(
+                pool.pool(),
+                ghost_id,
+                session_id,
+                MessageRole::Operator,
+                user_content,
+                None,
+            )
+            .await?;
+        }
 
         // Build system prompt with ghost context (cached for 5 min)
         let system_blocks = self
@@ -634,7 +640,7 @@ impl SessionChat {
         .await
         .map_err(|e| {
             warn!("Job initial send failed after retries: {e:#}");
-            ChatError::Api(format!("{e:#}"))
+            ChatError::Provider(e)
         })?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
@@ -703,7 +709,7 @@ impl SessionChat {
             .await
             .map_err(|e| {
                 warn!("Job tool-loop send failed after retries (iteration {iteration}): {e:#}");
-                ChatError::Api(format!("{e:#}"))
+                ChatError::Provider(e)
             })?;
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
@@ -788,7 +794,7 @@ impl SessionChat {
                 None,
             )
             .await
-            .map_err(|e| ChatError::Api(e.to_string()))?;
+            .map_err(ChatError::Provider)?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
 
         // Handle tool use loop (bounded to prevent infinite loops)
@@ -874,7 +880,7 @@ impl SessionChat {
                     None,
                 )
                 .await
-                .map_err(|e| ChatError::Api(e.to_string()))?;
+                .map_err(ChatError::Provider)?;
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
 
