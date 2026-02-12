@@ -97,7 +97,7 @@ pub struct CandidateContent {
 
 /// Candidate part
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, rename_all = "camelCase")]
 pub enum CandidatePart {
     Text { text: String },
     FunctionCall { function_call: FunctionCallData },

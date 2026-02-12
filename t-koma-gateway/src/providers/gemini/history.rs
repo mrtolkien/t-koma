@@ -14,7 +14,7 @@ pub struct GeminiContent {
 
 /// Gemini API content part
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, rename_all = "camelCase")]
 pub enum GeminiPart {
     Text { text: String },
     FunctionCall { function_call: FunctionCall },
