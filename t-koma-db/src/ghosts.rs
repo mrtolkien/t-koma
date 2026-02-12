@@ -62,7 +62,19 @@ pub struct Ghost {
     pub name: String,
     pub owner_operator_id: String,
     pub cwd: Option<String>,
+    /// Per-ghost model alias override (JSON array of alias strings).
+    /// `None` means "use the system default_model chain".
+    pub model_aliases: Option<String>,
     pub created_at: i64,
+}
+
+impl Ghost {
+    /// Parse the stored `model_aliases` JSON into a `Vec<String>`.
+    /// Returns `None` when no override is set.
+    pub fn model_chain(&self) -> Option<Vec<String>> {
+        let json = self.model_aliases.as_deref()?;
+        serde_json::from_str::<Vec<String>>(json).ok()
+    }
 }
 
 /// Ghost tool state (cwd only)
@@ -113,7 +125,7 @@ impl GhostRepository {
     /// Get ghost by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
              FROM ghosts
              WHERE id = ?",
         )
@@ -127,7 +139,7 @@ impl GhostRepository {
     /// Get ghost by name
     pub async fn get_by_name(pool: &SqlitePool, name: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
              FROM ghosts
              WHERE name = ?",
         )
@@ -144,7 +156,7 @@ impl GhostRepository {
         owner_operator_id: &str,
     ) -> DbResult<Vec<Ghost>> {
         let rows = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
              FROM ghosts
              WHERE owner_operator_id = ?
              ORDER BY created_at ASC",
@@ -159,7 +171,7 @@ impl GhostRepository {
     /// List all ghosts.
     pub async fn list_all(pool: &SqlitePool) -> DbResult<Vec<Ghost>> {
         let rows = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
              FROM ghosts
              ORDER BY created_at ASC",
         )
@@ -211,6 +223,27 @@ impl GhostRepository {
         Ok(())
     }
 
+    /// Update the per-ghost model alias override.
+    /// Pass `None` to clear the override (reverts to system default).
+    pub async fn update_model_aliases(
+        pool: &SqlitePool,
+        name: &str,
+        aliases: Option<&[String]>,
+    ) -> DbResult<()> {
+        let json = aliases.map(|a| serde_json::to_string(a).expect("alias vec is serializable"));
+        let updated = sqlx::query("UPDATE ghosts SET model_aliases = ? WHERE name = ?")
+            .bind(&json)
+            .bind(name)
+            .execute(pool)
+            .await?
+            .rows_affected();
+
+        if updated == 0 {
+            return Err(DbError::GhostNotFound(name.to_string()));
+        }
+        Ok(())
+    }
+
     /// Delete a ghost by name.
     pub async fn delete_by_name(pool: &SqlitePool, name: &str) -> DbResult<()> {
         let deleted = sqlx::query("DELETE FROM ghosts WHERE name = ?")
@@ -233,6 +266,7 @@ struct GhostRow {
     name: String,
     owner_operator_id: String,
     cwd: Option<String>,
+    model_aliases: Option<String>,
     created_at: i64,
 }
 
@@ -248,6 +282,7 @@ impl From<GhostRow> for Ghost {
             name: row.name,
             owner_operator_id: row.owner_operator_id,
             cwd: row.cwd,
+            model_aliases: row.model_aliases,
             created_at: row.created_at,
         }
     }
@@ -326,5 +361,54 @@ mod tests {
         let remaining = GhostRepository::list_all(pool).await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].name, "Beta");
+    }
+
+    #[tokio::test]
+    async fn test_model_aliases_lifecycle() {
+        let db = create_test_pool().await.unwrap();
+        let pool = db.pool();
+
+        let operator = OperatorRepository::create_new(
+            pool,
+            "Test Operator",
+            Platform::Api,
+            OperatorAccessLevel::Standard,
+        )
+        .await
+        .unwrap();
+
+        let ghost = GhostRepository::create(pool, &operator.id, "Alpha")
+            .await
+            .unwrap();
+
+        // New ghosts have no model override
+        assert!(ghost.model_aliases.is_none());
+        assert!(ghost.model_chain().is_none());
+
+        // Set a model override
+        let aliases = vec!["kimi25".to_string(), "gemma3".to_string()];
+        GhostRepository::update_model_aliases(pool, "Alpha", Some(&aliases))
+            .await
+            .unwrap();
+
+        let ghost = GhostRepository::get_by_name(pool, "Alpha")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            ghost.model_chain(),
+            Some(vec!["kimi25".to_string(), "gemma3".to_string()])
+        );
+
+        // Reset to default
+        GhostRepository::update_model_aliases(pool, "Alpha", None)
+            .await
+            .unwrap();
+
+        let ghost = GhostRepository::get_by_name(pool, "Alpha")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(ghost.model_chain().is_none());
     }
 }

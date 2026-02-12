@@ -489,6 +489,11 @@ impl AppState {
         &self.default_model_chain
     }
 
+    /// All registered model aliases (for validation / listing).
+    pub fn all_model_aliases(&self) -> Vec<&str> {
+        self.models.keys().map(|s| s.as_str()).collect()
+    }
+
     /// Get a model entry by alias
     pub fn get_model_by_alias(&self, alias: &str) -> Option<&ModelEntry> {
         self.models.get(alias)
@@ -652,8 +657,10 @@ impl AppState {
         }
         self.ensure_ghost_watcher(ghost_name).await;
 
-        // Fallback loop: try each model in the default chain
-        let chain = self.default_model_chain.clone();
+        // Use per-ghost model chain if set, otherwise fall back to system default
+        let chain = ghost
+            .model_chain()
+            .unwrap_or_else(|| self.default_model_chain.clone());
         let result = self
             .try_chat_with_chain(
                 &chain,

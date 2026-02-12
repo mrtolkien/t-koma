@@ -227,6 +227,7 @@ impl Bot {
                 "log" => self.handle_log_command(&ctx, command).await,
                 "new" => self.handle_new_command(&ctx, command).await,
                 "feedback" => self.handle_feedback_command(&ctx, command).await,
+                "model" => self.handle_model_command(&ctx, command).await,
                 _ => {}
             }
         }
@@ -483,6 +484,149 @@ impl Bot {
                 error!("Failed to create feedback directory: {}", e);
                 format!("Failed to save feedback: {}", e)
             }
+        };
+
+        let _ = command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content(reply)
+                        .ephemeral(true),
+                ),
+            )
+            .await;
+    }
+
+    /// Handle `/model` slash command: set, get, reset, or list ghost model overrides.
+    async fn handle_model_command(
+        &self,
+        ctx: &Context,
+        command: &serenity::model::application::CommandInteraction,
+    ) {
+        let external_id = command.user.id.to_string();
+        let Some(operator_id) = self.resolve_operator_id(&external_id).await else {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("No operator found for your account.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        };
+
+        let Some(ghost_name) = self.state.get_active_ghost(&operator_id).await else {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("No active ghost. Send a message first to select one.")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        };
+
+        let action = command
+            .data
+            .options
+            .first()
+            .and_then(|o| o.value.as_str())
+            .unwrap_or("get");
+
+        let aliases_arg = command
+            .data
+            .options
+            .get(1)
+            .and_then(|o| o.value.as_str())
+            .unwrap_or("");
+
+        let pool = self.state.koma_db.pool();
+
+        let reply = match action {
+            "set" => {
+                if aliases_arg.is_empty() {
+                    "Please provide model alias(es) in the `aliases` field (comma-separated)."
+                        .to_string()
+                } else {
+                    let aliases: Vec<String> = aliases_arg
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+
+                    // Validate all aliases exist in the registry
+                    let available = self.state.all_model_aliases();
+                    let unknown: Vec<&str> = aliases
+                        .iter()
+                        .filter(|a| !available.contains(&a.as_str()))
+                        .map(|s| s.as_str())
+                        .collect();
+
+                    if !unknown.is_empty() {
+                        format!(
+                            "Unknown model alias(es): **{}**\nAvailable: {}",
+                            unknown.join(", "),
+                            available.join(", ")
+                        )
+                    } else {
+                        match t_koma_db::GhostRepository::update_model_aliases(
+                            pool,
+                            &ghost_name,
+                            Some(&aliases),
+                        )
+                        .await
+                        {
+                            Ok(()) => format!(
+                                "Model override set for **{}**: **{}**",
+                                ghost_name,
+                                aliases.join(" → ")
+                            ),
+                            Err(e) => format!("Failed to update: {}", e),
+                        }
+                    }
+                }
+            }
+            "get" => match t_koma_db::GhostRepository::get_by_name(pool, &ghost_name).await {
+                Ok(Some(ghost)) => match ghost.model_chain() {
+                    Some(chain) => format!(
+                        "**{}** model override: **{}**",
+                        ghost_name,
+                        chain.join(" → ")
+                    ),
+                    None => format!(
+                        "**{}** uses system default: **{}**",
+                        ghost_name,
+                        self.state.default_model_chain().join(" → ")
+                    ),
+                },
+                Ok(None) => format!("Ghost '{}' not found.", ghost_name),
+                Err(e) => format!("Error: {}", e),
+            },
+            "reset" => {
+                match t_koma_db::GhostRepository::update_model_aliases(pool, &ghost_name, None)
+                    .await
+                {
+                    Ok(()) => format!(
+                        "Model override cleared for **{}**. Now using system default: **{}**",
+                        ghost_name,
+                        self.state.default_model_chain().join(" → ")
+                    ),
+                    Err(e) => format!("Failed to reset: {}", e),
+                }
+            }
+            "list" => {
+                let mut aliases = self.state.all_model_aliases();
+                aliases.sort();
+                format!("Available model aliases:\n{}", aliases.join(", "))
+            }
+            _ => "Unknown action. Use: set, get, reset, or list.".to_string(),
         };
 
         let _ = command

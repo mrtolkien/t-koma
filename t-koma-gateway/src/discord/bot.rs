@@ -787,6 +787,28 @@ impl EventHandler for Bot {
                     )
                     .required(true),
                 ),
+            CreateCommand::new("model")
+                .description("Set or view per-ghost model override")
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "action",
+                        "Action: set, get, reset, or list",
+                    )
+                    .add_string_choice("Set model(s)", "set")
+                    .add_string_choice("Show current", "get")
+                    .add_string_choice("Reset to default", "reset")
+                    .add_string_choice("List available", "list")
+                    .required(true),
+                )
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "aliases",
+                        "Model alias(es), comma-separated (for set action)",
+                    )
+                    .required(false),
+                ),
         ];
 
         if let Err(e) = Command::set_global_commands(&ctx.http, commands).await {

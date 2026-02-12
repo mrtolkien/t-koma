@@ -1617,7 +1617,6 @@ impl Default for SessionChat {
     }
 }
 
-
 /// Build a compact key=value preview of tool input JSON (~80 chars max).
 fn build_input_preview(input: &Value) -> String {
     let Some(obj) = input.as_object() else {
