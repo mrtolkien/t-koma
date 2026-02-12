@@ -318,7 +318,11 @@ impl Provider for GeminiClient {
             content,
             usage,
             stop_reason: candidate.finish_reason.clone(),
-            raw_json: Some(raw_json),
+            raw_json: if self.dump_queries {
+                Some(raw_json)
+            } else {
+                None
+            },
         })
     }
 

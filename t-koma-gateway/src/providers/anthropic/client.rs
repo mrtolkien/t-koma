@@ -337,7 +337,11 @@ impl AnthropicClient {
                 cache_creation_tokens: Some(u.cache_creation_tokens),
             }),
             stop_reason: response.stop_reason,
-            raw_json: Some(raw_json.to_string()),
+            raw_json: if self.dump_queries {
+                Some(raw_json.to_string())
+            } else {
+                None
+            },
         }
     }
 }

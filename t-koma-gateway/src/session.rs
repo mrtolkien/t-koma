@@ -116,6 +116,7 @@ pub struct SessionChat {
     compaction_config: CompactionConfig,
     system_info: String,
     skill_paths: Vec<std::path::PathBuf>,
+    dump_queries: bool,
 }
 
 async fn load_recent_active_diary_entries(
@@ -387,7 +388,14 @@ impl SessionChat {
             compaction_config,
             system_info: system_info::build_system_info(),
             skill_paths,
+            dump_queries: false,
         }
+    }
+
+    /// Enable writing empty-response debug logs (gated by `dump_queries` config).
+    pub fn with_dump_queries(mut self, enabled: bool) -> Self {
+        self.dump_queries = enabled;
+        self
     }
 
     /// Skill search paths (for constructing alternate ToolManagers).
@@ -718,8 +726,7 @@ impl SessionChat {
         let text = extract_all_text(&response);
         let text = text.trim().to_string();
         if text.is_empty() {
-            // TODO: Put this behind a config flag to avoid disk bloat.
-            // Log the full raw response for debugging empty responses.
+            // raw_json is only populated when dump_queries is enabled.
             if let Some(raw_json) = &response.raw_json {
                 let log_path = self.write_empty_response_log(session_id, raw_json).await;
                 warn!(
@@ -1506,8 +1513,7 @@ impl SessionChat {
         let text = extract_all_text(response);
         let text = text.trim().to_string();
         if text.is_empty() {
-            // TODO: Put this behind a config flag to avoid disk bloat.
-            // Log the full raw response for debugging empty responses.
+            // raw_json is only populated when dump_queries is enabled.
             if let Some(raw_json) = &response.raw_json {
                 let log_path = self.write_empty_response_log(session_id, raw_json).await;
                 warn!(
@@ -1556,7 +1562,7 @@ impl SessionChat {
 
     /// Write raw JSON response to a debug log file when empty response is detected.
     /// Returns the path to the written file.
-    /// TODO: Put this behind a config flag to avoid disk bloat.
+    /// Only called when `dump_queries` is enabled (raw_json is `None` otherwise).
     async fn write_empty_response_log(&self, session_id: &str, raw_json: &str) -> PathBuf {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
         let filename = format!("empty_response_{}_{}.json", session_id, timestamp);
@@ -1610,6 +1616,7 @@ impl Default for SessionChat {
         Self::new(None, vec![], CompactionConfig::default())
     }
 }
+
 
 /// Build a compact key=value preview of tool input JSON (~80 chars max).
 fn build_input_preview(input: &Value) -> String {

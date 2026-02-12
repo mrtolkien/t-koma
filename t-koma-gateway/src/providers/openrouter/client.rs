@@ -420,7 +420,11 @@ impl OpenRouterClient {
                 cache_creation_tokens: u.cache_creation_tokens(),
             }),
             stop_reason,
-            raw_json: Some(raw_json.to_string()),
+            raw_json: if self.dump_queries {
+                Some(raw_json.to_string())
+            } else {
+                None
+            },
         }
     }
 

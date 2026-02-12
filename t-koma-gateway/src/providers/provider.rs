@@ -51,7 +51,7 @@ pub struct ProviderResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
     /// Raw JSON response from the provider for debugging.
-    /// TODO: Put this behind a config flag to avoid memory bloat.
+    /// Only populated when `dump_queries` is enabled in logging config.
     #[serde(skip)]
     pub raw_json: Option<String>,
 }
