@@ -106,7 +106,7 @@ pub fn context_window_for_model(model: &str) -> u32 {
     }
 
     if normalized.contains("kimi") {
-        return 128_000;
+        return 262_144;
     }
 
     // Safe fallback

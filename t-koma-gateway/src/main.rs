@@ -159,6 +159,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                 );
             }
+            "kimi_code" => {
+                let base_url = model_config
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| "https://api.kimi.com/coding/v1".to_string());
+                if let Some(api_key) = config.kimi_api_key() {
+                    use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
+
+                    let mut extra = HeaderMap::new();
+                    extra.insert(USER_AGENT, HeaderValue::from_static("KimiCLI/1.12.0"));
+                    if let Some(cfg_headers) = &model_config.headers {
+                        for (k, v) in cfg_headers {
+                            if let (Ok(name), Ok(val)) =
+                                (HeaderName::try_from(k.as_str()), HeaderValue::from_str(v))
+                            {
+                                extra.insert(name, val);
+                            }
+                        }
+                    }
+
+                    let client = OpenAiCompatibleClient::new(
+                        base_url,
+                        Some(api_key.to_string()),
+                        &model_config.model,
+                        "kimi_code",
+                    )
+                    .with_extra_headers(extra)
+                    .with_dump_queries(config.settings.logging.dump_queries);
+                    info!(
+                        "Kimi Code client created for alias '{}' with model: {}",
+                        alias, model_config.model
+                    );
+                    models.insert(
+                        alias.clone(),
+                        t_koma_gateway::state::ModelEntry {
+                            alias: alias.clone(),
+                            provider: model_config.provider.to_string(),
+                            model: model_config.model.clone(),
+                            client: Arc::new(client),
+                            context_window: model_config.context_window,
+                        },
+                    );
+                } else {
+                    info!(
+                        "Skipping model '{}' (kimi_code) - no KIMI_API_KEY configured",
+                        alias
+                    );
+                }
+            }
             "gemini" => {
                 if let Some(api_key) = config.gemini_api_key() {
                     let client = GeminiClient::new(api_key, &model_config.model)

@@ -41,8 +41,9 @@ pub async fn select_provider_interactive_with_mode(
     println!("║  1. Anthropic                      ║");
     println!("║  2. OpenRouter                     ║");
     println!("║  3. OpenAI-compatible              ║");
+    println!("║  4. Kimi Code                      ║");
     println!("╚════════════════════════════════════╝");
-    print!("\nSelect [1-3]: ");
+    print!("\nSelect [1-4]: ");
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -60,6 +61,10 @@ pub async fn select_provider_interactive_with_mode(
         "3" => {
             info!("User selected OpenAI-compatible provider");
             select_openai_compatible_model(ws_tx, ws_rx, mode).await
+        }
+        "4" => {
+            info!("User selected Kimi Code provider");
+            select_kimi_code_model(ws_tx, ws_rx, mode).await
         }
         _ => {
             println!("Invalid selection, defaulting to Anthropic");
@@ -274,6 +279,74 @@ async fn select_openai_compatible_model(
 
     Ok(ProviderSelection {
         provider: ProviderType::OpenAiCompatible,
+        model: model_id,
+    })
+}
+
+/// Select a Kimi Code model (configured list)
+async fn select_kimi_code_model(
+    ws_tx: &mpsc::UnboundedSender<WsMessage>,
+    ws_rx: &mut mpsc::UnboundedReceiver<WsResponse>,
+    mode: ProviderSelectionMode,
+) -> Result<ProviderSelection, Box<dyn std::error::Error>> {
+    ws_tx.send(WsMessage::ListAvailableModels {
+        provider: ProviderType::KimiCode,
+    })?;
+
+    let models = wait_for_models(ws_rx, "kimi_code").await?;
+    if models.is_empty() {
+        return Err("No Kimi Code models configured".into());
+    }
+
+    println!("\n╔════════════════════════════════════╗");
+    println!("║     Select Kimi Code Model         ║");
+    println!("╠════════════════════════════════════╣");
+
+    for (i, model) in models.iter().enumerate().take(10) {
+        println!("║  {}. {:<30} ║", i + 1, truncate(&model.name, 28));
+        if let Some(desc) = &model.description {
+            println!("║     {:<32} ║", truncate(desc, 30));
+        }
+    }
+    println!("║  0. Enter custom model ID          ║");
+    println!("╚════════════════════════════════════╝");
+    print!("\nSelect [0-{}]: ", models.len().min(10));
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    let selection: usize = input.trim().parse().unwrap_or(1);
+
+    let model_id = if selection == 0 {
+        print!("Enter custom model ID: ");
+        io::stdout().flush()?;
+        let mut custom = String::new();
+        io::stdin().read_line(&mut custom)?;
+        custom.trim().to_string()
+    } else if selection <= models.len() {
+        models[selection - 1].id.clone()
+    } else {
+        models.first().map(|m| m.id.clone()).unwrap_or_default()
+    };
+
+    if model_id.is_empty() {
+        return Err("Model ID cannot be empty".into());
+    }
+
+    if mode == ProviderSelectionMode::SendToGateway {
+        ws_tx.send(WsMessage::SelectProvider {
+            provider: ProviderType::KimiCode,
+            model: model_id.clone(),
+        })?;
+
+        wait_for_provider_confirmation(ws_rx).await?;
+
+        println!("✓ Selected Kimi Code model: {}", model_id);
+    }
+
+    Ok(ProviderSelection {
+        provider: ProviderType::KimiCode,
         model: model_id,
     })
 }

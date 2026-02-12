@@ -4,7 +4,7 @@
 //! in the XDG config directory (~/.config/t-koma/config.toml).
 //! TODO: Break this down in simpler parts...
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::PathBuf;
 
@@ -160,6 +160,9 @@ pub struct ModelConfig {
     /// Override the built-in context window lookup (in tokens).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u32>,
+    /// Extra HTTP headers to send with every request for this model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
 }
 
 /// OpenRouter-specific settings
@@ -838,6 +841,7 @@ host = "0.0.0.0"
                 api_key_env: Some("OPENROUTER_API_KEY".to_string()),
                 routing: Some(vec!["anthropic".to_string()]),
                 context_window: None,
+                headers: None,
             },
         );
         settings.default_model = "kimi25".to_string();

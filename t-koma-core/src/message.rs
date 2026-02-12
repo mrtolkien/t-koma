@@ -18,6 +18,7 @@ pub enum ProviderType {
     OpenRouter,
     OpenAiCompatible,
     Gemini,
+    KimiCode,
 }
 
 impl ProviderType {
@@ -27,6 +28,7 @@ impl ProviderType {
             ProviderType::OpenRouter => "openrouter",
             ProviderType::OpenAiCompatible => "openai_compatible",
             ProviderType::Gemini => "gemini",
+            ProviderType::KimiCode => "kimi_code",
         }
     }
 }
@@ -48,6 +50,7 @@ impl std::str::FromStr for ProviderType {
                 Ok(ProviderType::OpenAiCompatible)
             }
             "gemini" => Ok(ProviderType::Gemini),
+            "kimi_code" | "kimi-code" | "kimicode" => Ok(ProviderType::KimiCode),
             _ => Err(format!("Unknown provider: {}", s)),
         }
     }

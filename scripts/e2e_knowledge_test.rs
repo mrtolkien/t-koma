@@ -450,6 +450,18 @@ fn create_models_from_config(model_alias: &str) -> (HashMap<String, ModelEntry>,
                 "openai_compatible",
             ))
         }
+        ProviderType::KimiCode => {
+            let base_url = model_config
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "https://api.kimi.com/coding/v1".to_string());
+            Arc::new(OpenAiCompatibleClient::new(
+                base_url,
+                Some(api_key),
+                &model_config.model,
+                "kimi_code",
+            ))
+        }
     };
 
     models.insert(

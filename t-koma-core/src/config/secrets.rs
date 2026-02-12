@@ -22,6 +22,9 @@ pub struct Secrets {
     /// Gemini API key (env: GEMINI_API_KEY)
     pub gemini_api_key: Option<String>,
 
+    /// Kimi Code API key (env: KIMI_API_KEY)
+    pub kimi_api_key: Option<String>,
+
     /// Discord bot token (env: DISCORD_BOT_TOKEN)
     pub discord_bot_token: Option<String>,
 
@@ -53,6 +56,7 @@ impl Secrets {
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
             openrouter_api_key: env::var("OPENROUTER_API_KEY").ok(),
             gemini_api_key: env::var("GEMINI_API_KEY").ok(),
+            kimi_api_key: env::var("KIMI_API_KEY").ok(),
             discord_bot_token: env::var("DISCORD_BOT_TOKEN").ok(),
             brave_api_key: env::var("BRAVE_API_KEY").ok(),
         };
@@ -74,6 +78,7 @@ impl Secrets {
             ProviderType::OpenRouter => self.openrouter_api_key.is_some(),
             ProviderType::OpenAiCompatible => true,
             ProviderType::Gemini => self.gemini_api_key.is_some(),
+            ProviderType::KimiCode => self.kimi_api_key.is_some(),
         }
     }
 
@@ -85,6 +90,9 @@ impl Secrets {
         }
         if self.openrouter_api_key.is_some() {
             providers.push(ProviderType::OpenRouter);
+        }
+        if self.kimi_api_key.is_some() {
+            providers.push(ProviderType::KimiCode);
         }
         providers
     }

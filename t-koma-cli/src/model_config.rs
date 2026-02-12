@@ -62,6 +62,7 @@ pub fn apply_gateway_selection(
         api_key_env: None,
         routing: None,
         context_window: None,
+        headers: None,
     };
 
     settings.models.insert(alias.clone(), entry);
@@ -190,6 +191,7 @@ fn add_or_update_model(
             api_key_env,
             routing,
             context_window: None,
+            headers: None,
         },
     );
 

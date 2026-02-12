@@ -9,6 +9,7 @@
 //! - `ANTHROPIC_API_KEY` - Anthropic API key
 //! - `OPENROUTER_API_KEY` - OpenRouter API key
 //! - `OPENAI_API_KEY` - Optional OpenAI-compatible API key
+//! - `KIMI_API_KEY` - Kimi Code API key
 //! - `DISCORD_BOT_TOKEN` - Discord bot token
 //! - `BRAVE_API_KEY` - Brave Search API key
 //!
@@ -185,7 +186,7 @@ impl Config {
         };
 
         match model.provider {
-            ProviderType::Anthropic | ProviderType::Gemini => {
+            ProviderType::Anthropic | ProviderType::Gemini | ProviderType::KimiCode => {
                 if model.routing.is_some() {
                     return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
                         alias: alias.to_string(),
@@ -249,6 +250,9 @@ impl Config {
         if model.provider == ProviderType::Anthropic {
             return Ok(secrets.anthropic_api_key.clone());
         }
+        if model.provider == ProviderType::KimiCode {
+            return Ok(secrets.kimi_api_key.clone());
+        }
         let env_var = model
             .api_key_env
             .as_deref()
@@ -257,6 +261,7 @@ impl Config {
                 ProviderType::OpenAiCompatible => "OPENAI_API_KEY",
                 ProviderType::Anthropic => "ANTHROPIC_API_KEY",
                 ProviderType::Gemini => "GEMINI_API_KEY",
+                ProviderType::KimiCode => "KIMI_API_KEY",
             });
         match std::env::var(env_var) {
             Ok(value) => Ok(Some(value)),
@@ -318,6 +323,11 @@ impl Config {
     /// Get the Gemini API key (if configured).
     pub fn gemini_api_key(&self) -> Option<&str> {
         self.secrets.gemini_api_key.as_deref()
+    }
+
+    /// Get the Kimi Code API key (if configured).
+    pub fn kimi_api_key(&self) -> Option<&str> {
+        self.secrets.kimi_api_key.as_deref()
     }
 
     /// Get the OpenRouter API key (if configured).
@@ -391,6 +401,7 @@ mod tests {
             api_key_env: None,
             routing: None,
             context_window: None,
+            headers: None,
         }
     }
 
