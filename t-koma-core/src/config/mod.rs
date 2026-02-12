@@ -351,12 +351,21 @@ impl Config {
     }
 }
 
-/// Load .env file if it exists (for development convenience).
+/// Load .env files if they exist (for development convenience).
+///
+/// Loads from two locations (both are additive):
+/// 1. CWD-relative `.env` (standard dotenvy behavior)
+/// 2. Config directory `.env` (next to `config.toml`)
 ///
 /// This is called automatically by `Config::load()` but is also
 /// exported for use in other contexts.
 pub fn load_dotenv() {
     let _ = dotenvy::dotenv();
+    if let Ok(config_path) = Settings::config_path() {
+        if let Some(config_dir) = config_path.parent() {
+            let _ = dotenvy::from_path(config_dir.join(".env"));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -42,8 +42,7 @@ impl Secrets {
     /// This function also loads .env file if present (for development),
     /// but production should rely on actual environment variables.
     pub fn from_env() -> Result<Self, SecretsError> {
-        // Load .env file if present (development convenience)
-        let _ = dotenvy::dotenv();
+        super::load_dotenv();
 
         Self::from_env_inner()
     }
