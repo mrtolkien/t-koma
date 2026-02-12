@@ -16,17 +16,6 @@ fmt-other:
 # Format everything (Rust + Markdown/SQL/JSON/TOML)
 fmt: fmt-rust fmt-other
 
-# Check Rust formatting without fixing
-check-fmt-rust:
-    cargo fmt --all -- --check
-
-# Check markdown/SQL/JSON/TOML formatting without fixing
-check-fmt-other:
-    dprint check
-
-# Check all formatting without fixing
-check-fmt: check-fmt-rust check-fmt-other
-
 # Run cargo check
 check:
     cargo check --all-features --all-targets
@@ -40,7 +29,7 @@ test:
     cargo test
 
 # Run all checks (format, clippy, test)
-ci: check-fmt check clippy test
+ci: fmt check clippy test
 
 # Clean build artifacts
 clean:

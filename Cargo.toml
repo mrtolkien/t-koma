@@ -1,11 +1,17 @@
 [workspace]
-members = ["t-koma-core", "t-koma-gateway", "t-koma-cli", "t-koma-db", "t-koma-knowledge"]
+members = [
+  "t-koma-cli",
+  "t-koma-core",
+  "t-koma-db",
+  "t-koma-gateway",
+  "t-koma-knowledge",
+]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
-edition = "2024"
 authors = ["t-koma contributors"]
+edition = "2024"
 license = "None"
 repository = "https://github.com/tolki/t-koma"
 

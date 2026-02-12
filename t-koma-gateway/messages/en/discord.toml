@@ -17,7 +17,7 @@ Select `MODE`:
 '''
 actions = [
   { id = "new", label = "NEW", intent = "interface.bind.new" },
-  { id = "existing", label = "EXISTING", intent = "interface.bind.existing" }
+  { id = "existing", label = "EXISTING", intent = "interface.bind.existing" },
 ]
 
 [discord-existing-operator-todo]

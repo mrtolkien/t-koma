@@ -13,7 +13,7 @@ Token is ONE-SHOT for the next `ACTION` only.
 '''
 actions = [
   { id = "approve", label = "Approve", intent = "approval.approve" },
-  { id = "deny", label = "Deny", intent = "approval.deny" }
+  { id = "deny", label = "Deny", intent = "approval.deny" },
 ]
 
 [approval-required-with-path]
@@ -33,7 +33,7 @@ Token is ONE-SHOT for the next `ACTION` only.
 '''
 actions = [
   { id = "approve", label = "Approve", intent = "approval.approve" },
-  { id = "deny", label = "Deny", intent = "approval.deny" }
+  { id = "deny", label = "Deny", intent = "approval.deny" },
 ]
 
 [approval-reference-import]
@@ -52,7 +52,7 @@ If buttons are unavailable, reply with:
 '''
 actions = [
   { id = "approve", label = "Approve", intent = "approval.approve" },
-  { id = "deny", label = "Deny", intent = "approval.deny" }
+  { id = "deny", label = "Deny", intent = "approval.deny" },
 ]
 
 [tool-loop-limit-reached]
@@ -71,7 +71,7 @@ Text commands remain valid:
 actions = [
   { id = "continue-default", label = "Continue", intent = "tool_loop.continue_default" },
   { id = "set-steps", label = "Set Steps", intent = "tool_loop.set_steps" },
-  { id = "deny", label = "Deny", intent = "tool_loop.deny" }
+  { id = "deny", label = "Deny", intent = "tool_loop.deny" },
 ]
 
 [tool-loop-denied]

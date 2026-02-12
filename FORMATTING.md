@@ -15,18 +15,21 @@ just check-fmt
 ## Formatters Used
 
 ### Rust - `cargo fmt`
+
 - **Standard**: Built-in Rust formatter (rustfmt)
 - **Configuration**: Uses default rustfmt settings
 - **Command**: `cargo fmt --all`
 - **Files**: All `.rs` files
 
 ### Markdown, SQL, JSON, TOML - `dprint`
+
 - **Tool**: [dprint](https://dprint.dev/) - Fast, pluggable formatter
 - **Configuration**: `dprint.json`
 - **Command**: `dprint fmt`
 - **Files**: `.md`, `.sql`, `.json`, `.toml`
 
 **Key Settings** (from `dprint.json`):
+
 - **Line width**: 88 characters (consistent with Python Black)
 - **Indent**: 2 spaces
 - **Plugins**:
@@ -81,10 +84,12 @@ dprint check  # Check only
 ### VS Code
 
 Install these extensions:
+
 - **Rust**: rust-analyzer (includes rustfmt)
 - **dprint**: [dprint VS Code extension](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
 
 Add to `.vscode/settings.json`:
+
 ```json
 {
   "editor.formatOnSave": true,
@@ -100,6 +105,7 @@ Add to `.vscode/settings.json`:
 ### Neovim / Vim
 
 With null-ls or conform.nvim:
+
 ```lua
 require('conform').setup({
   formatters_by_ft = {
@@ -186,6 +192,7 @@ The following paths are excluded from dprint formatting (see `dprint.json`):
 ### "dprint: command not found"
 
 Install dprint:
+
 ```bash
 cargo install dprint
 ```
@@ -193,6 +200,7 @@ cargo install dprint
 ### Formatting conflicts with editor
 
 Ensure your editor uses the project's configuration files:
+
 - `dprint.json` for dprint
 - Default rustfmt settings for Rust
 
@@ -201,11 +209,13 @@ Disable competing formatters in your editor settings.
 ### "File not formatted" error in CI
 
 Run locally to see the issue:
+
 ```bash
 just check-fmt
 ```
 
 Then format:
+
 ```bash
 just fmt
 ```

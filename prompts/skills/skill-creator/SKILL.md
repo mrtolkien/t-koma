@@ -168,7 +168,6 @@ Run the extraction script:
 ````
 
 ```
-
 ## Validation
 
 Before using a skill:
@@ -180,7 +179,6 @@ Before using a skill:
 5. Verify file references work
 
 ## Example: Complete Skill
-
 ```
 
 prompts/skills/data-extraction/
@@ -192,7 +190,6 @@ prompts/skills/data-extraction/
 └── DATA_FORMATS.md
 
 ````
-
 **SKILL.md:**
 
 ```yaml
@@ -237,7 +234,6 @@ Extract and clean data from various file formats.
 See [references/DATA_FORMATS.md](references/DATA_FORMATS.md) for format details.
 
 ```
-
 ## Tips for Success
 
 1. **Start Simple**: Create a basic skill first, then expand
