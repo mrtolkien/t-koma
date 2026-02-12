@@ -20,6 +20,7 @@ pub struct OpenAiCompatibleClient {
     base_url: String,
     provider_name: String,
     dump_queries: bool,
+    extra_headers: HeaderMap,
 }
 
 /// Request body for the Chat Completions API
@@ -126,6 +127,7 @@ impl OpenAiCompatibleClient {
             base_url: base_url.into(),
             provider_name: provider_name.into(),
             dump_queries: false,
+            extra_headers: HeaderMap::new(),
         }
     }
 
@@ -135,7 +137,13 @@ impl OpenAiCompatibleClient {
         self
     }
 
-    /// Build request headers with optional auth
+    /// Set extra headers sent with every request.
+    pub fn with_extra_headers(mut self, headers: HeaderMap) -> Self {
+        self.extra_headers = headers;
+        self
+    }
+
+    /// Build request headers with optional auth and extra headers.
     fn build_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -147,6 +155,11 @@ impl OpenAiCompatibleClient {
             }
         }
 
+        headers.extend(
+            self.extra_headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
         headers
     }
 

@@ -165,12 +165,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .clone()
                     .unwrap_or_else(|| "https://api.kimi.com/coding/v1".to_string());
                 if let Some(api_key) = config.kimi_api_key() {
+                    use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
+
+                    let mut extra = HeaderMap::new();
+                    extra.insert(USER_AGENT, HeaderValue::from_static("KimiCLI/1.12.0"));
+                    if let Some(cfg_headers) = &model_config.headers {
+                        for (k, v) in cfg_headers {
+                            if let (Ok(name), Ok(val)) =
+                                (HeaderName::try_from(k.as_str()), HeaderValue::from_str(v))
+                            {
+                                extra.insert(name, val);
+                            }
+                        }
+                    }
+
                     let client = OpenAiCompatibleClient::new(
                         base_url,
                         Some(api_key.to_string()),
                         &model_config.model,
                         "kimi_code",
                     )
+                    .with_extra_headers(extra)
                     .with_dump_queries(config.settings.logging.dump_queries);
                     info!(
                         "Kimi Code client created for alias '{}' with model: {}",

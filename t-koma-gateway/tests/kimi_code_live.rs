@@ -9,6 +9,8 @@ use t_koma_gateway::tools::{Tool, ToolContext};
 
 #[cfg(feature = "live-tests")]
 fn load_kimi_code_client() -> Option<OpenAiCompatibleClient> {
+    use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+
     t_koma_core::load_dotenv();
 
     let api_key = match std::env::var("KIMI_API_KEY") {
@@ -19,12 +21,18 @@ fn load_kimi_code_client() -> Option<OpenAiCompatibleClient> {
         }
     };
 
-    Some(OpenAiCompatibleClient::new(
-        "https://api.kimi.com/coding/v1",
-        Some(api_key),
-        "kimi-k2-0711-chat",
-        "kimi_code",
-    ))
+    let mut headers = HeaderMap::new();
+    headers.insert(USER_AGENT, HeaderValue::from_static("KimiCLI/1.12.0"));
+
+    Some(
+        OpenAiCompatibleClient::new(
+            "https://api.kimi.com/coding/v1",
+            Some(api_key),
+            "kimi-k2-0711-chat",
+            "kimi_code",
+        )
+        .with_extra_headers(headers),
+    )
 }
 
 #[cfg(feature = "live-tests")]

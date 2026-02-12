@@ -511,6 +511,7 @@ impl TuiApp {
                 api_key_env: None,
                 routing: None,
                 context_window: None,
+                headers: None,
             },
         );
         self.settings_dirty = true;

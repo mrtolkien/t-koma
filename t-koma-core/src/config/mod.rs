@@ -401,6 +401,7 @@ mod tests {
             api_key_env: None,
             routing: None,
             context_window: None,
+            headers: None,
         }
     }
 
