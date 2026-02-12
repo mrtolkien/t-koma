@@ -107,6 +107,11 @@ Make extensive use of MCPs available to you:
 - OpenAI-compatible providers use per-model fields on `[models.<alias>]`:
   `provider = "openai_compatible"` and `base_url = "http://host:port[/v1]"`. Optional
   auth uses `OPENAI_API_KEY` by default or model-level `api_key_env`.
+- Kimi Code uses `provider = "kimi_code"` with `KIMI_API_KEY` env var. Default base URL
+  is `https://api.kimi.com/coding/v1` (overridable via `base_url`). Reuses
+  `OpenAiCompatibleClient` internally. Context window: 262,144 tokens. Note: Kimi Code
+  is distinct from Moonshot Open Platform (`api.moonshot.ai`) — different endpoints,
+  keys, and models.
 
 ### Locality of Concern
 

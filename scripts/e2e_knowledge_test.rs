@@ -450,6 +450,18 @@ fn create_models_from_config(model_alias: &str) -> (HashMap<String, ModelEntry>,
                 "openai_compatible",
             ))
         }
+        ProviderType::KimiCode => {
+            let base_url = model_config
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "https://api.kimi.com/coding/v1".to_string());
+            Arc::new(OpenAiCompatibleClient::new(
+                base_url,
+                Some(api_key),
+                &model_config.model,
+                "kimi_code",
+            ))
+        }
     };
 
     models.insert(
@@ -611,9 +623,10 @@ async fn run_conversation(
     // Print ghost response for UI
     if let Some(last) = messages_after_1.last()
         && last.role == MessageRole::Ghost
-            && let Some(ContentBlock::Text { text }) = last.content.first() {
-                chat_msg(&ghost.name, text, true);
-            }
+        && let Some(ContentBlock::Text { text }) = last.content.first()
+    {
+        chat_msg(&ghost.name, text, true);
+    }
 
     // Message 2
     let q = "I want to buy a new 3d printer. Enclosed, for home use. What do you recommend?";
@@ -631,9 +644,10 @@ async fn run_conversation(
     // Print ghost response for UI
     if let Some(last) = messages_after_2.last()
         && last.role == MessageRole::Ghost
-            && let Some(ContentBlock::Text { text }) = last.content.first() {
-                chat_msg(&ghost.name, text, true);
-            }
+        && let Some(ContentBlock::Text { text }) = last.content.first()
+    {
+        chat_msg(&ghost.name, text, true);
+    }
 
     // Convert all messages to detailed format
     messages_after_2
