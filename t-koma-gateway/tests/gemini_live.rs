@@ -19,7 +19,7 @@ fn load_gemini_client() -> Option<GeminiClient> {
         }
     };
 
-    Some(GeminiClient::new(api_key, "gemini-2.0-flash"))
+    Some(GeminiClient::new(api_key, "gemini-3-flash-preview"))
 }
 
 #[cfg(feature = "live-tests")]

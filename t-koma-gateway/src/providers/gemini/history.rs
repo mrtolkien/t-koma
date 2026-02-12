@@ -16,9 +16,17 @@ pub struct GeminiContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GeminiPart {
-    Text { text: String },
-    FunctionCall { function_call: FunctionCall },
-    FunctionResponse { function_response: FunctionResponse },
+    Text {
+        text: String,
+    },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: FunctionCall,
+    },
+    FunctionResponse {
+        #[serde(rename = "functionResponse")]
+        function_response: FunctionResponse,
+    },
 }
 
 /// Gemini function call structure

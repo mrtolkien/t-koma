@@ -99,8 +99,13 @@ pub struct CandidateContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CandidatePart {
-    Text { text: String },
-    FunctionCall { function_call: FunctionCallData },
+    Text {
+        text: String,
+    },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: FunctionCallData,
+    },
 }
 
 /// Function call data
@@ -225,10 +230,10 @@ impl GeminiClient {
         let status = response.status();
         let response_text = response.text().await?;
 
-        if let Some(handle) = dump_handle {
-            if let Ok(response_value) = serde_json::from_str::<Value>(&response_text) {
-                handle.response(&response_value).await;
-            }
+        if let Some(handle) = dump_handle
+            && let Ok(response_value) = serde_json::from_str::<Value>(&response_text)
+        {
+            handle.response(&response_value).await;
         }
 
         if !status.is_success() {
