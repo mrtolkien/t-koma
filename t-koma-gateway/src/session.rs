@@ -22,7 +22,7 @@ use crate::tools::{JobHandle, ToolContext, ToolManager};
 use serde_json::Value;
 use t_koma_db::{
     ContentBlock as DbContentBlock, GhostRepository, KomaDbPool, MessageRole, OperatorRepository,
-    Session, SessionRepository, TranscriptEntry, UsageLog, UsageLogRepository,
+    Session, SessionRepository, TokenUsage, TranscriptEntry, UsageLog, UsageLogRepository,
     ghosts::ghost_workspace_path,
 };
 
@@ -1586,10 +1586,12 @@ impl SessionChat {
             session_id,
             None,
             model,
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.cache_read_tokens.unwrap_or(0),
-            usage.cache_creation_tokens.unwrap_or(0),
+            TokenUsage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cache_read_tokens: usage.cache_read_tokens.unwrap_or(0),
+                cache_creation_tokens: usage.cache_creation_tokens.unwrap_or(0),
+            },
         );
         if let Err(e) = UsageLogRepository::insert(pool.pool(), &log).await {
             warn!(session_id, error = %e, "Failed to log API usage");

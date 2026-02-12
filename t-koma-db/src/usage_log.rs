@@ -9,6 +9,15 @@ use uuid::Uuid;
 
 use crate::error::DbResult;
 
+/// Token counts from a single API request.
+#[derive(Debug, Clone, Default)]
+pub struct TokenUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cache_read_tokens: u32,
+    pub cache_creation_tokens: u32,
+}
+
 /// A single API request's token usage.
 #[derive(Debug, Clone)]
 pub struct UsageLog {
@@ -18,10 +27,7 @@ pub struct UsageLog {
     pub message_id: Option<String>,
     pub request_at: i64,
     pub model: String,
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-    pub cache_read_tokens: u32,
-    pub cache_creation_tokens: u32,
+    pub tokens: TokenUsage,
 }
 
 impl UsageLog {
@@ -31,10 +37,7 @@ impl UsageLog {
         session_id: &str,
         message_id: Option<&str>,
         model: &str,
-        input_tokens: u32,
-        output_tokens: u32,
-        cache_read_tokens: u32,
-        cache_creation_tokens: u32,
+        tokens: TokenUsage,
     ) -> Self {
         Self {
             id: format!("usage_{}", Uuid::new_v4()),
@@ -43,10 +46,7 @@ impl UsageLog {
             message_id: message_id.map(|s| s.to_string()),
             request_at: Utc::now().timestamp(),
             model: model.to_string(),
-            input_tokens,
-            output_tokens,
-            cache_read_tokens,
-            cache_creation_tokens,
+            tokens,
         }
     }
 }
@@ -78,10 +78,10 @@ impl UsageLogRepository {
         .bind(&log.message_id)
         .bind(log.request_at)
         .bind(&log.model)
-        .bind(log.input_tokens)
-        .bind(log.output_tokens)
-        .bind(log.cache_read_tokens)
-        .bind(log.cache_creation_tokens)
+        .bind(log.tokens.input_tokens)
+        .bind(log.tokens.output_tokens)
+        .bind(log.tokens.cache_read_tokens)
+        .bind(log.tokens.cache_creation_tokens)
         .execute(pool)
         .await?;
 
@@ -170,10 +170,12 @@ mod tests {
             &session.id,
             None,
             "claude-sonnet-4-5",
-            1000,
-            200,
-            500,
-            100,
+            TokenUsage {
+                input_tokens: 1000,
+                output_tokens: 200,
+                cache_read_tokens: 500,
+                cache_creation_tokens: 100,
+            },
         );
         UsageLogRepository::insert(pool, &log1).await.unwrap();
 
@@ -182,10 +184,12 @@ mod tests {
             &session.id,
             None,
             "claude-sonnet-4-5",
-            1200,
-            300,
-            800,
-            0,
+            TokenUsage {
+                input_tokens: 1200,
+                output_tokens: 300,
+                cache_read_tokens: 800,
+                cache_creation_tokens: 0,
+            },
         );
         UsageLogRepository::insert(pool, &log2).await.unwrap();
 
@@ -235,10 +239,12 @@ mod tests {
             &session.id,
             Some("msg_abc"),
             "claude-opus-4",
-            5000,
-            1000,
-            3000,
-            500,
+            TokenUsage {
+                input_tokens: 5000,
+                output_tokens: 1000,
+                cache_read_tokens: 3000,
+                cache_creation_tokens: 500,
+            },
         );
         UsageLogRepository::insert(pool, &log).await.unwrap();
 

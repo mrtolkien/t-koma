@@ -609,9 +609,10 @@ async fn run_conversation(
     // Print ghost response for UI
     if let Some(last) = messages_after_1.last()
         && last.role == MessageRole::Ghost
-            && let Some(ContentBlock::Text { text }) = last.content.first() {
-                chat_msg(&ghost.name, text, true);
-            }
+        && let Some(ContentBlock::Text { text }) = last.content.first()
+    {
+        chat_msg(&ghost.name, text, true);
+    }
 
     // Message 2
     let q = "I want to buy a new 3d printer. Enclosed, for home use. What do you recommend?";
@@ -629,9 +630,10 @@ async fn run_conversation(
     // Print ghost response for UI
     if let Some(last) = messages_after_2.last()
         && last.role == MessageRole::Ghost
-            && let Some(ContentBlock::Text { text }) = last.content.first() {
-                chat_msg(&ghost.name, text, true);
-            }
+        && let Some(ContentBlock::Text { text }) = last.content.first()
+    {
+        chat_msg(&ghost.name, text, true);
+    }
 
     // Convert all messages to detailed format
     messages_after_2
@@ -815,25 +817,34 @@ fn collect_data_files(data_root: &PathBuf) -> Vec<DataFile> {
     files
 }
 
-/// Generate and write report
-fn write_report(
-    config: &TestConfig,
-    model_used: &str,
-    operator: &t_koma_db::Operator,
-    ghost: &t_koma_db::Ghost,
-    session: &t_koma_db::Session,
+/// Collected results from the test run, passed to `write_report`.
+struct ReportInput {
+    model_used: String,
+    operator: t_koma_db::Operator,
+    ghost: t_koma_db::Ghost,
+    session: t_koma_db::Session,
     conversation: Vec<DetailedMessage>,
     reflection: Option<DetailedReflection>,
     knowledge_verification: Option<KnowledgeVerification>,
     data_files: Vec<DataFile>,
-    started: Instant,
-) -> PathBuf {
+}
+
+/// Generate and write report
+fn write_report(config: &TestConfig, input: ReportInput, started: Instant) -> PathBuf {
     fs::create_dir_all(&config.output_dir).expect("Failed to create output dir");
 
     let usage = UsageStats {
-        total_messages: conversation.len(),
-        operator_messages: conversation.iter().filter(|m| m.role == "operator").count(),
-        ghost_messages: conversation.iter().filter(|m| m.role == "ghost").count(),
+        total_messages: input.conversation.len(),
+        operator_messages: input
+            .conversation
+            .iter()
+            .filter(|m| m.role == "operator")
+            .count(),
+        ghost_messages: input
+            .conversation
+            .iter()
+            .filter(|m| m.role == "ghost")
+            .count(),
     };
 
     let report = TestReport {
@@ -843,30 +854,30 @@ fn write_report(
         completed_at: Utc::now().to_rfc3339(),
         duration_seconds: started.elapsed().as_secs_f64(),
         config: config.clone(),
-        model_used: model_used.to_string(),
+        model_used: input.model_used,
         operator: OperatorInfo {
-            id: operator.id.clone(),
-            name: operator.name.clone(),
+            id: input.operator.id,
+            name: input.operator.name,
             platform: "cli".to_string(),
             access_level: "puppet_master".to_string(),
         },
         ghost: GhostInfo {
-            id: ghost.id.clone(),
-            name: ghost.name.clone(),
-            workspace_path: t_koma_db::ghosts::ghost_workspace_path(&ghost.name)
+            id: input.ghost.id.clone(),
+            name: input.ghost.name.clone(),
+            workspace_path: t_koma_db::ghosts::ghost_workspace_path(&input.ghost.name)
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string(),
         },
         session: SessionInfo {
-            id: session.id.clone(),
+            id: input.session.id,
             created_at: Utc::now().to_rfc3339(),
-            message_count: conversation.len(),
+            message_count: input.conversation.len(),
         },
-        conversation,
-        reflection,
-        knowledge_verification,
-        data_files,
+        conversation: input.conversation,
+        reflection: input.reflection,
+        knowledge_verification: input.knowledge_verification,
+        data_files: input.data_files,
         usage,
     };
 
@@ -1046,14 +1057,16 @@ async fn main() {
 
     let path = write_report(
         &config,
-        &model_alias,
-        &operator,
-        &ghost,
-        &session,
-        conversation,
-        reflection,
-        knowledge_verification,
-        data_files,
+        ReportInput {
+            model_used: model_alias.clone(),
+            operator,
+            ghost: ghost.clone(),
+            session,
+            conversation,
+            reflection,
+            knowledge_verification,
+            data_files,
+        },
         started,
     );
     success("Report generated");

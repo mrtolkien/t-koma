@@ -31,7 +31,7 @@ pub use operators::{
 };
 pub use prompt_cache::{PromptCacheEntry, PromptCacheRepository};
 pub use sessions::{ContentBlock, Message, MessageRole, Session, SessionInfo, SessionRepository};
-pub use usage_log::{UsageLog, UsageLogRepository, UsageTotals};
+pub use usage_log::{TokenUsage, UsageLog, UsageLogRepository, UsageTotals};
 
 // Re-export test helpers when running tests or when test-helpers feature is enabled
 #[cfg(any(test, feature = "test-helpers"))]
