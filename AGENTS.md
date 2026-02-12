@@ -50,6 +50,10 @@ Always update this file when:
 
 ## Architecture Guardrails
 
+- `default_model` / `heartbeat_model` accept a single alias or an ordered list for
+  multi-model fallback. Chain resolution and circuit breaker live in
+  `t-koma-gateway/src/state.rs` and `t-koma-gateway/src/circuit_breaker.rs`. See
+  `docs/dev/multi-model-fallback.md`.
 - Transport layers (`discord`, WebSocket server) must not implement chat/tool
   orchestration.
 - Interactive conversations must go through `SessionChat` in
@@ -92,3 +96,4 @@ Use these detailed guides for feature-specific work:
 - `docs/dev/prompts-and-messages.md`
 - `docs/dev/background-jobs.md`
 - `docs/dev/knowledge-system.md`
+- `docs/dev/multi-model-fallback.md`
