@@ -1,8 +1,8 @@
 [package]
 name = "t-koma-gateway"
 version.workspace = true
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
 license.workspace = true
 
 [lib]
@@ -48,12 +48,12 @@ include_dir = "0.7"
 
 # Utilities
 futures = "0.3"
-uuid = { version = "1.12", features = ["v4"] }
 os_info = "3"
+uuid = { version = "1.12", features = ["v4"] }
 
 # Discord bot
-serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
 async-trait = "0.1.89"
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
 
 # Search functionality (ripgrep core)
 grep = "0.3"
@@ -63,8 +63,8 @@ grep-regex = "0.1"
 ignore = "0.4"
 
 # Regex for glob matching
-regex = "1"
 globset = "0.4"
+regex = "1"
 
 # HTML to text conversion
 html2text = "0.12"

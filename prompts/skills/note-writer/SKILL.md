@@ -37,18 +37,18 @@ Archetypes are **optional** semantic classifications. Notes without an archetype
 are valid unclassified notes. Set the `archetype` field in front matter
 (lowercase) when it adds discoverability.
 
-| Archetype      | Purpose                                      |
-| -------------- | -------------------------------------------- |
-| `person`       | People, contacts, key individuals            |
-| `concept`      | Ideas, definitions, mental models            |
-| `decision`     | Choices with rationale and trade-offs        |
-| `event`        | Meetings, occurrences, milestones            |
-| `place`        | Locations, venues, geographic context        |
-| `project`      | Projects, initiatives, ongoing work          |
-| `organization` | Companies, teams, groups                     |
-| `procedure`    | How-tos, workflows, step-by-step guides      |
-| `media`        | Books, articles, films, podcasts             |
-| `quote`        | Notable quotes with attribution              |
+| Archetype      | Purpose                                 |
+| -------------- | --------------------------------------- |
+| `person`       | People, contacts, key individuals       |
+| `concept`      | Ideas, definitions, mental models       |
+| `decision`     | Choices with rationale and trade-offs   |
+| `event`        | Meetings, occurrences, milestones       |
+| `place`        | Locations, venues, geographic context   |
+| `project`      | Projects, initiatives, ongoing work     |
+| `organization` | Companies, teams, groups                |
+| `procedure`    | How-tos, workflows, step-by-step guides |
+| `media`        | Books, articles, films, podcasts        |
+| `quote`        | Notable quotes with attribution         |
 
 ## Trust Scores
 

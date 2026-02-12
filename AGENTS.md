@@ -89,10 +89,10 @@ Make extensive use of MCPs available to you:
 
 - Iterate until all spec items are built and, if realistic, tested.
   - At each step of the integration:
-    - Run `cargo check --all-features --all-targets`.
-    - Run `cargo clippy --all-features --all-targets`.
-    - Run `cargo test` (no live-tests).
-    - Run `cargo fmt --all`
+    - Run `just check`.
+    - Run `just clippy`.
+    - Run `just test` (no live-tests).
+    - Run `just fmt`
   - Once an atomic feature is added, make an atomic commit in the
     conventional-commit style (`feat:`, `fix:`, ...)
 - Offer the user to create a pull request with the gh mcp
@@ -288,9 +288,9 @@ scheduler state owned by `AppState`.
 
 ### Refactor checklist (before merge)
 
-- `cargo check --all-features --all-targets`
-- `cargo clippy --all-features --all-targets`
-- `cargo test` (no `live-tests`)
+- `just check`
+- `just clippy`
+- `just test`
 - Verify touched files still follow module ownership and layering rules above.
 
 ## Testing Rules (Short)
@@ -625,23 +625,23 @@ Fire-and-forget pattern — failures are warned but never fail the chat request.
 [models.my-model]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
-context_window = 200000  # overrides built-in lookup
+context_window = 200000 # overrides built-in lookup
 
 # Compaction settings (all optional, shown with defaults)
 [compaction]
-threshold = 0.85        # fraction of context window triggering compaction
-keep_window = 20        # recent messages kept verbatim
+threshold = 0.85 # fraction of context window triggering compaction
+keep_window = 20 # recent messages kept verbatim
 mask_preview_chars = 100 # chars retained from masked tool results
 
 # Heartbeat timing (all optional, shown with defaults)
 [heartbeat_timing]
-idle_minutes = 4          # session idle time before heartbeat triggers
-check_seconds = 60        # polling interval for heartbeat loop
-continue_minutes = 30     # reschedule interval after HEARTBEAT_CONTINUE
+idle_minutes = 4 # session idle time before heartbeat triggers
+check_seconds = 60 # polling interval for heartbeat loop
+continue_minutes = 30 # reschedule interval after HEARTBEAT_CONTINUE
 
 # Reflection timing (all optional, shown with defaults)
 [reflection]
-idle_minutes = 4           # session idle time before reflection triggers
+idle_minutes = 4 # session idle time before reflection triggers
 # No cooldown — reflection runs once after idle, then waits for new messages
 ```
 
