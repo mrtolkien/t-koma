@@ -102,16 +102,7 @@ Make extensive use of MCPs available to you:
 - New config should be editable via the TUI (already supported via "Edit in Editor").
 - Heartbeat uses the optional `heartbeat_model` alias in config; when unset it falls
   back to `default_model`.
-- OpenRouter upstream routing is configured per model with `routing = ["provider-slug"]`
-  on `[models.<alias>]`.
-- OpenAI-compatible providers use per-model fields on `[models.<alias>]`:
-  `provider = "openai_compatible"` and `base_url = "http://host:port[/v1]"`. Optional
-  auth uses `OPENAI_API_KEY` by default or model-level `api_key_env`.
-- Kimi Code uses `provider = "kimi_code"` with `KIMI_API_KEY` env var. Default base URL
-  is `https://api.kimi.com/coding/v1` (overridable via `base_url`). Reuses
-  `OpenAiCompatibleClient` internally. Context window: 262,144 tokens. Note: Kimi Code
-  is distinct from Moonshot Open Platform (`api.moonshot.ai`) — different endpoints,
-  keys, and models.
+- Per-provider configuration docs live in `docs/providers/`.
 
 ### Locality of Concern
 
@@ -308,29 +299,9 @@ canonical examples.
 
 ## Providers
 
-Available providers:
+Available providers: Anthropic, OpenRouter, Gemini, OpenAI-compatible, Kimi Code.
 
-- **Anthropic** (`provider = "anthropic"`): Direct Anthropic API access. Requires
-  `ANTHROPIC_API_KEY`.
-- **OpenRouter** (`provider = "openrouter"`): Multi-model routing via OpenRouter.
-  Requires `OPENROUTER_API_KEY`. Supports upstream `routing = ["provider-slug"]` for
-  fallback chains.
-- **Gemini** (`provider = "gemini"`): Google Gemini API access. Requires
-  `GEMINI_API_KEY`. Base URL: `https://generativelanguage.googleapis.com/v1beta`.
-- **OpenAI-compatible** (`provider = "openai_compatible"`): Generic OpenAI-compatible
-  endpoints. Requires `base_url`. Optional `api_key_env` (defaults to `OPENAI_API_KEY`).
-
-Example Gemini configuration:
-
-```toml
-[models.gemini-flash]
-provider = "gemini"
-model = "gemini-2.0-flash-exp"
-
-[models.gemini-pro]
-provider = "gemini"
-model = "gemini-2.0-pro-exp"
-```
+See `docs/providers/` for per-provider configuration, env vars, and examples.
 
 ## Security Reminders
 

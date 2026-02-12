@@ -746,6 +746,10 @@ impl TuiApp {
                     label: "OpenAI Compatible".to_string(),
                     value: "openai_compatible".to_string(),
                 },
+                SelectionItem {
+                    label: "Kimi Code".to_string(),
+                    value: "kimi_code".to_string(),
+                },
             ],
             selected_idx: 0,
             on_select: SelectionAction::SelectProvider,
@@ -786,6 +790,7 @@ impl TuiApp {
             "openrouter" => "OPENROUTER_API_KEY",
             "gemini" => "GEMINI_API_KEY",
             "openai_compatible" => "OPENAI_API_KEY",
+            "kimi_code" => "KIMI_API_KEY",
             _ => {
                 self.status = format!("Unknown provider: {}", provider);
                 return;
