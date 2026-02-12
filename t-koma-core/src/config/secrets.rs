@@ -19,6 +19,9 @@ pub struct Secrets {
     /// OpenRouter API key (env: OPENROUTER_API_KEY)
     pub openrouter_api_key: Option<String>,
 
+    /// Gemini API key (env: GEMINI_API_KEY)
+    pub gemini_api_key: Option<String>,
+
     /// Discord bot token (env: DISCORD_BOT_TOKEN)
     pub discord_bot_token: Option<String>,
 
@@ -50,6 +53,7 @@ impl Secrets {
         let secrets = Self {
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
             openrouter_api_key: env::var("OPENROUTER_API_KEY").ok(),
+            gemini_api_key: env::var("GEMINI_API_KEY").ok(),
             discord_bot_token: env::var("DISCORD_BOT_TOKEN").ok(),
             brave_api_key: env::var("BRAVE_API_KEY").ok(),
         };
@@ -70,6 +74,7 @@ impl Secrets {
             ProviderType::Anthropic => self.anthropic_api_key.is_some(),
             ProviderType::OpenRouter => self.openrouter_api_key.is_some(),
             ProviderType::OpenAiCompatible => true,
+            ProviderType::Gemini => self.gemini_api_key.is_some(),
         }
     }
 

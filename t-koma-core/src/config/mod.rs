@@ -185,7 +185,7 @@ impl Config {
         };
 
         match model.provider {
-            ProviderType::Anthropic => {
+            ProviderType::Anthropic | ProviderType::Gemini => {
                 if model.routing.is_some() {
                     return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
                         alias: alias.to_string(),
@@ -256,6 +256,7 @@ impl Config {
                 ProviderType::OpenRouter => "OPENROUTER_API_KEY",
                 ProviderType::OpenAiCompatible => "OPENAI_API_KEY",
                 ProviderType::Anthropic => "ANTHROPIC_API_KEY",
+                ProviderType::Gemini => "GEMINI_API_KEY",
             });
         match std::env::var(env_var) {
             Ok(value) => Ok(Some(value)),
@@ -312,6 +313,11 @@ impl Config {
     /// Get the Anthropic API key (if configured).
     pub fn anthropic_api_key(&self) -> Option<&str> {
         self.secrets.anthropic_api_key.as_deref()
+    }
+
+    /// Get the Gemini API key (if configured).
+    pub fn gemini_api_key(&self) -> Option<&str> {
+        self.secrets.gemini_api_key.as_deref()
     }
 
     /// Get the OpenRouter API key (if configured).

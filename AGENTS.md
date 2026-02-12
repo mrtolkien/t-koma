@@ -301,6 +301,32 @@ canonical examples.
 - Logging: `tracing`
 - Public APIs must have `///` docs
 
+## Providers
+
+Available providers:
+
+- **Anthropic** (`provider = "anthropic"`): Direct Anthropic API access. Requires
+  `ANTHROPIC_API_KEY`.
+- **OpenRouter** (`provider = "openrouter"`): Multi-model routing via OpenRouter.
+  Requires `OPENROUTER_API_KEY`. Supports upstream `routing = ["provider-slug"]` for
+  fallback chains.
+- **Gemini** (`provider = "gemini"`): Google Gemini API access. Requires
+  `GEMINI_API_KEY`. Base URL: `https://generativelanguage.googleapis.com/v1beta`.
+- **OpenAI-compatible** (`provider = "openai_compatible"`): Generic OpenAI-compatible
+  endpoints. Requires `base_url`. Optional `api_key_env` (defaults to `OPENAI_API_KEY`).
+
+Example Gemini configuration:
+
+```toml
+[models.gemini-flash]
+provider = "gemini"
+model = "gemini-2.0-flash-exp"
+
+[models.gemini-pro]
+provider = "gemini"
+model = "gemini-2.0-pro-exp"
+```
+
 ## Security Reminders
 
 - Never commit API keys. Use `.env` and config.

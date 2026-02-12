@@ -39,6 +39,7 @@ use t_koma_db::{
 };
 use t_koma_gateway::chat::compaction::CompactionConfig;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::gemini::GeminiClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::state::{AppState, ModelEntry};
@@ -424,6 +425,7 @@ fn create_models_from_config(model_alias: &str) -> (HashMap<String, ModelEntry>,
     let client: Arc<dyn t_koma_gateway::providers::provider::Provider> = match model_config.provider
     {
         ProviderType::Anthropic => Arc::new(AnthropicClient::new(api_key, &model_config.model)),
+        ProviderType::Gemini => Arc::new(GeminiClient::new(api_key, &model_config.model)),
         ProviderType::OpenRouter => Arc::new(OpenRouterClient::new(
             api_key,
             &model_config.model,

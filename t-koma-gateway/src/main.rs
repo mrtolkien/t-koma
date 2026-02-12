@@ -7,6 +7,7 @@ use t_koma_gateway::state::LogEntry;
 
 use t_koma_gateway::discord::start_discord_bot;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::gemini::GeminiClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::server;
@@ -157,6 +158,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         context_window: model_config.context_window,
                     },
                 );
+            }
+            "gemini" => {
+                if let Some(api_key) = config.gemini_api_key() {
+                    let client = GeminiClient::new(api_key, &model_config.model)
+                        .with_dump_queries(config.settings.logging.dump_queries);
+                    info!(
+                        "Gemini client created for alias '{}' with model: {}",
+                        alias, model_config.model
+                    );
+                    models.insert(
+                        alias.clone(),
+                        t_koma_gateway::state::ModelEntry {
+                            alias: alias.clone(),
+                            provider: model_config.provider.to_string(),
+                            model: model_config.model.clone(),
+                            client: Arc::new(client),
+                            context_window: model_config.context_window,
+                        },
+                    );
+                } else {
+                    info!(
+                        "Skipping model '{}' (gemini) - no GEMINI_API_KEY configured",
+                        alias
+                    );
+                }
             }
             other => {
                 info!("Skipping model '{}' - unknown provider '{}'", alias, other);
