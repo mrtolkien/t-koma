@@ -21,6 +21,7 @@ const DEFAULT_CONFIG_TOML: &str = r#"# t-koma configuration file
 # Secrets (API keys) are loaded from environment variables:
 #   - ANTHROPIC_API_KEY
 #   - OPENROUTER_API_KEY
+#   - GEMINI_API_KEY
 #   - OPENAI_API_KEY (optional, for openai_compatible models)
 #   - DISCORD_BOT_TOKEN
 

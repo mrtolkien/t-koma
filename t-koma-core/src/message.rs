@@ -17,6 +17,7 @@ pub enum ProviderType {
     Anthropic,
     OpenRouter,
     OpenAiCompatible,
+    Gemini,
 }
 
 impl ProviderType {
@@ -25,6 +26,7 @@ impl ProviderType {
             ProviderType::Anthropic => "anthropic",
             ProviderType::OpenRouter => "openrouter",
             ProviderType::OpenAiCompatible => "openai_compatible",
+            ProviderType::Gemini => "gemini",
         }
     }
 }
@@ -45,6 +47,7 @@ impl std::str::FromStr for ProviderType {
             "openai_compatible" | "openai-compatible" | "openaicompatible" => {
                 Ok(ProviderType::OpenAiCompatible)
             }
+            "gemini" => Ok(ProviderType::Gemini),
             _ => Err(format!("Unknown provider: {}", s)),
         }
     }

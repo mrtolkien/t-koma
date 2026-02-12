@@ -143,6 +143,7 @@ impl TuiApp {
             Category::Gate => vec![],
             Category::Config => vec![
                 "Add Model".to_string(),
+                "Add Provider".to_string(),
                 "Set Default".to_string(),
                 "Toggle Discord".to_string(),
                 "Edit in Editor".to_string(),
