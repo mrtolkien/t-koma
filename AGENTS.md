@@ -46,11 +46,11 @@ in.
   (`ToolManager::new_reflection()`). Creates a structured TODO plan via
   `reflection_todo`, then curates conversation insights into notes, references, diary,
   and identity files. Carries a **handoff note** between runs for continuity. Web
-  results are auto-saved to `_web-cache` during chat; reflection curates them into
-  proper topics. Runs when new messages exist since last reflection AND the session has
-  been idle for the configured idle time (default 4 minutes). No cooldown — runs once
-  per idle window, then waits for new messages. Reflection transcripts are stored in
-  `job_logs` and do NOT appear in session messages.
+  results are auto-saved to `.web-cache/` in the ghost workspace as plain files;
+  reflection curates them into proper topics. Runs when new messages exist since last
+  reflection AND the session has been idle for the configured idle time (default 4
+  minutes). No cooldown — runs once per idle window, then waits for new messages.
+  Reflection transcripts are stored in `job_logs` and do NOT appear in session messages.
 - Puppet Master: The name used for WebSocket clients.
 - In TUI context, the user is the Puppet Master (admin/operator context for management
   UX and messaging labels).
@@ -315,9 +315,12 @@ canonical examples.
 - `web_fetch` performs HTTP fetch + HTML-to-text conversion (no JavaScript).
 - Rate limits for Brave are enforced at ~1 query/second.
 - **Auto-save**: `web_fetch` results (2xx only) and `web_search` results are
-  automatically saved to the `_web-cache` reference topic via `auto_save_web_result()`
-  in `ToolContext`. Search results are saved as JSON. The ghost does NOT need to
-  manually call `reference_write` — reflection curates the cache later.
+  automatically saved to `.web-cache/` in the ghost workspace as plain files with YAML
+  front matter (source_url, fetched_at) via `auto_save_web_result()` in `ToolContext`.
+  Search results are saved as JSON. No DB or embedding involvement. Reflection sees the
+  file list in its prompt context and curates content via
+  `reference_manage(action="move", cache_file=...)`. The `.web-cache/` directory is
+  auto-cleared after successful reflection.
 - Keep web tool guidance in this file and prompt/tool docs close to code.
 
 ## Knowledge & Memory Tools
@@ -335,6 +338,7 @@ $DATA_DIR/ghosts/$slug/notes/        → GhostNote scope (tag-based subfolders)
 $DATA_DIR/ghosts/$slug/references/   → GhostReference scope
 $DATA_DIR/ghosts/$slug/diary/        → GhostDiary scope
 $DATA_DIR/ghosts/$slug/skills/       → Ghost-local skills (highest priority)
+$DATA_DIR/ghosts/$slug/.web-cache/   → Transient web cache (plain files, auto-cleared)
 ```
 
 Notes are organized into tag-based subfolders derived from the first tag at creation
@@ -398,14 +402,14 @@ Reflection tools (knowledge writing):
 - `note_write`: Consolidated tool for note operations. Actions: `create`, `update`,
   `validate`, `comment`, `delete`. (skill: `note-writer`)
 - `reference_write`: Save-only tool for reference files. Fields: `topic` (required —
-  must exist as a shared note, except `_web-cache` which auto-creates), `filename`
-  (required), `content` or `content_ref` (one required), `collection` (optional),
-  `source_url` (optional). No approval needed.
+  must exist as a shared note), `filename` (required), `content` or `content_ref` (one
+  required), `collection` (optional), `source_url` (optional). No approval needed.
 - `reference_manage`: Curation tool for reference files. Actions: `update` (change file
   status), `delete` (remove file), `move` (relocate file between topics server-side —
   content is never exposed to the caller). Files can be identified by `note_id` alone
-  (globally unique) or `topic` + `path`. To update topic metadata (description, tags),
-  use `note_write(action="update")` instead.
+  (globally unique), `topic` + `path`, or `cache_file` (for `.web-cache/` files not yet
+  in the DB). To update topic metadata (description, tags), use
+  `note_write(action="update")` instead.
 - `identity_edit`: Read/update ghost identity files (BOOT.md, SOUL.md, USER.md).
 - `diary_write`: Create or append to diary entries (YYYY-MM-DD.md format).
 - `reflection_todo`: Structured TODO list for reflection planning. Actions: `plan`
@@ -443,8 +447,11 @@ context. Its final message becomes the handoff note for the next run, creating
 continuity across reflection sessions.
 
 Auto-save: `web_fetch` results (2xx only) and `web_search` results are automatically
-saved to the `_web-cache` reference topic during the ghost session. Search results are
-saved as JSON. Reflection curates these into proper reference topics or deletes them.
+saved to `.web-cache/` in the ghost workspace as plain files during the ghost session.
+Reflection sees the file list in its prompt context (`web_cache_files` variable) and
+curates content into proper topics using `reference_manage` with `action="move"` and
+`cache_file=".web-cache/<file>"`. The directory is auto-cleared after successful
+reflection.
 
 Job lifecycle: the job log is INSERT-ed at start (TUI sees "in progress"), TODO list
 updates are persisted mid-run, and finish writes status + transcript + handoff note.
@@ -491,8 +498,8 @@ References use a **Topic Note > Directory > File** structure:
 - **Reference file**: Individual content unit. Raw content, no front matter. Per-file
   metadata (source_url, fetched_at, status, role) in DB via `reference_files` table.
 
-`reference_save` errors if the topic note doesn't exist, except `_web-cache` which
-auto-creates. `reference_import` creates the topic note automatically.
+`reference_save` errors if the topic note doesn't exist. `reference_import` creates the
+topic note automatically.
 
 ### Approval System
 

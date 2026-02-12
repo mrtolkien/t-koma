@@ -5,6 +5,7 @@
 //! filtered transcript and sends it through `chat_job()` with a dedicated
 //! reflection tool manager and a `JobHandle` for real-time TODO persistence.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -209,6 +210,14 @@ async fn run_reflection(
                 warn!("reflection: failed to finish job log for {ghost_name}:{session_id}: {err}");
             }
 
+            // Clear web cache after successful reflection
+            if let Ok(workspace) = t_koma_db::ghosts::ghost_workspace_path(ghost_name) {
+                let cache_dir = workspace.join(".web-cache");
+                if cache_dir.exists() {
+                    let _ = tokio::fs::remove_dir_all(&cache_dir).await;
+                }
+            }
+
             state
                 .log(LogEntry::Reflection {
                     ghost_name: ghost_name.to_string(),
@@ -375,16 +384,23 @@ async fn build_reflection_prompt(
 ) -> String {
     let recent_messages = format_chat_transcript(messages);
 
-    // Read today's diary file if it exists
-    let diary_today = match t_koma_db::ghosts::ghost_workspace_path(ghost_name) {
+    let (diary_today, web_cache_summary) = match t_koma_db::ghosts::ghost_workspace_path(ghost_name)
+    {
         Ok(workspace) => {
+            // Read today's diary file if it exists
             let today = Utc::now().format("%Y-%m-%d").to_string();
             let diary_path = workspace.join("diary").join(format!("{today}.md"));
-            tokio::fs::read_to_string(&diary_path)
+            let diary = tokio::fs::read_to_string(&diary_path)
                 .await
-                .unwrap_or_default()
+                .unwrap_or_default();
+
+            // Scan .web-cache/ for cached files
+            let cache_dir = workspace.join(".web-cache");
+            let cache = scan_web_cache(&cache_dir).await;
+
+            (diary, cache)
         }
-        Err(_) => String::new(),
+        Err(_) => (String::new(), "(empty)".to_string()),
     };
 
     crate::content::prompt_text(
@@ -394,6 +410,7 @@ async fn build_reflection_prompt(
             ("recent_messages", &recent_messages),
             ("previous_handoff", previous_handoff),
             ("diary_today", &diary_today),
+            ("web_cache_files", &web_cache_summary),
         ],
     )
     .unwrap_or_else(|e| {
@@ -404,4 +421,43 @@ async fn build_reflection_prompt(
              ## Recent Conversation\n\n{recent_messages}"
         )
     })
+}
+
+/// Scan `.web-cache/` and produce a summary list of cached files.
+async fn scan_web_cache(cache_dir: &Path) -> String {
+    let mut entries = match tokio::fs::read_dir(cache_dir).await {
+        Ok(dir) => dir,
+        Err(_) => return "(empty)".to_string(),
+    };
+    let mut lines = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if let Some(name) = entry.file_name().to_str() {
+            let path = entry.path();
+            let preview = tokio::fs::read_to_string(&path)
+                .await
+                .ok()
+                .and_then(|c| extract_source_url(&c))
+                .unwrap_or_default();
+            lines.push(format!("- `.web-cache/{name}` — {preview}"));
+        }
+    }
+    if lines.is_empty() {
+        "(empty)".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// Extract `source_url` from YAML front matter in a cached web result.
+fn extract_source_url(content: &str) -> Option<String> {
+    let body = content.strip_prefix("---\n")?;
+    for line in body.lines() {
+        if line == "---" {
+            break;
+        }
+        if let Some(url) = line.strip_prefix("source_url: ") {
+            return Some(url.trim().to_string());
+        }
+    }
+    None
 }

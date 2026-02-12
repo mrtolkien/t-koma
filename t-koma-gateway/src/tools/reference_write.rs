@@ -22,7 +22,7 @@ impl Tool for ReferenceWriteTool {
     }
 
     fn description(&self) -> &str {
-        "Save web content or notes as a reference file. The topic must already exist as a shared note (create with note_write first), except _web-cache which is auto-created. Use content_ref to reference a cached web_fetch/web_search result instead of passing content directly."
+        "Save web content or notes as a reference file. The topic must already exist as a shared note (create with note_write first). Use content_ref to reference a cached web_fetch/web_search result instead of passing content directly."
     }
 
     fn input_schema(&self) -> Value {
@@ -31,7 +31,7 @@ impl Tool for ReferenceWriteTool {
             "properties": {
                 "topic": {
                     "type": "string",
-                    "description": "Topic name — must match an existing shared note (create with note_write first). Exception: '_web-cache' is auto-created."
+                    "description": "Topic name — must match an existing shared note (create with note_write first)."
                 },
                 "collection": {
                     "type": "string",

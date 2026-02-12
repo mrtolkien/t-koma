@@ -8,16 +8,13 @@ use chrono::Utc;
 use sqlx::SqlitePool;
 
 use crate::errors::{KnowledgeError, KnowledgeResult};
-use crate::models::{
-    NoteCreateRequest, ReferenceSaveRequest, ReferenceSaveResult, SourceRole, WriteScope,
-    generate_note_id,
-};
+use crate::models::{ReferenceSaveRequest, ReferenceSaveResult, SourceRole, generate_note_id};
 
 use super::KnowledgeEngine;
 use super::notes::sanitize_filename;
 
 /// Save content to a reference topic. The topic note must already exist as a
-/// shared note, except `_web-cache` which is auto-created.
+/// shared note.
 pub(crate) async fn reference_save(
     engine: &KnowledgeEngine,
     ghost_name: &str,
@@ -154,37 +151,21 @@ pub(crate) async fn find_existing_topic(
     Ok(row)
 }
 
-/// Resolve topic by fuzzy matching, or auto-create `_web-cache`, or error.
+/// Resolve topic by fuzzy matching, or error.
 async fn resolve_or_error(
     engine: &KnowledgeEngine,
-    ghost_name: &str,
-    model: &str,
+    _ghost_name: &str,
+    _model: &str,
     topic_name: &str,
 ) -> KnowledgeResult<(String, String)> {
-    if let Some(found) = find_existing_topic(engine.pool(), topic_name).await? {
-        return Ok(found);
-    }
-
-    // Auto-create _web-cache as a system topic note
-    if topic_name == "_web-cache" {
-        let request = NoteCreateRequest {
-            title: "_web-cache".to_string(),
-            archetype: None,
-            scope: WriteScope::SharedNote,
-            body: "Auto-saved web content awaiting curation by reflection.".to_string(),
-            parent: None,
-            tags: Some(vec!["system".to_string(), "web-cache".to_string()]),
-            source: None,
-            trust_score: Some(8),
-        };
-        let result = super::notes::note_create(engine, ghost_name, model, request).await?;
-        return Ok((result.note_id, "_web-cache".to_string()));
-    }
-
-    Err(KnowledgeError::UnknownNote(format!(
-        "Topic note '{}' not found. Create it with note_write first.",
-        topic_name
-    )))
+    find_existing_topic(engine.pool(), topic_name)
+        .await?
+        .ok_or_else(|| {
+            KnowledgeError::UnknownNote(format!(
+                "Topic note '{}' not found. Create it with note_write first.",
+                topic_name
+            ))
+        })
 }
 
 /// Extract the subdirectory component from a path like "bambulab-a1/specs.md".

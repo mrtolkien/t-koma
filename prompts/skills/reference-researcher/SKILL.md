@@ -170,8 +170,7 @@ import sources:
 2. Import sources: `reference_import(title="Dioxus", sources=[...])`
 
 The `reference_import` tool creates the topic note automatically. For manual workflows
-(e.g. `reference_write`), the topic note must exist first (except `_web-cache` which
-auto-creates).
+(e.g. `reference_write`), the topic note must exist first.
 
 To update a topic's description or tags, use `note_write(action="update")`.
 

@@ -16,6 +16,8 @@ struct ReferenceManageInput {
     target_topic: Option<String>,
     target_filename: Option<String>,
     target_collection: Option<String>,
+    // web-cache source (alternative to note_id/topic+path)
+    cache_file: Option<String>,
 }
 
 pub struct ReferenceManageTool;
@@ -71,6 +73,10 @@ impl Tool for ReferenceManageTool {
                 "target_collection": {
                     "type": "string",
                     "description": "Subdirectory within target topic (move action). E.g. 'comparisons' or 'guides'."
+                },
+                "cache_file": {
+                    "type": "string",
+                    "description": "Path to a web-cache file (e.g. '.web-cache/file.md'). Use instead of note_id for cached web results not yet in the DB."
                 }
             },
             "required": ["action"],
@@ -87,10 +93,14 @@ impl Tool for ReferenceManageTool {
             .ok_or("knowledge engine not available")?
             .clone();
 
+        let workspace_root = context.workspace_root().to_path_buf();
+        let ghost_name = context.ghost_name().to_string();
+        let model_id = context.model_id().to_string();
+
         match input.action.as_str() {
             "update" => execute_update(&engine, input).await,
-            "delete" => execute_delete(&engine, input).await,
-            "move" => execute_move(&engine, context.ghost_name(), context.model_id(), input).await,
+            "delete" => execute_delete(&engine, &workspace_root, input).await,
+            "move" => execute_move(&engine, &ghost_name, &model_id, &workspace_root, input).await,
             other => Err(format!(
                 "Unknown action '{}'. Use update, delete, or move.",
                 other
@@ -128,8 +138,18 @@ async fn execute_update(
 
 async fn execute_delete(
     engine: &t_koma_knowledge::KnowledgeEngine,
+    workspace_root: &std::path::Path,
     input: ReferenceManageInput,
 ) -> Result<String, String> {
+    // Handle cache_file deletion (plain filesystem)
+    if let Some(cache_path) = &input.cache_file {
+        let abs_path = workspace_root.join(cache_path);
+        tokio::fs::remove_file(&abs_path)
+            .await
+            .map_err(|e| format!("Failed to delete cache file: {e}"))?;
+        return Ok(json!({"deleted_cache": cache_path}).to_string());
+    }
+
     if input.note_id.is_some() || input.path.is_some() {
         let note_id = resolve_file_id(engine, &input).await?;
 
@@ -140,7 +160,10 @@ async fn execute_delete(
 
         Ok(json!({"deleted": note_id}).to_string())
     } else {
-        Err("Provide 'note_id' or 'topic' + 'path' to identify the file to delete.".to_string())
+        Err(
+            "Provide 'note_id', 'cache_file', or 'topic' + 'path' to identify the file to delete."
+                .to_string(),
+        )
     }
 }
 
@@ -148,6 +171,7 @@ async fn execute_move(
     engine: &t_koma_knowledge::KnowledgeEngine,
     ghost_name: &str,
     model: &str,
+    workspace_root: &std::path::Path,
     input: ReferenceManageInput,
 ) -> Result<String, String> {
     let target_topic = input
@@ -155,8 +179,48 @@ async fn execute_move(
         .as_deref()
         .ok_or("'target_topic' is required for move")?;
 
+    // Handle cache_file move (read from filesystem → save to knowledge DB)
+    if let Some(cache_path) = &input.cache_file {
+        let abs_path = workspace_root.join(cache_path);
+        let raw = tokio::fs::read_to_string(&abs_path)
+            .await
+            .map_err(|e| format!("Failed to read cache file: {e}"))?;
+        let (meta, content) = parse_cache_front_matter(&raw);
+        let default_filename = abs_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("cached.md");
+        let filename = input.target_filename.as_deref().unwrap_or(default_filename);
+        let save_path = match input.target_collection.as_deref() {
+            Some(coll) => format!("{coll}/{filename}"),
+            None => filename.to_string(),
+        };
+        let request = t_koma_knowledge::models::ReferenceSaveRequest {
+            topic: target_topic.to_string(),
+            path: save_path,
+            content,
+            source_url: meta.source_url,
+            role: Some(t_koma_knowledge::models::SourceRole::Docs),
+            title: None,
+        };
+        let result = engine
+            .reference_save(ghost_name, model, request)
+            .await
+            .map_err(|e| e.to_string())?;
+        let _ = tokio::fs::remove_file(&abs_path).await;
+        return Ok(json!({
+            "moved_cache_file": cache_path,
+            "target_topic": result.topic_id,
+            "target_path": result.path,
+        })
+        .to_string());
+    }
+
     if input.note_id.is_none() && input.path.is_none() {
-        return Err("Provide 'note_id' or 'topic' + 'path' to identify the file to move.".into());
+        return Err(
+            "Provide 'note_id', 'cache_file', or 'topic' + 'path' to identify the file to move."
+                .into(),
+        );
     }
 
     let note_id = resolve_file_id(engine, &input).await?;
@@ -179,6 +243,37 @@ async fn execute_move(
         "target_path": result.path,
     })
     .to_string())
+}
+
+// ── Web-cache front matter helpers ─────────────────────────────────
+
+struct CacheMeta {
+    source_url: Option<String>,
+}
+
+/// Parse YAML front matter from a web-cache file, returning metadata and body.
+fn parse_cache_front_matter(raw: &str) -> (CacheMeta, String) {
+    let Some(body) = raw.strip_prefix("---\n") else {
+        return (CacheMeta { source_url: None }, raw.to_string());
+    };
+
+    let mut source_url = None;
+    let mut end_offset = 0;
+
+    for line in body.lines() {
+        if line == "---" {
+            // +4 for "---\n" prefix, +line.len()+1 for "---\n" closing
+            end_offset += line.len() + 1;
+            break;
+        }
+        if let Some(url) = line.strip_prefix("source_url: ") {
+            source_url = Some(url.trim().to_string());
+        }
+        end_offset += line.len() + 1;
+    }
+
+    let content = body[end_offset..].trim_start().to_string();
+    (CacheMeta { source_url }, content)
 }
 
 /// Resolve a reference file's note_id from either `note_id` or `topic` + `path`.
