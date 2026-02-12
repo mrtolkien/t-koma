@@ -2,8 +2,7 @@
 //!
 //! `reference_save` is the primary write path for incremental knowledge
 //! accumulation. The topic must already exist as a shared note (created via
-//! `note_write`), except for the special `_web-cache` topic which is
-//! auto-created on first use.
+//! `note_write`).
 
 use chrono::Utc;
 use sqlx::SqlitePool;

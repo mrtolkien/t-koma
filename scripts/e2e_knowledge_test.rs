@@ -607,13 +607,11 @@ async fn run_conversation(
         .expect("Failed to list messages");
 
     // Print ghost response for UI
-    if let Some(last) = messages_after_1.last() {
-        if last.role == MessageRole::Ghost {
-            if let Some(ContentBlock::Text { text }) = last.content.first() {
+    if let Some(last) = messages_after_1.last()
+        && last.role == MessageRole::Ghost
+            && let Some(ContentBlock::Text { text }) = last.content.first() {
                 chat_msg(&ghost.name, text, true);
             }
-        }
-    }
 
     // Message 2
     let q = "I want to buy a new 3d printer. Enclosed, for home use. What do you recommend?";
@@ -629,13 +627,11 @@ async fn run_conversation(
         .expect("Failed to list messages");
 
     // Print ghost response for UI
-    if let Some(last) = messages_after_2.last() {
-        if last.role == MessageRole::Ghost {
-            if let Some(ContentBlock::Text { text }) = last.content.first() {
+    if let Some(last) = messages_after_2.last()
+        && last.role == MessageRole::Ghost
+            && let Some(ContentBlock::Text { text }) = last.content.first() {
                 chat_msg(&ghost.name, text, true);
             }
-        }
-    }
 
     // Convert all messages to detailed format
     messages_after_2

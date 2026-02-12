@@ -296,29 +296,24 @@ impl ToolContext {
         Some(cached.content.clone())
     }
 
-    /// Auto-save a web result to the `_web-cache` reference topic.
+    /// Auto-save a web result to the ghost's `.web-cache/` directory.
     ///
-    /// Best-effort: logs on error, never propagates. The content becomes
-    /// immediately searchable via `knowledge_search`.
+    /// Best-effort: logs on error, never propagates. Files are plain text with
+    /// YAML front matter for provenance. Reflection scans this directory and
+    /// curates useful content into proper reference topics.
     pub async fn auto_save_web_result(&self, url: &str, content: &str, filename: &str) {
-        let Some(engine) = &self.knowledge_engine else {
+        let cache_dir = self.workspace_root.join(".web-cache");
+        if let Err(e) = tokio::fs::create_dir_all(&cache_dir).await {
+            tracing::debug!("auto-save: failed to create .web-cache dir: {e}");
             return;
-        };
-
-        let request = t_koma_knowledge::models::ReferenceSaveRequest {
-            topic: "_web-cache".to_string(),
-            path: filename.to_string(),
-            content: content.to_string(),
-            source_url: Some(url.to_string()),
-            role: Some(t_koma_knowledge::models::SourceRole::Docs),
-            title: None,
-        };
-
-        if let Err(err) = engine
-            .reference_save(&self.ghost_name, &self.model_id, request)
-            .await
-        {
-            tracing::debug!("auto-save web result to _web-cache failed: {err}");
+        }
+        let with_meta = format!(
+            "---\nsource_url: {url}\nfetched_at: {}\n---\n\n{content}",
+            chrono::Utc::now().to_rfc3339()
+        );
+        let path = cache_dir.join(filename);
+        if let Err(e) = tokio::fs::write(&path, &with_meta).await {
+            tracing::debug!("auto-save web result to .web-cache failed: {e}");
         }
     }
 
