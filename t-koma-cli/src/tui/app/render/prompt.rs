@@ -28,6 +28,7 @@ impl TuiApp {
             PromptKind::GateSearch => "Search logs (blank clears)",
             PromptKind::SetOperatorRateLimits => "Rate limits: 5m,1h or 'none'",
             PromptKind::KnowledgeSearch => "Search knowledge",
+            PromptKind::AddProviderApiKey => "Enter API Key",
         };
         let p = Paragraph::new(format!("{}\n\n{}", title, self.prompt.buffer));
         frame.render_widget(p, inner);
