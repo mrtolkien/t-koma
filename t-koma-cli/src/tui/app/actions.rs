@@ -773,41 +773,6 @@ impl TuiApp {
     }
 
     fn show_provider_instructions_and_prompt(&mut self, provider: &str) {
-        let instructions = match provider {
-            "anthropic" => {
-                "Anthropic API Key:\n\n\
-                 1. Go to https://console.anthropic.com/\n\
-                 2. Navigate to Settings > API Keys\n\
-                 3. Create a new API key\n\
-                 4. Copy the key\n\n\
-                 The key will be saved as ANTHROPIC_API_KEY in your .env file."
-            }
-            "openrouter" => {
-                "OpenRouter API Key:\n\n\
-                 1. Go to https://openrouter.ai/\n\
-                 2. Sign in and navigate to Keys\n\
-                 3. Create a new API key\n\
-                 4. Copy the key\n\n\
-                 The key will be saved as OPENROUTER_API_KEY in your .env file."
-            }
-            "gemini" => {
-                "Google Gemini API Key:\n\n\
-                 1. Go to https://aistudio.google.com/apikey\n\
-                 2. Create a new API key\n\
-                 3. Copy the key\n\n\
-                 The key will be saved as GEMINI_API_KEY in your .env file."
-            }
-            "openai_compatible" => {
-                "OpenAI Compatible Provider:\n\n\
-                 For OpenAI-compatible providers, you need to:\n\
-                 1. Get your API key from your provider\n\
-                 2. Configure the base_url in config.toml\n\n\
-                 The key will be saved as OPENAI_API_KEY in your .env file."
-            }
-            _ => "Unknown provider",
-        };
-
-        self.status = instructions.to_string();
         self.begin_prompt(
             PromptKind::AddProviderApiKey,
             Some(provider.to_string()),
