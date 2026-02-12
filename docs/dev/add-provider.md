@@ -45,6 +45,21 @@ This guide is for adding a new LLM provider integration (not just a new model al
    - Ensure usage fields map cleanly to `ProviderUsage` (input/output/cache fields when
      available).
 
+8. Add provider live tests.
+   - Create `t-koma-gateway/tests/<provider>_live.rs` with these four required tests:
+     1. **Text-only completion** — basic chat without tools.
+     2. **Simple echo tool call** — pass a trivial `EchoTool`, assert the model calls
+        it.
+     3. **Chat tools acceptance** — pass `ToolManager::new_chat(vec![])` full tool set,
+        assert the API does not reject the schemas.
+     4. **Reflection tools acceptance** — pass `ToolManager::new_reflection(vec![])`
+        full tool set, assert the API does not reject the schemas.
+   - The tool acceptance tests catch provider-specific schema restrictions (e.g. Gemini
+     rejecting `additionalProperties`, `minimum`/`maximum`, nested enums) before they
+     surface in production.
+   - Use `#[cfg(feature = "live-tests")]` and gracefully skip when env vars are missing.
+   - See existing files (`gemini_live.rs`, `anthropic_live.rs`, etc.) for the pattern.
+
 ## Non-Negotiable Rules
 
 - Keep provider-specific wire types inside provider modules.

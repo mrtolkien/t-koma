@@ -5,7 +5,7 @@ use t_koma_gateway::providers::Provider;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::providers::gemini::GeminiClient;
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::tools::{Tool, ToolContext};
+use t_koma_gateway::tools::{Tool, ToolContext, ToolManager};
 
 #[cfg(feature = "live-tests")]
 fn load_gemini_client() -> Option<GeminiClient> {
@@ -141,4 +141,70 @@ async fn test_gemini_system_instruction() {
         "Expected non-empty pirate response from Gemini"
     );
     eprintln!("Gemini pirate response: {}", text);
+}
+
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_gemini_accepts_chat_tools() {
+    let Some(client) = load_gemini_client() else {
+        return;
+    };
+
+    let manager = ToolManager::new_chat(vec![]);
+    let tools = manager.get_tools();
+    eprintln!("Sending {} chat tools to Gemini…", tools.len());
+
+    let response = Provider::send_conversation(
+        &client,
+        None,
+        vec![],
+        tools,
+        Some("Reply with exactly: 'tools accepted'. Do not call any tools."),
+        None,
+        None,
+    )
+    .await;
+
+    assert!(
+        response.is_ok(),
+        "Gemini rejected chat tools: {:?}",
+        response.unwrap_err()
+    );
+    eprintln!(
+        "Gemini chat tools accepted. Response: {}",
+        t_koma_gateway::extract_all_text(&response.unwrap())
+    );
+}
+
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_gemini_accepts_reflection_tools() {
+    let Some(client) = load_gemini_client() else {
+        return;
+    };
+
+    let manager = ToolManager::new_reflection(vec![]);
+    let tools = manager.get_tools();
+    eprintln!("Sending {} reflection tools to Gemini…", tools.len());
+
+    let response = Provider::send_conversation(
+        &client,
+        None,
+        vec![],
+        tools,
+        Some("Reply with exactly: 'tools accepted'. Do not call any tools."),
+        None,
+        None,
+    )
+    .await;
+
+    assert!(
+        response.is_ok(),
+        "Gemini rejected reflection tools: {:?}",
+        response.unwrap_err()
+    );
+    eprintln!(
+        "Gemini reflection tools accepted. Response: {}",
+        t_koma_gateway::extract_all_text(&response.unwrap())
+    );
 }

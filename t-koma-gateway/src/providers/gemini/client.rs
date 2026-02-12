@@ -196,7 +196,7 @@ impl GeminiClient {
                     .map(|tool| FunctionDeclaration {
                         name: tool.name().to_string(),
                         description: tool.description().to_string(),
-                        parameters: tool.input_schema().clone(),
+                        parameters: sanitize_schema(tool.input_schema()),
                     })
                     .collect(),
             }])
@@ -324,6 +324,26 @@ impl Provider for GeminiClient {
 
     fn clone_box(&self) -> Box<dyn Provider> {
         Box::new(self.clone())
+    }
+}
+
+/// Recursively strip JSON Schema fields that Gemini's FunctionDeclaration
+/// parameters do not support. Currently removes `additionalProperties` at
+/// every nesting level.
+fn sanitize_schema(mut schema: Value) -> Value {
+    strip_unsupported_fields(&mut schema);
+    schema
+}
+
+fn strip_unsupported_fields(value: &mut Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+
+    obj.remove("additionalProperties");
+
+    for child in obj.values_mut() {
+        strip_unsupported_fields(child);
     }
 }
 

@@ -5,7 +5,7 @@ use t_koma_gateway::providers::Provider;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::tools::{Tool, ToolContext};
+use t_koma_gateway::tools::{Tool, ToolContext, ToolManager};
 
 #[cfg(feature = "live-tests")]
 fn load_kimi_code_client() -> Option<OpenAiCompatibleClient> {
@@ -154,4 +154,70 @@ async fn test_kimi_code_system_instruction() {
         "Expected non-empty pirate response from Kimi Code"
     );
     eprintln!("Kimi Code pirate response: {}", text);
+}
+
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_kimi_code_accepts_chat_tools() {
+    let Some(client) = load_kimi_code_client() else {
+        return;
+    };
+
+    let manager = ToolManager::new_chat(vec![]);
+    let tools = manager.get_tools();
+    eprintln!("Sending {} chat tools to Kimi Code…", tools.len());
+
+    let response = Provider::send_conversation(
+        &client,
+        None,
+        vec![],
+        tools,
+        Some("Reply with exactly: 'tools accepted'. Do not call any tools."),
+        None,
+        None,
+    )
+    .await;
+
+    assert!(
+        response.is_ok(),
+        "Kimi Code rejected chat tools: {:?}",
+        response.unwrap_err()
+    );
+    eprintln!(
+        "Kimi Code chat tools accepted. Response: {}",
+        t_koma_gateway::extract_all_text(&response.unwrap())
+    );
+}
+
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_kimi_code_accepts_reflection_tools() {
+    let Some(client) = load_kimi_code_client() else {
+        return;
+    };
+
+    let manager = ToolManager::new_reflection(vec![]);
+    let tools = manager.get_tools();
+    eprintln!("Sending {} reflection tools to Kimi Code…", tools.len());
+
+    let response = Provider::send_conversation(
+        &client,
+        None,
+        vec![],
+        tools,
+        Some("Reply with exactly: 'tools accepted'. Do not call any tools."),
+        None,
+        None,
+    )
+    .await;
+
+    assert!(
+        response.is_ok(),
+        "Kimi Code rejected reflection tools: {:?}",
+        response.unwrap_err()
+    );
+    eprintln!(
+        "Kimi Code reflection tools accepted. Response: {}",
+        t_koma_gateway::extract_all_text(&response.unwrap())
+    );
 }
