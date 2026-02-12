@@ -12,6 +12,7 @@ use tracing::info;
 use tracing::{error, warn};
 
 use crate::chat::compaction::CompactionConfig;
+use crate::circuit_breaker::CircuitBreaker;
 use crate::content::ids;
 use crate::gateway_message;
 use crate::providers::provider::Provider;
@@ -244,10 +245,12 @@ fn render_message(id: &str, vars: &[(&str, &str)]) -> String {
 /// This holds all shared resources and provides the main interface for
 /// handling chat conversations through `session_chat`.
 pub struct AppState {
-    /// Default model alias
-    default_model_alias: String,
+    /// Ordered fallback chain of model aliases (first = preferred).
+    default_model_chain: Vec<String>,
     /// Model registry keyed by alias
     models: HashMap<String, ModelEntry>,
+    /// Per-model circuit breaker for fallback decisions.
+    pub circuit_breaker: CircuitBreaker,
     /// Log broadcast channel
     log_tx: broadcast::Sender<LogEntry>,
     /// T-KOMA database pool
@@ -303,9 +306,12 @@ pub struct ModelEntry {
 }
 
 impl AppState {
-    /// Create a new AppState with the given model registry and database
+    /// Create a new AppState with the given model registry and database.
+    ///
+    /// `default_model_chain` is an ordered list of model aliases; the first
+    /// available model (according to the circuit breaker) is used for chat.
     pub fn new(
-        default_model_alias: String,
+        default_model_chain: Vec<String>,
         models: HashMap<String, ModelEntry>,
         koma_db: t_koma_db::KomaDbPool,
         knowledge_engine: Arc<t_koma_knowledge::KnowledgeEngine>,
@@ -321,8 +327,9 @@ impl AppState {
         );
 
         Self {
-            default_model_alias,
+            default_model_chain,
             models,
+            circuit_breaker: CircuitBreaker::new(),
             log_tx,
             koma_db,
             active_ghosts: RwLock::new(HashMap::new()),
@@ -457,11 +464,29 @@ impl AppState {
         self.knowledge_engine.settings()
     }
 
-    /// Get the default model entry
+    /// Get the best available default model entry.
+    ///
+    /// Uses the circuit breaker to skip models on cooldown, falling back
+    /// to the first model in the chain as a last resort.
     pub fn default_model(&self) -> &ModelEntry {
+        if let Some(alias) = self.circuit_breaker.first_available(&self.default_model_chain) {
+            if let Some(entry) = self.models.get(alias) {
+                return entry;
+            }
+        }
+        // Last resort: first alias in the chain regardless of cooldown
+        let first = self
+            .default_model_chain
+            .first()
+            .expect("default model chain must not be empty");
         self.models
-            .get(&self.default_model_alias)
-            .expect("default model alias must exist")
+            .get(first.as_str())
+            .expect("first model in chain must exist in registry")
+    }
+
+    /// The ordered default model fallback chain.
+    pub fn default_model_chain(&self) -> &[String] {
+        &self.default_model_chain
     }
 
     /// Get a model entry by alias

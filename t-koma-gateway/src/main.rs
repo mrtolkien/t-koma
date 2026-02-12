@@ -190,16 +190,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let default_model_alias = config.default_model_alias().to_string();
-    let default_model = models.get(&default_model_alias).ok_or_else(|| {
+    let default_model_chain: Vec<String> = config
+        .default_model_aliases()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    // Verify at least the first alias in the chain was initialized
+    let first_alias = default_model_chain
+        .first()
+        .expect("default_model chain must not be empty");
+    let default_model = models.get(first_alias).ok_or_else(|| {
         format!(
             "Default model alias '{}' was not initialized (check API keys and config)",
-            default_model_alias
+            first_alias
         )
     })?;
     info!(
-        "Default model: {} -> {}/{}",
-        default_model.alias, default_model.provider, default_model.model
+        "Default model chain: {:?} (primary: {}/{})",
+        default_model_chain, default_model.provider, default_model.model
     );
 
     // Get Discord token from secrets
@@ -233,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let state = Arc::new(AppState::new(
-        default_model_alias,
+        default_model_chain,
         models,
         koma_db,
         knowledge_engine,
