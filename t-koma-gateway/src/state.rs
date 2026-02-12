@@ -434,7 +434,7 @@ impl AppState {
     /// Start the heartbeat runner if it isn't already running.
     pub async fn start_heartbeat_runner(
         self: &Arc<Self>,
-        heartbeat_model_alias: Option<String>,
+        heartbeat_model_chain: Vec<String>,
         timing: t_koma_core::HeartbeatTimingSettings,
     ) {
         let mut guard = self.heartbeat_runner.write().await;
@@ -446,7 +446,7 @@ impl AppState {
 
         let handle = crate::heartbeat::start_heartbeat_runner(
             Arc::clone(self),
-            heartbeat_model_alias,
+            heartbeat_model_chain,
             timing,
         );
         *guard = Some(handle);

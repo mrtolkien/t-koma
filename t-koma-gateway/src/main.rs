@@ -250,13 +250,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     state.set_discord_bot_token(discord_token.clone()).await;
     state.start_shared_knowledge_watcher().await;
-    let heartbeat_model_alias = config
+    let heartbeat_model_chain: Vec<String> = config
         .heartbeat_model_aliases()
-        .and_then(|aliases| aliases.first())
-        .map(|alias| alias.to_string());
+        .map(|aliases| aliases.iter().map(|s| s.to_string()).collect())
+        .unwrap_or_default();
     state
         .start_heartbeat_runner(
-            heartbeat_model_alias,
+            heartbeat_model_chain,
             config.settings.heartbeat_timing.clone(),
         )
         .await;

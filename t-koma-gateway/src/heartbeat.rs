@@ -7,6 +7,7 @@ use tokio::fs;
 use tokio::time::{Instant, interval_at};
 use tracing::{info, warn};
 
+use crate::circuit_breaker::CooldownReason;
 use crate::session::{ChatError, JobChatResult};
 use crate::state::{AppState, HeartbeatOverride, LogEntry};
 use t_koma_db::{
@@ -257,7 +258,7 @@ async fn run_heartbeat_for_session(
 
 pub async fn run_heartbeat_tick(
     state: Arc<AppState>,
-    heartbeat_model_alias: Option<String>,
+    heartbeat_model_chain: Vec<String>,
     idle_minutes: i64,
     continue_minutes: i64,
 ) {
@@ -272,6 +273,12 @@ pub async fn run_heartbeat_tick(
             return;
         }
     };
+
+    // Resolve best available model for this tick via circuit breaker
+    let resolved_alias = state
+        .circuit_breaker
+        .first_available(&heartbeat_model_chain)
+        .map(|s| s.to_string());
 
     for ghost in ghosts {
         let sessions = match SessionRepository::list_active(state.koma_db.pool()).await {
@@ -319,7 +326,7 @@ pub async fn run_heartbeat_tick(
                 idle_minutes,
             );
             state.set_heartbeat_due(&chat_key, next_due).await;
-            let model_alias = heartbeat_model_alias.as_deref();
+            let model_alias = resolved_alias.as_deref();
 
             if let Some(entry) = override_entry
                 && now_ts < entry.next_due
@@ -401,6 +408,9 @@ pub async fn run_heartbeat_tick(
 
             match result {
                 Ok(job_result) => {
+                    if let Some(alias) = &resolved_alias {
+                        state.circuit_breaker.record_success(alias);
+                    }
                     let text = &job_result.response_text;
 
                     // Determine status and write job log
@@ -480,6 +490,20 @@ pub async fn run_heartbeat_tick(
                     .await;
                 }
                 Err(err) => {
+                    // Update circuit breaker for retryable provider failures
+                    if let Some(alias) = &resolved_alias {
+                        if let ChatError::Provider(ref e) = err {
+                            if e.is_retryable() {
+                                let reason = if e.is_rate_limited() {
+                                    CooldownReason::RateLimited
+                                } else {
+                                    CooldownReason::ServerError
+                                };
+                                state.circuit_breaker.record_failure(alias, reason);
+                            }
+                        }
+                    }
+
                     // Write error job log
                     let mut job_log = JobLog::start(&ghost.id, DbJobKind::Heartbeat, &session.id);
                     job_log.finish(&format!("error: {err}"));
@@ -500,7 +524,7 @@ pub async fn run_heartbeat_tick(
 
 pub fn start_heartbeat_runner(
     state: Arc<AppState>,
-    heartbeat_model_alias: Option<String>,
+    heartbeat_model_chain: Vec<String>,
     timing: t_koma_core::HeartbeatTimingSettings,
 ) -> tokio::task::JoinHandle<()> {
     let check_seconds = timing.check_seconds;
@@ -517,7 +541,7 @@ pub fn start_heartbeat_runner(
             interval.tick().await;
             run_heartbeat_tick(
                 Arc::clone(&state),
-                heartbeat_model_alias.clone(),
+                heartbeat_model_chain.clone(),
                 idle_minutes,
                 continue_minutes,
             )
