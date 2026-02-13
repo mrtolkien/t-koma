@@ -70,6 +70,8 @@ impl Default for OnboardingState {
 }
 
 impl OnboardingState {
+    // TODO: This onboarding flow is intentionally incomplete and currently unreliable.
+    // Revisit and harden UX/validation/persistence before treating it as production-ready.
     pub fn provider_choices() -> &'static [(&'static str, ProviderType)] {
         &[
             ("Anthropic (Claude)", ProviderType::Anthropic),

@@ -113,11 +113,23 @@ fn build_step_lines(ob: &OnboardingState) -> Vec<Line<'static>> {
     let dim = Style::default().fg(Color::DarkGray);
     let normal = Style::default().fg(Color::White);
     let accent = Style::default().fg(Color::Yellow);
+    let warning = Style::default()
+        .fg(Color::Red)
+        .add_modifier(Modifier::BOLD);
 
     match &ob.step {
         OnboardingStep::Welcome => vec![
             Line::from(""),
             Line::from(Span::styled("Welcome to T-KOMA", heading)),
+            Line::from(""),
+            Line::from(Span::styled(
+                "WARNING: This onboarding flow is unfinished and may not work reliably.",
+                warning,
+            )),
+            Line::from(Span::styled(
+                "Use for experimentation only; prefer manual config for stable setup.",
+                warning,
+            )),
             Line::from(""),
             Line::from(Span::styled(
                 "This wizard will help you set up your first AI model provider.",
