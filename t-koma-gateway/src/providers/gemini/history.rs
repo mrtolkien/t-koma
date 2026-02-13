@@ -19,6 +19,10 @@ pub enum GeminiPart {
     Text {
         text: String,
     },
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: GeminiInlineData,
+    },
     FunctionCall {
         #[serde(rename = "functionCall")]
         function_call: FunctionCall,
@@ -27,6 +31,14 @@ pub enum GeminiPart {
         #[serde(rename = "functionResponse")]
         function_response: FunctionResponse,
     },
+}
+
+/// Gemini inline data for images
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiInlineData {
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    pub data: String,
 }
 
 /// Gemini function call structure
@@ -51,7 +63,7 @@ pub struct FunctionResponseData {
 }
 
 /// Convert t-koma neutral history to Gemini API format
-pub fn to_gemini_contents(
+pub async fn to_gemini_contents(
     history: Vec<ChatMessage>,
     new_message: Option<&str>,
     message_limit: Option<usize>,
@@ -95,6 +107,25 @@ pub fn to_gemini_contents(
                 ChatContentBlock::ToolUse { id: _, name, input } => {
                     parts.push(GeminiPart::FunctionCall {
                         function_call: FunctionCall { name, args: input },
+                    });
+                }
+                ChatContentBlock::Image { path, filename, .. } => {
+                    match crate::chat::history::load_image_base64(&path).await {
+                        Some((data, mime_type)) => {
+                            parts.push(GeminiPart::InlineData {
+                                inline_data: GeminiInlineData { mime_type, data },
+                            });
+                        }
+                        None => {
+                            parts.push(GeminiPart::Text {
+                                text: format!("(image unavailable: {})", filename),
+                            });
+                        }
+                    }
+                }
+                ChatContentBlock::File { filename, size, .. } => {
+                    parts.push(GeminiPart::Text {
+                        text: format!("(attached file: {}, {} bytes)", filename, size),
                     });
                 }
                 ChatContentBlock::ToolResult {

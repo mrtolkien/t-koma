@@ -106,6 +106,7 @@ pub async fn build_state_with_default_model(db: KomaDbPool) -> Arc<AppState> {
             model: default_model.model.clone(),
             client: default_model.client.clone(),
             context_window: None,
+            retry_on_empty: 0,
         },
     );
 

@@ -9,7 +9,7 @@ use serenity::model::gateway::Ready;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Maximum duration for a typing indicator before it auto-stops.
 const TYPING_TIMEOUT: Duration = Duration::from_secs(300);
@@ -612,8 +612,8 @@ impl EventHandler for Bot {
             return;
         }
 
-        // Process file attachments: download to ghost workspace and prepend context
-        let chat_content = if !msg.attachments.is_empty() {
+        // Download file attachments to ghost workspace and build content blocks
+        let attachment_blocks = if !msg.attachments.is_empty() {
             let workspace_path = match t_koma_db::ghosts::ghost_workspace_path(&ghost.name) {
                 Ok(path) => path,
                 Err(e) => {
@@ -628,12 +628,10 @@ impl EventHandler for Bot {
                     return;
                 }
             };
-            let uploaded = download_attachments(&msg.attachments, &workspace_path).await;
-            build_message_with_attachments(clean_content, &uploaded)
+            download_to_content_blocks(&msg.attachments, &workspace_path).await
         } else {
-            clean_content.to_string()
+            vec![]
         };
-        let chat_content = chat_content.as_str();
 
         self.state
             .log(crate::LogEntry::Routing {
@@ -713,14 +711,15 @@ impl EventHandler for Bot {
             })
         });
 
-        match operator_flow::run_chat_with_pending(
+        match operator_flow::run_chat_with_pending_and_attachments(
             self.state.as_ref(),
             Some("discord"),
             None,
             &ghost_name,
             &session.id,
             &operator_id,
-            chat_content,
+            clean_content,
+            attachment_blocks,
             tool_tx.as_ref(),
         )
         .await
@@ -788,26 +787,38 @@ impl EventHandler for Bot {
                     .required(true),
                 ),
             CreateCommand::new("model")
-                .description("Set or view per-ghost model override")
+                .description("Manage ghost model assignment")
                 .add_option(
                     CreateCommandOption::new(
                         CommandOptionType::String,
                         "action",
-                        "Action: set, get, reset, or list",
+                        "Action to perform",
                     )
-                    .add_string_choice("Set model(s)", "set")
-                    .add_string_choice("Show current", "get")
-                    .add_string_choice("Reset to default", "reset")
-                    .add_string_choice("List available", "list")
+                    .add_string_choice("Show current model", "show")
+                    .add_string_choice("List available models", "list")
+                    .add_string_choice("Set override", "set")
+                    .add_string_choice("Clear override (use default)", "clear")
                     .required(true),
                 )
                 .add_option(
                     CreateCommandOption::new(
                         CommandOptionType::String,
-                        "aliases",
-                        "Model alias(es), comma-separated (for set action)",
+                        "alias",
+                        "Model alias to set (only for manual set)",
                     )
                     .required(false),
+                ),
+            CreateCommand::new("statusline")
+                .description("Toggle metadata statusline on ghost responses")
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "mode",
+                        "Enable or disable",
+                    )
+                    .add_string_choice("On", "on")
+                    .add_string_choice("Off", "off")
+                    .required(true),
                 ),
         ];
 
@@ -1168,46 +1179,96 @@ impl Bot {
 }
 
 // ---------------------------------------------------------------------------
-// File upload handling
+// File download handling
 // ---------------------------------------------------------------------------
 
-struct UploadedFile {
-    path: std::path::PathBuf,
-    filename: String,
-    size: u64,
+const IMAGE_MIME_TYPES: &[&str] = &[
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+];
+
+fn mime_type_for_filename(filename: &str) -> String {
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "pdf" => "application/pdf",
+        "txt" | "md" => "text/plain",
+        _ => "application/octet-stream",
+    }
+    .to_string()
 }
 
-async fn download_attachments(
+fn is_image_mime(mime: &str) -> bool {
+    IMAGE_MIME_TYPES.contains(&mime)
+}
+
+async fn download_to_content_blocks(
     attachments: &[serenity::model::channel::Attachment],
     workspace_path: &std::path::Path,
-) -> Vec<UploadedFile> {
-    let upload_dir = workspace_path.join("uploads").join("discord");
-    if let Err(e) = tokio::fs::create_dir_all(&upload_dir).await {
-        error!("Failed to create upload dir: {}", e);
+) -> Vec<t_koma_db::ContentBlock> {
+    let download_dir = workspace_path.join("downloads");
+    if let Err(e) = tokio::fs::create_dir_all(&download_dir).await {
+        error!("Failed to create downloads dir: {}", e);
         return Vec::new();
     }
 
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let client = reqwest::Client::new();
-    let mut uploaded = Vec::new();
+    let mut blocks = Vec::new();
 
     for attachment in attachments {
         let dest_name = format!("{}_{}", timestamp, attachment.filename);
-        let dest_path = upload_dir.join(&dest_name);
+        let dest_path = download_dir.join(&dest_name);
 
         match client.get(&attachment.url).send().await {
             Ok(resp) => match resp.bytes().await {
                 Ok(bytes) => {
+                    const MAX_FILE_SIZE: usize = 25 * 1024 * 1024; // 25 MB
+                    if bytes.len() > MAX_FILE_SIZE {
+                        warn!(
+                            "Attachment {} exceeds {}MB limit ({} bytes), skipping",
+                            attachment.filename,
+                            MAX_FILE_SIZE / (1024 * 1024),
+                            bytes.len()
+                        );
+                        continue;
+                    }
+
                     let size = bytes.len() as u64;
                     if let Err(e) = tokio::fs::write(&dest_path, &bytes).await {
                         error!("Failed to write attachment {}: {}", dest_name, e);
                         continue;
                     }
-                    uploaded.push(UploadedFile {
-                        path: dest_path,
-                        filename: attachment.filename.clone(),
-                        size,
-                    });
+
+                    let mime = attachment
+                        .content_type
+                        .clone()
+                        .unwrap_or_else(|| mime_type_for_filename(&attachment.filename));
+
+                    let path_str = dest_path.to_string_lossy().to_string();
+
+                    if is_image_mime(&mime) {
+                        blocks.push(t_koma_db::ContentBlock::Image {
+                            path: path_str,
+                            mime_type: mime,
+                            filename: attachment.filename.clone(),
+                        });
+                    } else {
+                        blocks.push(t_koma_db::ContentBlock::File {
+                            path: path_str,
+                            filename: attachment.filename.clone(),
+                            size,
+                        });
+                    }
                 }
                 Err(e) => error!(
                     "Failed to download attachment body {}: {}",
@@ -1218,38 +1279,5 @@ async fn download_attachments(
         }
     }
 
-    uploaded
-}
-
-fn format_file_size(bytes: u64) -> String {
-    if bytes < 1024 {
-        format!("{} B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    }
-}
-
-fn build_message_with_attachments(text_content: &str, uploads: &[UploadedFile]) -> String {
-    if uploads.is_empty() {
-        return text_content.to_string();
-    }
-
-    let mut lines = vec!["[Attached files]".to_string()];
-    for file in uploads {
-        lines.push(format!(
-            "- {} ({}) — {}",
-            file.path.display(),
-            format_file_size(file.size),
-            file.filename,
-        ));
-    }
-
-    let attachment_block = lines.join("\n");
-    if text_content.is_empty() {
-        format!("{}\n\n(file attached)", attachment_block)
-    } else {
-        format!("{}\n\n{}", attachment_block, text_content)
-    }
+    blocks
 }

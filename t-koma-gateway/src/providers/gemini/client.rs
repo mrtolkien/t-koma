@@ -176,7 +176,7 @@ impl GeminiClient {
         );
 
         // Convert history to Gemini format
-        let contents = to_gemini_contents(history, new_message, message_limit);
+        let contents = to_gemini_contents(history, new_message, message_limit).await;
 
         // Build system instruction
         let system_instruction = system.map(|blocks| SystemInstruction {

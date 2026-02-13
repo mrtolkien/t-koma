@@ -1,40 +1,40 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::Deserialize;
-use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 use super::{SearchError, SearchProvider, WebSearchQuery, WebSearchResponse, WebSearchResult};
 
-static BRAVE_LAST_REQUEST: OnceLock<Mutex<std::time::Instant>> = OnceLock::new();
+static PERPLEXITY_LAST_REQUEST: OnceLock<Mutex<std::time::Instant>> = OnceLock::new();
 
-fn brave_last_request() -> &'static Mutex<std::time::Instant> {
-    BRAVE_LAST_REQUEST
+fn perplexity_last_request() -> &'static Mutex<std::time::Instant> {
+    PERPLEXITY_LAST_REQUEST
         .get_or_init(|| Mutex::new(std::time::Instant::now() - Duration::from_secs(60)))
 }
 
 #[derive(Debug, Clone)]
-pub struct BraveSearchProvider {
+pub struct PerplexitySearchProvider {
     client: reqwest::Client,
     base_url: String,
     timeout: Duration,
     min_interval: Duration,
 }
 
-impl BraveSearchProvider {
+impl PerplexitySearchProvider {
     pub fn new(
         api_key: String,
         timeout: Duration,
         min_interval: Duration,
     ) -> Result<Self, SearchError> {
         let mut headers = HeaderMap::new();
+        let auth_value = format!("Bearer {api_key}");
         headers.insert(
-            "X-Subscription-Token",
-            HeaderValue::from_str(&api_key)
-                .map_err(|_| SearchError::MissingApiKey("BRAVE_API_KEY"))?,
+            AUTHORIZATION,
+            HeaderValue::from_str(&auth_value)
+                .map_err(|_| SearchError::MissingApiKey("PERPLEXITY_API_KEY"))?,
         );
 
         let client = reqwest::Client::builder()
@@ -44,14 +44,14 @@ impl BraveSearchProvider {
 
         Ok(Self {
             client,
-            base_url: "https://api.search.brave.com/res/v1/web/search".to_string(),
+            base_url: "https://api.perplexity.ai/search".to_string(),
             timeout,
             min_interval,
         })
     }
 
     async fn wait_for_slot(&self) {
-        let mut last = brave_last_request().lock().await;
+        let mut last = perplexity_last_request().lock().await;
         let elapsed = last.elapsed();
         if elapsed < self.min_interval {
             sleep(self.min_interval - elapsed).await;
@@ -65,29 +65,25 @@ impl BraveSearchProvider {
     ) -> Result<WebSearchResponse, SearchError> {
         self.wait_for_slot().await;
 
-        let mut request = self
-            .client
-            .get(&self.base_url)
-            .timeout(self.timeout)
-            .query(&[("q", query.query.as_str())]);
+        let mut body = serde_json::json!({
+            "query": query.query,
+        });
 
         if let Some(count) = query.count {
-            request = request.query(&[("count", count.to_string())]);
+            body["max_results"] = serde_json::json!(count);
         }
-        if let Some(country) = query.country.as_ref() {
-            request = request.query(&[("country", country)]);
+        if let Some(country) = &query.country {
+            body["country"] = serde_json::json!(country);
         }
-        if let Some(search_lang) = query.search_lang.as_ref() {
-            request = request.query(&[("search_lang", search_lang)]);
-        }
-        if let Some(ui_lang) = query.ui_lang.as_ref() {
-            request = request.query(&[("ui_lang", ui_lang)]);
-        }
-        if let Some(freshness) = query.freshness.as_ref() {
-            request = request.query(&[("freshness", freshness)]);
+        if let Some(lang) = &query.search_lang {
+            body["search_language_filter"] = serde_json::json!([lang]);
         }
 
-        let response = request
+        let response = self
+            .client
+            .post(&self.base_url)
+            .timeout(self.timeout)
+            .json(&body)
             .send()
             .await
             .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
@@ -99,7 +95,7 @@ impl BraveSearchProvider {
                 .and_then(|h| h.to_str().ok())
                 .and_then(|value| value.parse::<u64>().ok())
                 .map(Duration::from_secs)
-                .unwrap_or_else(|| Duration::from_millis(1100));
+                .unwrap_or_else(|| Duration::from_millis(2000));
             return Err(SearchError::RateLimited(retry_after));
         }
 
@@ -112,25 +108,24 @@ impl BraveSearchProvider {
             )));
         }
 
-        let payload: BraveSearchResponse = response
+        let payload: PerplexitySearchResponse = response
             .json()
             .await
-            .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
+            .map_err(|e| SearchError::RequestFailed(format!("JSON parse error: {e}")))?;
 
         let results = payload
-            .web
-            .and_then(|web| web.results)
+            .results
             .unwrap_or_default()
             .into_iter()
             .map(|item| WebSearchResult {
                 title: item.title.unwrap_or_else(|| "(untitled)".to_string()),
                 url: item.url.unwrap_or_default(),
-                snippet: item.description,
+                snippet: item.snippet,
             })
             .collect();
 
         Ok(WebSearchResponse {
-            provider: "brave".to_string(),
+            provider: "perplexity".to_string(),
             results,
         })
     }
@@ -151,32 +146,26 @@ impl BraveSearchProvider {
 }
 
 #[async_trait::async_trait]
-impl SearchProvider for BraveSearchProvider {
+impl SearchProvider for PerplexitySearchProvider {
     async fn search(&self, query: &WebSearchQuery) -> Result<WebSearchResponse, SearchError> {
         self.execute_with_backoff(query).await
     }
 }
 
+// ── Perplexity Search API response wire types ────────────────────
+
 #[derive(Debug, Deserialize)]
-struct BraveSearchResponse {
+struct PerplexitySearchResponse {
     #[serde(default)]
-    web: Option<BraveWebResults>,
+    results: Option<Vec<PerplexityResult>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct BraveWebResults {
-    #[serde(default)]
-    results: Option<Vec<BraveWebResult>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct BraveWebResult {
+struct PerplexityResult {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
     url: Option<String>,
     #[serde(default)]
-    description: Option<String>,
-    #[serde(flatten)]
-    _extra: Option<Value>,
+    snippet: Option<String>,
 }

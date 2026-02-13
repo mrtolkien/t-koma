@@ -217,8 +217,7 @@ async fn handle_websocket(
 
     let (mut sender, mut receiver) = socket.split();
 
-    let default_model = state.default_model();
-    let mut selected_model_alias: String = default_model.alias.clone();
+    let mut selected_model_alias: Option<String> = None;
 
     let platform = match client_type.as_deref() {
         Some("cli") => t_koma_db::Platform::Cli,
@@ -687,6 +686,17 @@ async fn handle_websocket(
                     match other_message.clone() {
                         WsMessage::ApproveOperator { .. } => {}
                         WsMessage::SelectProvider { provider, model } => {
+                            if let Err(err) = state.reload_model_registry().await {
+                                let error_response =
+                                    ws_error_response(format!("Failed to reload models: {err}"));
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&error_response).unwrap().into(),
+                                    ))
+                                    .await;
+                                continue;
+                            }
+
                             let provider_name = provider.as_str();
 
                             let entry = match state
@@ -707,7 +717,7 @@ async fn handle_websocket(
                                 }
                             };
 
-                            selected_model_alias = entry.alias.clone();
+                            selected_model_alias = Some(entry.alias.clone());
                             let response = WsResponse::ProviderSelected {
                                 provider: entry.provider.clone(),
                                 model: entry.model.clone(),
@@ -720,6 +730,17 @@ async fn handle_websocket(
                             continue;
                         }
                         WsMessage::ListAvailableModels { provider } => {
+                            if let Err(err) = state.reload_model_registry().await {
+                                let error_response =
+                                    ws_error_response(format!("Failed to reload models: {err}"));
+                                let _ = sender
+                                    .send(Message::Text(
+                                        serde_json::to_string(&error_response).unwrap().into(),
+                                    ))
+                                    .await;
+                                continue;
+                            }
+
                             let provider_name = provider.as_str();
                             let models = state.list_models_for_provider(provider_name);
                             if models.is_empty() {
@@ -929,7 +950,9 @@ async fn handle_websocket(
                         WsMessage::ListGhosts => {
                             let ghosts = ghosts
                                 .into_iter()
-                                .map(|ghost| GhostInfo { name: ghost.name })
+                                .map(|ghost| GhostInfo {
+                                    name: ghost.name.clone(),
+                                })
                                 .collect::<Vec<_>>();
                             let response = WsResponse::GhostList { ghosts };
                             let _ = sender
@@ -1229,7 +1252,7 @@ async fn handle_websocket(
                             match operator_flow::run_tool_control_command(
                                 state.as_ref(),
                                 None,
-                                Some(&selected_model_alias),
+                                selected_model_alias.as_deref(),
                                 &ghost_name,
                                 &target_session_id,
                                 &op_id,
@@ -1261,7 +1284,7 @@ async fn handle_websocket(
                             match operator_flow::run_chat_with_pending(
                                 state.as_ref(),
                                 None,
-                                Some(&selected_model_alias),
+                                selected_model_alias.as_deref(),
                                 &ghost_name,
                                 &target_session_id,
                                 &op_id,

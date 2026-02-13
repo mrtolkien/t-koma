@@ -181,6 +181,7 @@ async fn run_reflection(
             Some(&reflection_tm),
             Some(job_handle),
             Some(crate::session::REFLECTION_TOOL_LOOP_LIMIT),
+            model.retry_on_empty,
         )
         .await;
 
@@ -308,6 +309,18 @@ fn format_chat_transcript(messages: &[t_koma_db::Message]) -> String {
                         out.push_str(&format!("  ↳ {}\n\n", annotation));
                     }
                     // All other tool results are stripped
+                }
+                ContentBlock::Image { filename, .. } => {
+                    out.push_str(&format!(
+                        "**{}** [{}]: (attached image: {})\n\n",
+                        role, ts, filename
+                    ));
+                }
+                ContentBlock::File { filename, size, .. } => {
+                    out.push_str(&format!(
+                        "**{}** [{}]: (attached file: {}, {} bytes)\n\n",
+                        role, ts, filename, size
+                    ));
                 }
             }
         }

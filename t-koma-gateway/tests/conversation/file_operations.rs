@@ -58,7 +58,8 @@ async fn test_file_create_edit_delete_workflow() {
         ("system_info", ""),
     ]);
     let system_blocks = build_system_prompt(&system_prompt);
-    let model = state.default_model().model.as_str();
+    let default_model = state.default_model();
+    let model = default_model.model.as_str();
 
     // === STEP 1: Create a file ===
     println!("\n=== STEP 1: Creating file ===");
@@ -272,7 +273,8 @@ async fn test_replace_tool_exact_match_requirement() {
         ("system_info", ""),
     ]);
     let system_blocks = build_system_prompt(&system_prompt);
-    let model = state.default_model().model.as_str();
+    let default_model = state.default_model();
+    let model = default_model.model.as_str();
 
     // Ask the model to edit the file
     let edit_message = format!(

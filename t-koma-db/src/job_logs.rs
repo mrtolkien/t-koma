@@ -154,14 +154,7 @@ impl JobLogRepository {
     pub async fn insert(pool: &SqlitePool, log: &JobLog) -> DbResult<()> {
         let transcript_json = serde_json::to_string(&log.transcript)
             .map_err(|e| DbError::Serialization(e.to_string()))?;
-        let todo_json = if log.todo_list.is_empty() {
-            None
-        } else {
-            Some(
-                serde_json::to_string(&log.todo_list)
-                    .map_err(|e| DbError::Serialization(e.to_string()))?,
-            )
-        };
+        let todo_json = serialize_optional_json(&log.todo_list)?;
 
         sqlx::query(
             "INSERT INTO job_logs (id, ghost_id, job_kind, session_id, started_at, finished_at, status, transcript, todo_list, handoff_note)
@@ -383,9 +376,19 @@ struct JobLogSummaryRow {
     handoff_note: Option<String>,
 }
 
-fn parse_todo_list(json: Option<&str>) -> Vec<TodoItem> {
+fn parse_optional_json<T: serde::de::DeserializeOwned>(json: Option<&str>) -> Vec<T> {
     json.and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default()
+}
+
+fn serialize_optional_json<T: serde::Serialize>(items: &[T]) -> DbResult<Option<String>> {
+    if items.is_empty() {
+        Ok(None)
+    } else {
+        serde_json::to_string(items)
+            .map(Some)
+            .map_err(|e| DbError::Serialization(e.to_string()))
+    }
 }
 
 impl TryFrom<JobLogSummaryRow> for JobLogSummary {
@@ -393,7 +396,7 @@ impl TryFrom<JobLogSummaryRow> for JobLogSummary {
 
     fn try_from(row: JobLogSummaryRow) -> Result<Self, Self::Error> {
         let job_kind: JobKind = row.job_kind.parse()?;
-        let todo_list = parse_todo_list(row.todo_list.as_deref());
+        let todo_list = parse_optional_json(row.todo_list.as_deref());
         Ok(JobLogSummary {
             id: row.id,
             ghost_id: row.ghost_id,
@@ -416,7 +419,7 @@ impl TryFrom<JobLogRow> for JobLog {
         let job_kind: JobKind = row.job_kind.parse()?;
         let transcript: Vec<TranscriptEntry> = serde_json::from_str(&row.transcript)
             .map_err(|e| DbError::Serialization(e.to_string()))?;
-        let todo_list = parse_todo_list(row.todo_list.as_deref());
+        let todo_list = parse_optional_json(row.todo_list.as_deref());
 
         Ok(JobLog {
             id: row.id,

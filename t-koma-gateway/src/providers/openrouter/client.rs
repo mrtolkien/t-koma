@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::chat::history::{ChatContentBlock, ChatMessage, ChatRole};
 use crate::prompt::render::SystemBlock;
+use crate::providers::openai_compatible::client::build_content_value;
 use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderError, ProviderResponse, ProviderUsage,
 };
@@ -43,12 +44,15 @@ struct OpenRouterProviderRoutingRequest {
     order: Vec<String>,
 }
 
-/// OpenAI-compatible message format
+/// OpenAI-compatible message format.
+///
+/// `content` is `Value` to support both plain strings and multipart
+/// content arrays (Vision API: text + image_url parts).
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenAiMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    content: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -258,14 +262,14 @@ impl OpenRouterClient {
 
         Some(OpenAiMessage {
             role: "system".to_string(),
-            content: Some(content),
+            content: Some(Value::String(content)),
             tool_calls: None,
             tool_call_id: None,
         })
     }
 
-    /// Convert API messages to OpenAI format
-    fn convert_messages(
+    /// Convert API messages to OpenAI format (async for image loading)
+    async fn convert_messages(
         &self,
         history: Vec<ChatMessage>,
         new_message: Option<&str>,
@@ -273,13 +277,31 @@ impl OpenRouterClient {
         let mut messages: Vec<OpenAiMessage> = Vec::new();
 
         for msg in history {
-            let mut text_parts = Vec::new();
+            let mut text_parts: Vec<String> = Vec::new();
+            let mut image_parts: Vec<Value> = Vec::new();
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut tool_messages: Vec<OpenAiMessage> = Vec::new();
 
             for block in msg.content {
                 match block {
                     ChatContentBlock::Text { text, .. } => text_parts.push(text),
+                    ChatContentBlock::Image { path, filename, .. } => {
+                        if let Some((data, mime)) =
+                            crate::chat::history::load_image_base64(&path).await
+                        {
+                            image_parts.push(serde_json::json!({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": format!("data:{};base64,{}", mime, data)
+                                }
+                            }));
+                        } else {
+                            text_parts.push(format!("(image unavailable: {})", filename));
+                        }
+                    }
+                    ChatContentBlock::File { filename, size, .. } => {
+                        text_parts.push(format!("(attached file: {}, {} bytes)", filename, size));
+                    }
                     ChatContentBlock::ToolUse { id, name, input } => {
                         let arguments =
                             serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
@@ -296,7 +318,7 @@ impl OpenRouterClient {
                     } => {
                         tool_messages.push(OpenAiMessage {
                             role: "tool".to_string(),
-                            content: Some(content),
+                            content: Some(Value::String(content)),
                             tool_calls: None,
                             tool_call_id: Some(tool_use_id),
                         });
@@ -304,18 +326,14 @@ impl OpenRouterClient {
                 }
             }
 
-            let text = if text_parts.is_empty() {
-                None
-            } else {
-                Some(text_parts.join("\n"))
-            };
+            let content = build_content_value(&text_parts, image_parts);
 
             match msg.role {
                 ChatRole::Assistant => {
-                    if text.is_some() || !tool_calls.is_empty() {
+                    if content.is_some() || !tool_calls.is_empty() {
                         messages.push(OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: text,
+                            content,
                             tool_calls: if tool_calls.is_empty() {
                                 None
                             } else {
@@ -326,10 +344,10 @@ impl OpenRouterClient {
                     }
                 }
                 ChatRole::User => {
-                    if let Some(text) = text {
+                    if content.is_some() {
                         messages.push(OpenAiMessage {
                             role: "user".to_string(),
-                            content: Some(text),
+                            content,
                             tool_calls: None,
                             tool_call_id: None,
                         });
@@ -340,11 +358,10 @@ impl OpenRouterClient {
             messages.extend(tool_messages);
         }
 
-        // Add new message if provided
         if let Some(content) = new_message {
             messages.push(OpenAiMessage {
                 role: "user".to_string(),
-                content: Some(content.to_string()),
+                content: Some(Value::String(content.to_string())),
                 tool_calls: None,
                 tool_call_id: None,
             });
@@ -384,8 +401,7 @@ impl OpenRouterClient {
             Some(choice) => {
                 let mut blocks = Vec::new();
 
-                // Add text content if present
-                if let Some(text) = choice.message.content
+                if let Some(Value::String(text)) = choice.message.content
                     && !text.is_empty()
                 {
                     blocks.push(ProviderContentBlock::Text { text });
@@ -496,8 +512,7 @@ impl Provider for OpenRouterClient {
             messages.push(system_msg);
         }
 
-        // Add history and new message
-        messages.extend(self.convert_messages(history, new_message));
+        messages.extend(self.convert_messages(history, new_message).await);
 
         // Build tools
         let tool_definitions = if tools.is_empty() {

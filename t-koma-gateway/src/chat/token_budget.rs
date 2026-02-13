@@ -38,6 +38,9 @@ pub fn estimate_history_tokens(messages: &[ChatMessage]) -> u32 {
                         content,
                         ..
                     } => estimate_tokens(tool_use_id) + estimate_tokens(content),
+                    // Images: ~85 tokens per 256x256 tile; estimate conservatively
+                    ChatContentBlock::Image { .. } => 300,
+                    ChatContentBlock::File { filename, .. } => estimate_tokens(filename) + 10,
                 })
                 .sum::<u32>()
         })

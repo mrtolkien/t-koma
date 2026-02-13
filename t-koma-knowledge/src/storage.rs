@@ -393,3 +393,93 @@ pub async fn upsert_vec(
 
     Ok(())
 }
+
+/// Read the stored embedding fingerprint from the `meta` table.
+pub async fn get_embedding_fingerprint(pool: &SqlitePool) -> KnowledgeResult<Option<String>> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM meta WHERE key = 'embedding_fingerprint' LIMIT 1")
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.map(|(v,)| v))
+}
+
+/// Store the current embedding fingerprint.
+pub async fn set_embedding_fingerprint(
+    pool: &SqlitePool,
+    fingerprint: &str,
+) -> KnowledgeResult<()> {
+    sqlx::query("INSERT OR REPLACE INTO meta (key, value) VALUES ('embedding_fingerprint', ?)")
+        .bind(fingerprint)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Drop the `chunk_vec` virtual table so it can be recreated with a new dimension.
+pub async fn drop_vec_table(pool: &SqlitePool) -> KnowledgeResult<()> {
+    let table_exists: Option<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chunk_vec'",
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if table_exists.is_some() {
+        sqlx::query("DROP TABLE chunk_vec").execute(pool).await?;
+    }
+
+    sqlx::query("DELETE FROM meta WHERE key = 'embedding_dim'")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Clear embedding metadata from all chunks (model + dim columns).
+pub async fn clear_chunk_embedding_metadata(pool: &SqlitePool) -> KnowledgeResult<()> {
+    sqlx::query("UPDATE chunks SET embedding_model = NULL, embedding_dim = NULL")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Return chunk IDs that have no embedding vector yet.
+pub async fn chunks_missing_embeddings(
+    pool: &SqlitePool,
+    batch_size: usize,
+) -> KnowledgeResult<Vec<(i64, String)>> {
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT c.id, c.content FROM chunks c \
+         WHERE c.embedding_model IS NULL \
+         ORDER BY c.id ASC \
+         LIMIT ?",
+    )
+    .bind(batch_size as i64)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Count chunks that still need embedding.
+pub async fn count_chunks_needing_embedding(pool: &SqlitePool) -> KnowledgeResult<i64> {
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM chunks WHERE embedding_model IS NULL")
+            .fetch_one(pool)
+            .await?;
+    Ok(count)
+}
+
+/// Update the embedding metadata on a chunk after successful embedding.
+pub async fn mark_chunk_embedded(
+    pool: &SqlitePool,
+    chunk_id: i64,
+    model: &str,
+    dim: usize,
+) -> KnowledgeResult<()> {
+    sqlx::query("UPDATE chunks SET embedding_model = ?, embedding_dim = ? WHERE id = ?")
+        .bind(model)
+        .bind(dim as i64)
+        .bind(chunk_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}

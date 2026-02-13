@@ -228,6 +228,7 @@ impl Bot {
                 "new" => self.handle_new_command(&ctx, command).await,
                 "feedback" => self.handle_feedback_command(&ctx, command).await,
                 "model" => self.handle_model_command(&ctx, command).await,
+                "statusline" => self.handle_statusline_command(&ctx, command).await,
                 _ => {}
             }
         }
@@ -498,12 +499,26 @@ impl Bot {
             .await;
     }
 
-    /// Handle `/model` slash command: set, get, reset, or list ghost model overrides.
+    /// Handle `/model` slash command: manage per-ghost model assignment.
     async fn handle_model_command(
         &self,
         ctx: &Context,
         command: &serenity::model::application::CommandInteraction,
     ) {
+        let action = command
+            .data
+            .options
+            .first()
+            .and_then(|o| o.value.as_str())
+            .unwrap_or("show");
+
+        let alias_arg = command
+            .data
+            .options
+            .get(1)
+            .and_then(|o| o.value.as_str())
+            .map(|s| s.to_string());
+
         let external_id = command.user.id.to_string();
         let Some(operator_id) = self.resolve_operator_id(&external_id).await else {
             let _ = command
@@ -533,100 +548,240 @@ impl Bot {
             return;
         };
 
-        let action = command
+        if let Err(err) = self.state.reload_model_registry().await {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content(format!("Failed to reload models: {err}"))
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        }
+
+        let ghost =
+            match t_koma_db::GhostRepository::get_by_name(self.state.koma_db.pool(), &ghost_name)
+                .await
+            {
+                Ok(Some(g)) => g,
+                _ => {
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content("Ghost not found.")
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+            };
+
+        let reply = match action {
+            "show" => {
+                let current = ghost
+                    .model_aliases
+                    .as_deref()
+                    .and_then(|json| t_koma_core::config::ModelAliases::from_json(json).ok())
+                    .map(|aliases| aliases.into_vec().join(" -> "))
+                    .unwrap_or_else(|| "(default)".to_string());
+                let default_chain = self.state.default_model_chain();
+                let defaults: Vec<&str> = default_chain.iter().map(|s| s.as_str()).collect();
+                format!(
+                    "**{}** model config:\n- Override: `{}`\n- Default chain: `{}`",
+                    ghost.name,
+                    current,
+                    defaults.join(" → "),
+                )
+            }
+            "list" => {
+                let aliases = self.state.available_model_aliases();
+                if aliases.is_empty() {
+                    "No models configured.".to_string()
+                } else {
+                    let joined = aliases
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join("`, `");
+                    format!("Available models: `{}`", joined)
+                }
+            }
+            "clear" => {
+                match t_koma_db::GhostRepository::update_model_aliases(
+                    self.state.koma_db.pool(),
+                    &ghost.name,
+                    None,
+                )
+                .await
+                {
+                    Ok(()) => format!(
+                        "Cleared model override for **{}**. Now using default chain.",
+                        ghost.name
+                    ),
+                    Err(e) => format!("Failed to clear model: {e}"),
+                }
+            }
+            "set" => {
+                let Some(input) = alias_arg.as_deref().filter(|s| !s.is_empty()) else {
+                    "Please provide a model alias. Use `/model list` to see available models."
+                        .to_string();
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content(
+                                        "Please provide a model alias in the `alias` field.\n\
+                                         Use `/model list` to see available models.",
+                                    )
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                };
+
+                let aliases: Vec<String> = input
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+
+                if aliases.is_empty() {
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content(
+                                        "No model alias provided. Use `/model list` to see available models."
+                                    )
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+
+                let unknown: Vec<&str> = aliases
+                    .iter()
+                    .filter(|alias| self.state.get_model_by_alias(alias).is_none())
+                    .map(|alias| alias.as_str())
+                    .collect();
+                if !unknown.is_empty() {
+                    let _ = command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(
+                                CreateInteractionResponseMessage::new()
+                                    .content(format!(
+                                        "Unknown model alias(es) `{}`. Use `/model list` to see available models.",
+                                        unknown.join("`, `")
+                                    ))
+                                    .ephemeral(true),
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+
+                let model_aliases = if aliases.len() == 1 {
+                    t_koma_core::config::ModelAliases::single(&aliases[0])
+                } else {
+                    t_koma_core::config::ModelAliases::many(aliases.clone())
+                };
+                match t_koma_db::GhostRepository::update_model_aliases(
+                    self.state.koma_db.pool(),
+                    &ghost.name,
+                    Some(&model_aliases.to_json()),
+                )
+                .await
+                {
+                    Ok(()) => format!(
+                        "Set **{}** model override to `{}`.",
+                        ghost.name,
+                        aliases.join(" -> ")
+                    ),
+                    Err(e) => format!("Failed to set model: {e}"),
+                }
+            }
+            _ => "Unknown action. Use show, list, set, or clear.".to_string(),
+        };
+
+        let _ = command
+            .create_response(
+                &ctx.http,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content(reply)
+                        .ephemeral(true),
+                ),
+            )
+            .await;
+    }
+
+    /// Handle `/statusline` slash command: toggle per-ghost response metadata.
+    async fn handle_statusline_command(
+        &self,
+        ctx: &Context,
+        command: &serenity::model::application::CommandInteraction,
+    ) {
+        let mode = command
             .data
             .options
             .first()
             .and_then(|o| o.value.as_str())
-            .unwrap_or("get");
+            .unwrap_or("on");
 
-        let aliases_arg = command
-            .data
-            .options
-            .get(1)
-            .and_then(|o| o.value.as_str())
-            .unwrap_or("");
+        let enabled = mode == "on";
 
-        let pool = self.state.koma_db.pool();
-
-        let reply = match action {
-            "set" => {
-                if aliases_arg.is_empty() {
-                    "Please provide model alias(es) in the `aliases` field (comma-separated)."
-                        .to_string()
-                } else {
-                    let aliases: Vec<String> = aliases_arg
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-
-                    // Validate all aliases exist in the registry
-                    let available = self.state.all_model_aliases();
-                    let unknown: Vec<&str> = aliases
-                        .iter()
-                        .filter(|a| !available.contains(&a.as_str()))
-                        .map(|s| s.as_str())
-                        .collect();
-
-                    if !unknown.is_empty() {
-                        format!(
-                            "Unknown model alias(es): **{}**\nAvailable: {}",
-                            unknown.join(", "),
-                            available.join(", ")
-                        )
-                    } else {
-                        match t_koma_db::GhostRepository::update_model_aliases(
-                            pool,
-                            &ghost_name,
-                            Some(&aliases),
-                        )
-                        .await
-                        {
-                            Ok(()) => format!(
-                                "Model override set for **{}**: **{}**",
-                                ghost_name,
-                                aliases.join(" → ")
-                            ),
-                            Err(e) => format!("Failed to update: {}", e),
-                        }
-                    }
-                }
-            }
-            "get" => match t_koma_db::GhostRepository::get_by_name(pool, &ghost_name).await {
-                Ok(Some(ghost)) => match ghost.model_chain() {
-                    Some(chain) => format!(
-                        "**{}** model override: **{}**",
-                        ghost_name,
-                        chain.join(" → ")
+        let external_id = command.user.id.to_string();
+        let Some(operator_id) = self.resolve_operator_id(&external_id).await else {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("No operator found for your account.")
+                            .ephemeral(true),
                     ),
-                    None => format!(
-                        "**{}** uses system default: **{}**",
-                        ghost_name,
-                        self.state.default_model_chain().join(" → ")
+                )
+                .await;
+            return;
+        };
+
+        let Some(ghost_name) = self.state.get_active_ghost(&operator_id).await else {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("No active ghost. Send a message first to select one.")
+                            .ephemeral(true),
                     ),
-                },
-                Ok(None) => format!("Ghost '{}' not found.", ghost_name),
-                Err(e) => format!("Error: {}", e),
-            },
-            "reset" => {
-                match t_koma_db::GhostRepository::update_model_aliases(pool, &ghost_name, None)
-                    .await
-                {
-                    Ok(()) => format!(
-                        "Model override cleared for **{}**. Now using system default: **{}**",
-                        ghost_name,
-                        self.state.default_model_chain().join(" → ")
-                    ),
-                    Err(e) => format!("Failed to reset: {}", e),
-                }
+                )
+                .await;
+            return;
+        };
+
+        let reply = match t_koma_db::GhostRepository::set_statusline(
+            self.state.koma_db.pool(),
+            &ghost_name,
+            enabled,
+        )
+        .await
+        {
+            Ok(()) => {
+                let state = if enabled { "on" } else { "off" };
+                format!("Statusline **{state}** for **{ghost_name}**.")
             }
-            "list" => {
-                let mut aliases = self.state.all_model_aliases();
-                aliases.sort();
-                format!("Available model aliases:\n{}", aliases.join(", "))
-            }
-            _ => "Unknown action. Use: set, get, reset, or list.".to_string(),
+            Err(e) => format!("Failed to update statusline: {e}"),
         };
 
         let _ = command

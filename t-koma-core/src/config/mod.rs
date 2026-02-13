@@ -12,6 +12,7 @@
 //! - `KIMI_API_KEY` - Kimi Code API key
 //! - `DISCORD_BOT_TOKEN` - Discord bot token
 //! - `BRAVE_API_KEY` - Brave Search API key
+//! - `PERPLEXITY_API_KEY` - Perplexity Sonar API key
 //!
 //! ## Settings (TOML File)
 //! Located at `~/.config/t-koma/config.toml`:
@@ -40,7 +41,7 @@ mod settings;
 
 use crate::message::ProviderType;
 
-pub use knowledge::{KnowledgeSettings, SearchDefaults};
+pub use knowledge::{EmbeddingProviderKind, KnowledgeSettings, SearchDefaults};
 pub use secrets::{Secrets, SecretsError};
 pub use settings::{
     GatewaySettings, HeartbeatTimingSettings, KnowledgeSearchSettings, KnowledgeToolsSettings,
@@ -208,16 +209,6 @@ impl Config {
                     return Err(not_configured());
                 }
             }
-            ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => {
-                if model.routing.is_some() {
-                    return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
-                        alias: alias.to_string(),
-                        provider: model.provider.to_string(),
-                    });
-                }
-                // OAuth tokens are checked at gateway startup via OAuthTokenManager,
-                // not via env-var secrets.
-            }
             ProviderType::OpenRouter => {
                 if let Some(routing) = &model.routing {
                     let has_non_empty_order = routing.iter().any(|item| !item.trim().is_empty());
@@ -274,13 +265,6 @@ impl Config {
         if model.provider == ProviderType::KimiCode {
             return Ok(secrets.kimi_api_key.clone());
         }
-        // OAuth providers don't use env-var API keys
-        if matches!(
-            model.provider,
-            ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex
-        ) {
-            return Ok(None);
-        }
         let env_var = model
             .api_key_env
             .as_deref()
@@ -290,7 +274,6 @@ impl Config {
                 ProviderType::Anthropic => "ANTHROPIC_API_KEY",
                 ProviderType::Gemini => "GEMINI_API_KEY",
                 ProviderType::KimiCode => "KIMI_API_KEY",
-                ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => unreachable!(),
             });
         match std::env::var(env_var) {
             Ok(value) => Ok(Some(value)),
@@ -444,6 +427,7 @@ mod tests {
             routing: None,
             context_window: None,
             headers: None,
+            retry_on_empty: None,
         }
     }
 

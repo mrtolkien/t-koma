@@ -4,7 +4,8 @@ use serde_json::{Value, json};
 use crate::tools::web_fetch::url_to_cache_filename;
 use crate::tools::{Tool, ToolContext};
 use crate::web::search::{
-    SearchError, WebSearchQuery, WebSearchService, brave::BraveSearchProvider,
+    SearchError, SearchProvider, WebSearchQuery, WebSearchService, brave::BraveSearchProvider,
+    perplexity::PerplexitySearchProvider,
 };
 
 #[derive(Debug, Deserialize)]
@@ -49,20 +50,47 @@ impl WebSearchTool {
         }
     }
 
+    fn build_provider(
+        provider_name: &str,
+        timeout: std::time::Duration,
+        min_interval: std::time::Duration,
+    ) -> Result<Box<dyn SearchProvider>, String> {
+        match provider_name {
+            "brave" => {
+                let key = std::env::var("BRAVE_API_KEY").map_err(|_| {
+                    "BRAVE_API_KEY is not set (required for web_search with provider 'brave')"
+                        .to_string()
+                })?;
+                let provider = BraveSearchProvider::new(key, timeout, min_interval)
+                    .map_err(Self::format_error)?;
+                Ok(Box::new(provider))
+            }
+            "perplexity" => {
+                let key = std::env::var("PERPLEXITY_API_KEY")
+                    .map_err(|_| "PERPLEXITY_API_KEY is not set (required for web_search with provider 'perplexity')".to_string())?;
+                let provider = PerplexitySearchProvider::new(key, timeout, min_interval)
+                    .map_err(Self::format_error)?;
+                Ok(Box::new(provider))
+            }
+            other => Err(format!(
+                "web_search provider '{}' is not supported (use 'brave' or 'perplexity')",
+                other
+            )),
+        }
+    }
+
     fn format_error(err: SearchError) -> String {
         match err {
             SearchError::Disabled => "web_search is disabled in configuration".to_string(),
-            SearchError::UnsupportedProvider(provider) => format!(
-                "web_search provider '{}' is not supported in this build",
-                provider
-            ),
-            SearchError::MissingApiKey => {
-                "BRAVE_API_KEY is not set (required for web_search)".to_string()
+            SearchError::UnsupportedProvider(provider) => {
+                format!("web_search provider '{}' is not supported", provider)
             }
-            SearchError::RateLimited(delay) => format!(
-                "Brave Search rate limited. Wait {:?} before retrying.",
-                delay
-            ),
+            SearchError::MissingApiKey(key_name) => {
+                format!("{key_name} is not set (required for web_search)")
+            }
+            SearchError::RateLimited(delay) => {
+                format!("web search rate limited. Wait {:?} before retrying.", delay)
+            }
             SearchError::RequestFailed(msg) => format!("web_search request failed: {}", msg),
         }
     }
@@ -92,27 +120,15 @@ impl Tool for WebSearchTool {
             return Err("web_search tool is disabled in config".to_string());
         }
 
-        let provider_name = settings.tools.web.search.provider.as_str();
-        if provider_name != "brave" {
-            return Err(format!(
-                "web_search provider '{}' is not supported in this build",
-                provider_name
-            ));
-        }
+        let timeout = std::time::Duration::from_secs(settings.tools.web.search.timeout_seconds);
+        let min_interval =
+            std::time::Duration::from_millis(settings.tools.web.search.min_interval_ms.max(1000));
 
-        let brave_key = std::env::var("BRAVE_API_KEY")
-            .map_err(|_| "BRAVE_API_KEY is not set (required for web_search)".to_string())?;
-
-        let min_interval_ms = settings.tools.web.search.min_interval_ms.max(1000);
-        let provider = BraveSearchProvider::new(
-            brave_key,
-            std::time::Duration::from_secs(settings.tools.web.search.timeout_seconds),
-            std::time::Duration::from_millis(min_interval_ms),
-        )
-        .map_err(Self::format_error)?;
+        let provider =
+            Self::build_provider(&settings.tools.web.search.provider, timeout, min_interval)?;
 
         let service = WebSearchService::new(
-            Box::new(provider),
+            provider,
             std::time::Duration::from_secs(settings.tools.web.search.cache_ttl_minutes * 60),
         );
 

@@ -60,6 +60,16 @@ impl ModelAliases {
     pub fn as_slice(&self) -> &[String] {
         &self.0
     }
+
+    /// Serialize to a JSON string for database storage.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("ModelAliases should always serialize to JSON")
+    }
+
+    /// Deserialize from a JSON string (as stored in the database).
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
 }
 
 impl<'de> Deserialize<'de> for ModelAliases {
@@ -276,6 +286,11 @@ pub struct ModelConfig {
     /// Extra HTTP headers to send with every request for this model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
+    /// Number of times to retry when the provider returns an empty response.
+    /// Some providers (OpenRouter, Kimi) occasionally return empty content;
+    /// setting this to e.g. 2 will silently retry up to that many times.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_on_empty: Option<u32>,
 }
 
 /// OpenRouter-specific settings
@@ -361,7 +376,10 @@ pub struct WebToolsSettings {
 /// Knowledge tools configuration
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct KnowledgeToolsSettings {
-    /// Embedding provider base URL
+    /// Embedding backend: "ollama" (default) or "openrouter".
+    pub embedding_provider: Option<String>,
+
+    /// Embedding provider base URL (auto-resolved for known providers)
     pub embedding_url: Option<String>,
 
     /// Embedding model name
@@ -496,7 +514,7 @@ pub struct WebSearchSettings {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Provider name (currently only "brave")
+    /// Provider name ("brave" or "perplexity")
     #[serde(default = "default_web_search_provider")]
     pub provider: String,
 
@@ -961,6 +979,7 @@ host = "0.0.0.0"
                 routing: Some(vec!["anthropic".to_string()]),
                 context_window: None,
                 headers: None,
+                retry_on_empty: None,
             },
         );
         settings.default_model = ModelAliases::single("kimi25");

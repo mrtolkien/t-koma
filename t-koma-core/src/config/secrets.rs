@@ -30,6 +30,9 @@ pub struct Secrets {
 
     /// Brave Search API key (env: BRAVE_API_KEY)
     pub brave_api_key: Option<String>,
+
+    /// Perplexity API key (env: PERPLEXITY_API_KEY)
+    pub perplexity_api_key: Option<String>,
 }
 
 /// Errors that can occur when loading secrets
@@ -59,6 +62,7 @@ impl Secrets {
             kimi_api_key: env::var("KIMI_API_KEY").ok(),
             discord_bot_token: env::var("DISCORD_BOT_TOKEN").ok(),
             brave_api_key: env::var("BRAVE_API_KEY").ok(),
+            perplexity_api_key: env::var("PERPLEXITY_API_KEY").ok(),
         };
 
         Ok(secrets)
@@ -79,8 +83,6 @@ impl Secrets {
             ProviderType::OpenAiCompatible => true,
             ProviderType::Gemini => self.gemini_api_key.is_some(),
             ProviderType::KimiCode => self.kimi_api_key.is_some(),
-            // OAuth providers use token store, not env-var secrets
-            ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => false,
         }
     }
 

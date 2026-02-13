@@ -1,0 +1,6 @@
+-- Per-ghost statusline toggle.
+-- When enabled (1), a metadata line (model, tool count) is appended to
+-- each ghost response visible to the operator.
+--
+-- No-op: statusline was folded into the unified schema
+-- (20260210000000_unified_schema.sql). Kept for migration ordering.

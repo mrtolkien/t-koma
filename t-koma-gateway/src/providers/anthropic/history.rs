@@ -21,6 +21,9 @@ pub enum AnthropicContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    Image {
+        source: AnthropicImageSource,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -37,9 +40,18 @@ pub enum AnthropicContentBlock {
     },
 }
 
+/// Anthropic image source (base64-encoded).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicImageSource {
+    #[serde(rename = "type")]
+    pub source_type: String,
+    pub media_type: String,
+    pub data: String,
+}
+
 /// Convert provider-neutral history to Anthropic history, with optional
 /// truncation and optional final user text.
-pub fn to_anthropic_messages(
+pub async fn to_anthropic_messages(
     history: Vec<ChatMessage>,
     new_message: Option<&str>,
     message_limit: Option<usize>,
@@ -51,7 +63,10 @@ pub fn to_anthropic_messages(
         history
     };
 
-    let mut messages: Vec<AnthropicMessage> = history.into_iter().map(convert_message).collect();
+    let mut messages = Vec::with_capacity(history.len());
+    for msg in history {
+        messages.push(convert_message(msg).await);
+    }
 
     if let Some(content) = new_message {
         messages.push(AnthropicMessage {
@@ -66,21 +81,21 @@ pub fn to_anthropic_messages(
     messages
 }
 
-fn convert_message(message: ChatMessage) -> AnthropicMessage {
+async fn convert_message(message: ChatMessage) -> AnthropicMessage {
+    let mut content = Vec::with_capacity(message.content.len());
+    for block in message.content {
+        content.push(convert_content_block(block).await);
+    }
     AnthropicMessage {
         role: match message.role {
             ChatRole::User => "user".to_string(),
             ChatRole::Assistant => "assistant".to_string(),
         },
-        content: message
-            .content
-            .into_iter()
-            .map(convert_content_block)
-            .collect(),
+        content,
     }
 }
 
-fn convert_content_block(block: ChatContentBlock) -> AnthropicContentBlock {
+async fn convert_content_block(block: ChatContentBlock) -> AnthropicContentBlock {
     match block {
         ChatContentBlock::Text {
             text,
@@ -88,6 +103,25 @@ fn convert_content_block(block: ChatContentBlock) -> AnthropicContentBlock {
         } => AnthropicContentBlock::Text {
             text,
             cache_control,
+        },
+        ChatContentBlock::Image { path, filename, .. } => {
+            match crate::chat::history::load_image_base64(&path).await {
+                Some((data, media_type)) => AnthropicContentBlock::Image {
+                    source: AnthropicImageSource {
+                        source_type: "base64".to_string(),
+                        media_type,
+                        data,
+                    },
+                },
+                None => AnthropicContentBlock::Text {
+                    text: format!("(image unavailable: {})", filename),
+                    cache_control: None,
+                },
+            }
+        }
+        ChatContentBlock::File { filename, size, .. } => AnthropicContentBlock::Text {
+            text: format!("(attached file: {}, {} bytes)", filename, size),
+            cache_control: None,
         },
         ChatContentBlock::ToolUse { id, name, input } => {
             AnthropicContentBlock::ToolUse { id, name, input }
