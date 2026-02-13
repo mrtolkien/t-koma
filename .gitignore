@@ -36,3 +36,6 @@ package-lock.json
 
 # Nix
 /result
+
+# Agents
+.claude
