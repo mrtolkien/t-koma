@@ -187,6 +187,14 @@ fn render_messages_for_summary(messages: &[ChatMessage]) -> String {
                     };
                     out.push_str(&format!("[tool_result: {tool_name}{tag}] {preview}\n\n"));
                 }
+                ChatContentBlock::Image { filename, .. } => {
+                    out.push_str(&format!("[{role}] (attached image: {filename})\n\n"));
+                }
+                ChatContentBlock::File { filename, size, .. } => {
+                    out.push_str(&format!(
+                        "[{role}] (attached file: {filename}, {size} bytes)\n\n"
+                    ));
+                }
             }
         }
     }

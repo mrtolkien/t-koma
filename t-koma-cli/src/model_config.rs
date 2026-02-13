@@ -63,6 +63,7 @@ pub fn apply_gateway_selection(
         routing: None,
         context_window: None,
         headers: None,
+        retry_on_empty: None,
     };
 
     settings.models.insert(alias.clone(), entry);
@@ -151,14 +152,14 @@ fn add_or_update_model(
             "Base URL (optional)",
             existing.as_ref().and_then(|e| e.base_url.as_deref()),
         )?,
-        _ => None,
+        ProviderType::Anthropic => None,
     };
     let api_key_env = match provider {
         ProviderType::OpenRouter | ProviderType::OpenAiCompatible => prompt_optional_text(
             "API key env var (optional)",
             existing.as_ref().and_then(|e| e.api_key_env.as_deref()),
         )?,
-        _ => None,
+        ProviderType::Anthropic => None,
     };
     let routing = if provider == ProviderType::OpenRouter {
         let existing_routing = existing
@@ -198,6 +199,7 @@ fn add_or_update_model(
             routing,
             context_window: None,
             headers: None,
+            retry_on_empty: None,
         },
     );
 
@@ -235,8 +237,6 @@ fn prompt_provider(
         ProviderType::Anthropic,
         ProviderType::OpenRouter,
         ProviderType::OpenAiCompatible,
-        ProviderType::AnthropicOAuth,
-        ProviderType::OpenAiCodex,
     ];
     let default_index = default
         .and_then(|value| providers.iter().position(|p| *p == value))

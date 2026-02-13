@@ -17,7 +17,6 @@ path = "src/main.rs"
 t-koma-core.workspace = true
 t-koma-db = { path = "../t-koma-db" }
 t-koma-knowledge = { path = "../t-koma-knowledge" }
-t-koma-oauth = { path = "../t-koma-oauth" }
 
 # Async runtime
 tokio.workspace = true
@@ -46,6 +45,12 @@ chrono.workspace = true
 
 # Embedded content
 include_dir = "0.7"
+
+# Base64 encoding (for image content blocks)
+base64 = "0.22"
+
+# Image processing (resize/compress before sending to providers)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 
 # Utilities
 futures = "0.3"

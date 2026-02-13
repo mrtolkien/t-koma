@@ -6,7 +6,10 @@ use std::time::Duration;
 #[cfg(feature = "live-tests")]
 use t_koma_gateway::web::fetch::{FetchProvider, WebFetchRequest, http::HttpFetchProvider};
 #[cfg(feature = "live-tests")]
-use t_koma_gateway::web::search::{SearchProvider, WebSearchQuery, brave::BraveSearchProvider};
+use t_koma_gateway::web::search::{
+    SearchProvider, WebSearchQuery, brave::BraveSearchProvider,
+    perplexity::PerplexitySearchProvider,
+};
 
 #[cfg(feature = "live-tests")]
 #[tokio::test]
@@ -55,6 +58,60 @@ async fn test_brave_web_search_rust_language() {
     assert!(
         has_rust_lang,
         "Expected rust-lang.org result for Rust programming language"
+    );
+}
+
+#[cfg(feature = "live-tests")]
+#[tokio::test]
+async fn test_perplexity_web_search_rust_language() {
+    t_koma_core::load_dotenv();
+    let api_key = match std::env::var("PERPLEXITY_API_KEY") {
+        Ok(value) => value,
+        Err(_) => {
+            eprintln!("PERPLEXITY_API_KEY not set; skipping live Perplexity web search test.");
+            return;
+        }
+    };
+
+    let provider = PerplexitySearchProvider::new(
+        api_key,
+        Duration::from_secs(20),
+        Duration::from_millis(1000),
+    )
+    .expect("Failed to create PerplexitySearchProvider");
+
+    let response = provider
+        .search(&WebSearchQuery {
+            query: "rust programming language".to_string(),
+            count: Some(5),
+            country: None,
+            search_lang: None,
+            ui_lang: None,
+            freshness: None,
+        })
+        .await
+        .expect("Perplexity search failed");
+
+    assert_eq!(response.provider, "perplexity");
+    assert!(
+        !response.results.is_empty(),
+        "Expected at least one result from Perplexity"
+    );
+
+    // Check that results have URLs and titles
+    for result in &response.results {
+        assert!(!result.url.is_empty(), "Result URL should not be empty");
+        assert!(!result.title.is_empty(), "Result title should not be empty");
+    }
+
+    // At least one result should reference rust-lang.org
+    let has_rust_lang = response
+        .results
+        .iter()
+        .any(|r| r.url.to_lowercase().contains("rust-lang.org"));
+    assert!(
+        has_rust_lang,
+        "Expected rust-lang.org in results for 'rust programming language'"
     );
 }
 

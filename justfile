@@ -47,3 +47,11 @@ run-gateway:
 # Run the CLI
 run-cli:
     cargo run --bin t-koma-cli
+
+# Build documentation with mdbook
+doc:
+    mdbook build docs/
+
+# Serve documentation locally with live reload
+doc-serve:
+    mdbook serve docs/

@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS ghosts (
   name TEXT NOT NULL UNIQUE,
   owner_operator_id TEXT NOT NULL,
   cwd TEXT,
+  model_aliases TEXT,
+  statusline INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (owner_operator_id) REFERENCES operators(id) ON DELETE CASCADE
 );

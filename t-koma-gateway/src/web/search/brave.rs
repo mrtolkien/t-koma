@@ -33,7 +33,8 @@ impl BraveSearchProvider {
         let mut headers = HeaderMap::new();
         headers.insert(
             "X-Subscription-Token",
-            HeaderValue::from_str(&api_key).map_err(|_| SearchError::MissingApiKey)?,
+            HeaderValue::from_str(&api_key)
+                .map_err(|_| SearchError::MissingApiKey("BRAVE_API_KEY"))?,
         );
 
         let client = reqwest::Client::builder()

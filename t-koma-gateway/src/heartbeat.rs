@@ -252,6 +252,7 @@ async fn run_heartbeat_for_session(
             None, // use default (chat) tool manager
             None, // no job handle needed for heartbeat
             None, // use default loop limit
+            model.retry_on_empty,
         )
         .await
 }

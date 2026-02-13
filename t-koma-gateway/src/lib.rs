@@ -5,6 +5,7 @@ pub mod discord;
 pub mod gateway_message;
 pub mod heartbeat;
 pub mod log_bridge;
+pub mod model_registry;
 pub mod operator_flow;
 pub mod prompt;
 pub mod providers;

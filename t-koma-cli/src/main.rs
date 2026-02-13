@@ -8,7 +8,6 @@ use ratatui::prelude::*;
 use tracing::{error, info, warn};
 
 mod client;
-mod oauth_cli;
 mod tui;
 
 use tui::app::TuiApp;
@@ -21,12 +20,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_writer(std::io::sink)
         .init();
-
-    // Handle `oauth` subcommand before entering TUI
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 && args[1] == "oauth" {
-        return oauth_cli::handle_oauth_command(&args[2..]).await;
-    }
 
     let settings = t_koma_core::Settings::load()?;
     info!("Settings loaded, using {}", settings.ws_url());

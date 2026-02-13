@@ -35,12 +35,15 @@ struct ChatCompletionsRequest {
     max_tokens: u32,
 }
 
-/// OpenAI-compatible message format
+/// OpenAI-compatible message format.
+///
+/// `content` is `Value` to support both plain strings and multipart
+/// content arrays (Vision API: text + image_url parts).
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenAiMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    content: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -191,14 +194,14 @@ impl OpenAiCompatibleClient {
 
         Some(OpenAiMessage {
             role: "system".to_string(),
-            content: Some(content),
+            content: Some(Value::String(content)),
             tool_calls: None,
             tool_call_id: None,
         })
     }
 
-    /// Convert API messages to OpenAI format
-    fn convert_messages(
+    /// Convert API messages to OpenAI format (async for image loading)
+    async fn convert_messages(
         &self,
         history: Vec<ChatMessage>,
         new_message: Option<&str>,
@@ -206,13 +209,31 @@ impl OpenAiCompatibleClient {
         let mut messages: Vec<OpenAiMessage> = Vec::new();
 
         for msg in history {
-            let mut text_parts = Vec::new();
+            let mut text_parts: Vec<String> = Vec::new();
+            let mut image_parts: Vec<Value> = Vec::new();
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut tool_messages: Vec<OpenAiMessage> = Vec::new();
 
             for block in msg.content {
                 match block {
                     ChatContentBlock::Text { text, .. } => text_parts.push(text),
+                    ChatContentBlock::Image { path, filename, .. } => {
+                        if let Some((data, mime)) =
+                            crate::chat::history::load_image_base64(&path).await
+                        {
+                            image_parts.push(serde_json::json!({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": format!("data:{};base64,{}", mime, data)
+                                }
+                            }));
+                        } else {
+                            text_parts.push(format!("(image unavailable: {})", filename));
+                        }
+                    }
+                    ChatContentBlock::File { filename, size, .. } => {
+                        text_parts.push(format!("(attached file: {}, {} bytes)", filename, size));
+                    }
                     ChatContentBlock::ToolUse { id, name, input } => {
                         let arguments =
                             serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
@@ -229,7 +250,7 @@ impl OpenAiCompatibleClient {
                     } => {
                         tool_messages.push(OpenAiMessage {
                             role: "tool".to_string(),
-                            content: Some(content),
+                            content: Some(Value::String(content)),
                             tool_calls: None,
                             tool_call_id: Some(tool_use_id),
                         });
@@ -237,18 +258,14 @@ impl OpenAiCompatibleClient {
                 }
             }
 
-            let text = if text_parts.is_empty() {
-                None
-            } else {
-                Some(text_parts.join("\n"))
-            };
+            let content = build_content_value(&text_parts, image_parts);
 
             match msg.role {
                 ChatRole::Assistant => {
-                    if text.is_some() || !tool_calls.is_empty() {
+                    if content.is_some() || !tool_calls.is_empty() {
                         messages.push(OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: text,
+                            content,
                             tool_calls: if tool_calls.is_empty() {
                                 None
                             } else {
@@ -259,10 +276,10 @@ impl OpenAiCompatibleClient {
                     }
                 }
                 ChatRole::User => {
-                    if let Some(text) = text {
+                    if content.is_some() {
                         messages.push(OpenAiMessage {
                             role: "user".to_string(),
-                            content: Some(text),
+                            content,
                             tool_calls: None,
                             tool_call_id: None,
                         });
@@ -276,7 +293,7 @@ impl OpenAiCompatibleClient {
         if let Some(content) = new_message {
             messages.push(OpenAiMessage {
                 role: "user".to_string(),
-                content: Some(content.to_string()),
+                content: Some(Value::String(content.to_string())),
                 tool_calls: None,
                 tool_call_id: None,
             });
@@ -316,7 +333,7 @@ impl OpenAiCompatibleClient {
             Some(choice) => {
                 let mut blocks = Vec::new();
 
-                if let Some(text) = choice.message.content
+                if let Some(Value::String(text)) = choice.message.content
                     && !text.is_empty()
                 {
                     blocks.push(ProviderContentBlock::Text { text });
@@ -359,6 +376,23 @@ impl OpenAiCompatibleClient {
     }
 }
 
+/// Build content value: plain string when text-only, multipart array when images present.
+pub(crate) fn build_content_value(text_parts: &[String], image_parts: Vec<Value>) -> Option<Value> {
+    if text_parts.is_empty() && image_parts.is_empty() {
+        return None;
+    }
+    if image_parts.is_empty() {
+        return Some(Value::String(text_parts.join("\n")));
+    }
+    let mut parts: Vec<Value> = Vec::new();
+    let text = text_parts.join("\n");
+    if !text.is_empty() {
+        parts.push(serde_json::json!({"type": "text", "text": text}));
+    }
+    parts.extend(image_parts);
+    Some(Value::Array(parts))
+}
+
 #[async_trait::async_trait]
 impl Provider for OpenAiCompatibleClient {
     fn name(&self) -> &str {
@@ -386,7 +420,7 @@ impl Provider for OpenAiCompatibleClient {
             messages.push(system_msg);
         }
 
-        messages.extend(self.convert_messages(history, new_message));
+        messages.extend(self.convert_messages(history, new_message).await);
 
         let tool_definitions = if tools.is_empty() {
             None

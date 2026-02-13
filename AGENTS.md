@@ -34,7 +34,7 @@ Always update this file when:
 - T-KOMA: deterministic gateway service
 - Operator: approved end user
 - Interface: messaging endpoint for an operator (Discord, TUI/API)
-- Ghost: agent with its own DB/workspace
+- Ghost: agent with its own workspace and ghost-scoped data in the unified DB
 - Session: chat thread between an operator and a ghost
 - Heartbeat: background session health check; transcripts go to `job_logs`
 - Reflection: background knowledge curation run after heartbeat ticks; writes to
@@ -109,21 +109,21 @@ Make extensive use of MCPs available to you:
 
 ## Database Notes
 
-- SQLite storage for operators, ghosts, interfaces, sessions, and messages lives under
-  the platform data dir and ghost workspaces.
+- SQLite storage for operators, ghosts, interfaces, sessions, messages, job logs, and
+  usage logs lives in a unified DB under the platform data dir.
 - Schema defined in SQLx migrations: `t-koma-db/migrations/`.
 - SQLite runtime bootstrap lives in `t-koma-db/src/sqlite_runtime.rs` (sqlite-vec init,
   pool options, PRAGMAs).
 
 Key types:
 
-- `KomaDbPool`, `GhostDbPool`
+- `KomaDbPool`
 - `OperatorRepository`, `GhostRepository`, `InterfaceRepository`, `SessionRepository`,
   `JobLogRepository`, `UsageLogRepository`
 - `OperatorStatus`, `Platform`, `ContentBlock`
 - `JobLog`, `JobKind`, `TranscriptEntry`, `UsageLog`
 
-Ghost DB tables (beyond messages/sessions):
+Ghost-scoped tables (in unified DB):
 
 - `usage_log`: per-request token usage (input, output, cache_read, cache_creation).
   Linked to session_id.
@@ -137,7 +137,7 @@ Ghost DB tables (beyond messages/sessions):
 Background jobs (heartbeat, reflection) use `SessionChat::chat_job()` instead of
 `chat()`. This keeps their full transcript (prompt, tool calls, tool results, final
 response) out of the session `messages` table. Instead, each run is stored as a single
-row in the `job_logs` table (ghost DB) with the transcript as JSON.
+row in the `job_logs` table (unified DB) with the transcript as JSON.
 
 Job lifecycle: INSERT at start → UPDATE todos mid-run → UPDATE finish at end.
 
@@ -158,7 +158,7 @@ Path override knobs for testing:
 
 - `T_KOMA_CONFIG_DIR`: overrides config root dir used by `Settings` (expects
   `config.toml` inside this dir).
-- `T_KOMA_DATA_DIR`: overrides data root dir used by `KomaDbPool` and ghost workspace/DB
+- `T_KOMA_DATA_DIR`: overrides data root dir used by `KomaDbPool` and ghost workspace
   paths.
 
 Ghost tool state persistence:
@@ -167,8 +167,7 @@ Ghost tool state persistence:
 
 Test helpers:
 
-- `t_koma_db::test_helpers::create_test_koma_pool()`
-- `t_koma_db::test_helpers::create_test_ghost_pool(ghost_name)`
+- `t_koma_db::test_helpers::create_test_pool()`
 
 ## Architecture Rule
 
@@ -231,9 +230,7 @@ Use these detailed guides for feature-specific work:
 - `docs/dev/add-provider.md`
 - `docs/dev/add-interface.md`
 - `docs/dev/add-tool.md`
-- `docs/dev/mcp-usage.md`
 - `docs/dev/prompts-and-messages.md`
 - `docs/dev/background-jobs.md`
 - `docs/dev/knowledge-system.md`
 - `docs/dev/multi-model-fallback.md`
-- `docs/dev/assistant-first-tooling-migration.md`

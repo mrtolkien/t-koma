@@ -12,7 +12,6 @@ path = "src/main.rs"
 [dependencies]
 t-koma-core.workspace = true
 t-koma-db = { path = "../t-koma-db" }
-t-koma-oauth = { path = "../t-koma-oauth" }
 
 # Async runtime
 tokio.workspace = true
@@ -53,6 +52,3 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # Time
 chrono = { workspace = true }
 tempfile = "3"
-
-# Browser opener (OAuth flows)
-open = "5"

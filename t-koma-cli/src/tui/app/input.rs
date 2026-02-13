@@ -9,6 +9,11 @@ use super::{
 
 impl TuiApp {
     pub(super) async fn handle_key(&mut self, key: KeyEvent) {
+        if self.onboarding.is_some() {
+            self.handle_onboarding_key(key).await;
+            return;
+        }
+
         if self.modal.is_some() {
             self.handle_modal_key(key).await;
             return;
@@ -39,8 +44,53 @@ impl TuiApp {
                 self.scroll_half_page_down();
             }
             KeyCode::Enter => self.activate().await,
-            _ => self.handle_category_shortcuts(key).await,
+            KeyCode::Char(c) if self.focus == FocusPane::Options => {
+                if let Some(idx) = self.option_index_for_key(c) {
+                    self.options_idx = idx;
+                    self.activate_option().await;
+                    if self.prompt.kind.is_none() {
+                        self.focus = FocusPane::Content;
+                    }
+                } else if let Some(idx) = Self::category_index_for_key(c) {
+                    self.jump_to_category(idx).await;
+                }
+            }
+            KeyCode::Char(c) if self.focus == FocusPane::Categories => {
+                if let Some(idx) = Self::category_index_for_key(c) {
+                    self.jump_to_category(idx).await;
+                }
+            }
+            // Key priority for unmatched chars:
+            //  1. Context shortcuts (Gate filters, Operator approve/deny)
+            //  2. Option letter keys (from Content — same as pressing in Options)
+            //  3. Category number keys 1-6 (from Content — jump + focus Options)
+            _ => {
+                if !self.handle_category_shortcuts(key).await
+                    && let KeyCode::Char(c) = key.code
+                    && self.focus == FocusPane::Content
+                {
+                    if let Some(idx) = self.option_index_for_key(c) {
+                        self.options_idx = idx;
+                        self.activate_option().await;
+                    } else if let Some(idx) = Self::category_index_for_key(c) {
+                        self.jump_to_category(idx).await;
+                    }
+                }
+            }
         }
+    }
+
+    async fn jump_to_category(&mut self, idx: usize) {
+        self.category_idx = idx;
+        self.options_idx = 0;
+        self.content_idx = 0;
+        self.content_view = ContentView::List;
+        self.focus = if self.selected_category().has_options() {
+            FocusPane::Options
+        } else {
+            FocusPane::Content
+        };
+        self.sync_selection().await;
     }
 
     fn handle_esc(&mut self) {
@@ -286,7 +336,12 @@ impl TuiApp {
                     FocusPane::Content
                 };
             }
-            FocusPane::Options => self.activate_option().await,
+            FocusPane::Options => {
+                self.activate_option().await;
+                if self.prompt.kind.is_none() {
+                    self.focus = FocusPane::Content;
+                }
+            }
             FocusPane::Content => self.activate_content().await,
         }
     }
@@ -435,19 +490,27 @@ impl TuiApp {
         self.refresh_metrics().await;
     }
 
-    async fn handle_category_shortcuts(&mut self, key: KeyEvent) {
+    /// Context-specific shortcuts (Gate filters, Operator approve/deny).
+    /// Returns `true` if the key was consumed.
+    async fn handle_category_shortcuts(&mut self, key: KeyEvent) -> bool {
         if self.selected_category() != Category::Gate {
             if self.selected_category() == Category::Operators
                 && self.focus == FocusPane::Content
                 && self.operator_view == super::state::OperatorView::Pending
             {
                 match key.code {
-                    KeyCode::Char('a') => self.approve_selected_operator().await,
-                    KeyCode::Char('d') => self.deny_selected_operator().await,
+                    KeyCode::Char('a') => {
+                        self.approve_selected_operator().await;
+                        return true;
+                    }
+                    KeyCode::Char('d') => {
+                        self.deny_selected_operator().await;
+                        return true;
+                    }
                     _ => {}
                 }
             }
-            return;
+            return false;
         }
 
         match key.code {
@@ -472,8 +535,9 @@ impl TuiApp {
             KeyCode::Char('5') => self.gate_filter = GateFilter::Transport,
             KeyCode::Char('6') => self.gate_filter = GateFilter::Error,
             KeyCode::Esc => self.gate_search = None,
-            _ => {}
+            _ => return false,
         }
+        true
     }
 
     pub(super) fn begin_prompt(
@@ -539,14 +603,6 @@ impl TuiApp {
                             self.write_provider_api_key(&provider, &input);
                         } else {
                             self.status = "No provider selected".to_string();
-                        }
-                    }
-                    Some(PromptKind::OAuthCodePaste) => {
-                        if input.is_empty() {
-                            self.status = "OAuth code paste cancelled".to_string();
-                            self.oauth_pending = None;
-                        } else {
-                            self.finish_oauth_code_paste(&input).await;
                         }
                     }
                     None => {}

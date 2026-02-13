@@ -5,7 +5,7 @@ use t_koma_core::{GatewayMessage, GatewayMessageKind};
 use crate::content::ids;
 use crate::gateway_message;
 use crate::session::{ChatError, ToolApprovalDecision};
-use crate::state::{AppState, ToolCallSummary};
+use crate::state::{AppState, ChatUsage, ToolCallSummary};
 use crate::tools::context::ApprovalReason;
 
 #[derive(Debug, Clone)]
@@ -88,6 +88,32 @@ pub async fn run_chat_with_pending(
     content: &str,
     tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
 ) -> Result<Vec<OutboundMessage>, ChatError> {
+    run_chat_with_pending_and_attachments(
+        state,
+        interface,
+        model_alias,
+        ghost_name,
+        session_id,
+        operator_id,
+        content,
+        vec![],
+        tool_call_tx,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_chat_with_pending_and_attachments(
+    state: &AppState,
+    interface: Option<&str>,
+    model_alias: Option<&str>,
+    ghost_name: &str,
+    session_id: &str,
+    operator_id: &str,
+    content: &str,
+    attachments: Vec<t_koma_db::ContentBlock>,
+    tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
+) -> Result<Vec<OutboundMessage>, ChatError> {
     let streamed = tool_call_tx.is_some();
 
     let result = match model_alias {
@@ -99,13 +125,21 @@ pub async fn run_chat_with_pending(
                     session_id,
                     operator_id,
                     content,
+                    attachments,
                     tool_call_tx,
                 )
                 .await
         }
         None => {
             state
-                .chat_detailed(ghost_name, session_id, operator_id, content, tool_call_tx)
+                .chat_detailed(
+                    ghost_name,
+                    session_id,
+                    operator_id,
+                    content,
+                    attachments,
+                    tool_call_tx,
+                )
                 .await
         }
     };
@@ -119,11 +153,17 @@ pub async fn run_chat_with_pending(
                     interface,
                 )));
             }
+            let tool_count = result.tool_calls.len();
             // Only batch tool calls if they weren't already streamed
             if !streamed && !result.tool_calls.is_empty() && state.is_verbose(operator_id).await {
                 out.push(OutboundMessage::ToolCalls(result.tool_calls));
             }
-            out.push(OutboundMessage::assistant(result.text));
+            let text = if result.statusline && !result.model_alias.is_empty() {
+                format_with_statusline(&result.text, &result.model_alias, tool_count, &result.usage)
+            } else {
+                result.text
+            };
+            out.push(OutboundMessage::assistant(text));
             Ok(out)
         }
         Err(ChatError::ToolApprovalRequired(pending)) => {
@@ -254,6 +294,47 @@ pub async fn run_tool_control_command(
     }
 }
 
+fn format_with_statusline(
+    text: &str,
+    model_alias: &str,
+    tool_count: usize,
+    usage: &ChatUsage,
+) -> String {
+    let tools_part = if tool_count > 0 {
+        format!(
+            " | {tool_count} tool{}",
+            if tool_count == 1 { "" } else { "s" }
+        )
+    } else {
+        String::new()
+    };
+    let tokens_part = format!(
+        " | {}↑ {}↓",
+        format_token_count(usage.input_tokens),
+        format_token_count(usage.output_tokens),
+    );
+    let turns_part = if usage.turn_count > 1 {
+        format!(
+            " | {} turn{}",
+            usage.turn_count,
+            if usage.turn_count == 1 { "" } else { "s" }
+        )
+    } else {
+        String::new()
+    };
+    format!("{text}\n─\n`{model_alias}{tokens_part}{tools_part}{turns_part}`")
+}
+
+fn format_token_count(count: u32) -> String {
+    if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 1_000 {
+        format!("{:.1}k", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
+    }
+}
+
 pub fn spawn_reflection_for_previous_session(
     state: &Arc<AppState>,
     ghost_name: &str,
@@ -277,4 +358,59 @@ pub fn spawn_reflection_for_previous_session(
         )
         .await;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn usage(input: u32, output: u32, turns: u32) -> ChatUsage {
+        ChatUsage {
+            input_tokens: input,
+            output_tokens: output,
+            turn_count: turns,
+        }
+    }
+
+    #[test]
+    fn test_statusline_text_only() {
+        let u = usage(500, 200, 1);
+        let result = format_with_statusline("Hello", "claude-sonnet", 0, &u);
+        assert_eq!(result, "Hello\n─\n`claude-sonnet | 500↑ 200↓`");
+    }
+
+    #[test]
+    fn test_statusline_single_tool() {
+        let u = usage(1200, 350, 2);
+        let result = format_with_statusline("Done", "gpt-4o", 1, &u);
+        assert_eq!(result, "Done\n─\n`gpt-4o | 1.2k↑ 350↓ | 1 tool | 2 turns`");
+    }
+
+    #[test]
+    fn test_statusline_multiple_tools() {
+        let u = usage(15000, 4200, 4);
+        let result = format_with_statusline("Done", "gemini-2", 3, &u);
+        assert_eq!(
+            result,
+            "Done\n─\n`gemini-2 | 15.0k↑ 4.2k↓ | 3 tools | 4 turns`"
+        );
+    }
+
+    #[test]
+    fn test_statusline_large_tokens() {
+        let u = usage(1_500_000, 250_000, 1);
+        let result = format_with_statusline("Hi", "model", 0, &u);
+        assert_eq!(result, "Hi\n─\n`model | 1.5M↑ 250.0k↓`");
+    }
+
+    #[test]
+    fn test_format_token_count() {
+        assert_eq!(format_token_count(0), "0");
+        assert_eq!(format_token_count(999), "999");
+        assert_eq!(format_token_count(1000), "1.0k");
+        assert_eq!(format_token_count(1500), "1.5k");
+        assert_eq!(format_token_count(999_999), "1000.0k");
+        assert_eq!(format_token_count(1_000_000), "1.0M");
+        assert_eq!(format_token_count(2_500_000), "2.5M");
+    }
 }

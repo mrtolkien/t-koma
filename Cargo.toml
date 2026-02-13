@@ -5,7 +5,6 @@ members = [
   "t-koma-db",
   "t-koma-gateway",
   "t-koma-knowledge",
-  "t-koma-oauth",
 ]
 resolver = "2"
 
@@ -13,7 +12,7 @@ resolver = "2"
 version = "0.1.0"
 authors = ["t-koma contributors"]
 edition = "2024"
-license = "MIT"
+license = "None"
 repository = "https://github.com/tolki/t-koma"
 
 [workspace.dependencies]

@@ -56,6 +56,17 @@ impl Category {
         }
     }
 
+    pub fn key(self) -> char {
+        match self {
+            Self::Gate => '1',
+            Self::Config => '2',
+            Self::Operators => '3',
+            Self::Ghosts => '4',
+            Self::Jobs => '5',
+            Self::Knowledge => '6',
+        }
+    }
+
     pub fn has_options(self) -> bool {
         !matches!(self, Self::Gate)
     }

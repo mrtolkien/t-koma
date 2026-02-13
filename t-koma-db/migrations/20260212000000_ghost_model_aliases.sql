@@ -1,6 +1,6 @@
--- Per-ghost model alias override (JSON array of alias strings, e.g. '["kimi25","gemma3"]').
--- NULL means "use the system default_model chain".
-ALTER TABLE
-  ghosts
-ADD
-  COLUMN model_aliases TEXT;
+-- Per-ghost model alias override.
+-- Stores a JSON-encoded ModelAliases (single string or list) so each ghost can
+-- use a different model chain than the global default_model.
+--
+-- No-op: model_aliases was folded into the unified schema
+-- (20260210000000_unified_schema.sql). Kept for migration ordering.

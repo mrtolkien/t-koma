@@ -43,6 +43,22 @@ pub enum ContentBlock {
     Text {
         text: String,
     },
+    Image {
+        /// Absolute path to the image file on disk.
+        path: String,
+        /// MIME type (e.g. "image/png", "image/jpeg").
+        mime_type: String,
+        /// Original filename from the upload source.
+        filename: String,
+    },
+    File {
+        /// Absolute path to the file on disk.
+        path: String,
+        /// Original filename from the upload source.
+        filename: String,
+        /// File size in bytes.
+        size: u64,
+    },
     ToolUse {
         id: String,
         name: String,

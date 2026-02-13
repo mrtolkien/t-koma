@@ -1,7 +1,7 @@
 # t-koma
 
-A Rust-based AI system with multi-provider model support, featuring the T-KOMA
-(ティーコマ) server and a terminal UI client.
+Deterministic AI gateway in Rust, with persistent ghost workspaces, background
+reflection, and multi-model fallback.
 
 ## Status
 
@@ -12,97 +12,97 @@ Only one runtime path is currently supported: run the compiled binaries directly
 
 ## Overview
 
-t-koma is an AI system consisting of:
+This project is in an extremely early stage and is experimental. Expect breaking changes
+and rough edges.
 
-- **t-koma-gateway**: The T-KOMA (ティーコマ) server that proxies requests to the
-  configured model provider and manages operators/ghosts
-- **t-koma-cli**: A terminal UI client (interface) for interacting with the system
-- **t-koma-core**: Shared types and configuration
+Only one runtime path is currently supported: run the compiled binaries directly.
 
-## Features
+`t-koma` is built for people who want an agent they can run, inspect, and evolve over
+time, instead of a stateless chat window.
 
-- 🤖 **Multi-provider Models**: Supports Anthropic and OpenRouter via a unified provider
-  interface
-- 🌐 **WebSocket Communication**: Real-time bidirectional messaging between CLI and
-  T-KOMA
-- 🖥️ **Terminal UI**: Built with ratatui for a rich terminal experience
-- 🚀 **Auto-start for Chat**: CLI can start T-KOMA for chat sessions
-- 👤 **Operator + Ghost Model**: Operators own ghosts, with per-ghost sessions
-- 🗃️ **Per-Ghost Storage**: Each ghost has its own database and workspace
-- 🔧 **Configurable**: Environment-based configuration with `.env` file support
-- ✅ **Tested**: Unit tests and live API integration tests
+## Why t-koma
+
+- Strong separation of concerns: transport, orchestration, providers, tools
+- Persistent memory model: notes, references, diary, embeddings search
+- Background maintenance: heartbeat and reflection jobs with full job transcripts
+- Multi-provider model chains with circuit-breaker fallback
+- Local-first operational model: SQLite, filesystem workspaces, plain config
+
+## What You Run
+
+- `t-koma-gateway`: gateway server (providers, sessions, tools, scheduling)
+- `t-koma-cli`: terminal UI client
+- `t-koma-core`: shared types/config/message schema
+- `t-koma-db`: unified SQLite layer
+- `t-koma-knowledge`: knowledge indexing and retrieval
 
 ## Quick Start
 
 ### Prerequisites
 
-- Rust 1.85+ (2024 edition)
-- API key for your chosen provider (Anthropic and/or OpenRouter)
+- Rust `1.85+`
+- At least one provider API key (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
+  `GEMINI_API_KEY`, `KIMI_API_KEY`, or `OPENAI_API_KEY` for openai-compatible endpoints)
 
-### Installation
+### Build
 
 ```bash
-# Clone the repository
 git clone https://github.com/tolki/t-koma
 cd t-koma
-
-# Build release binaries
 cargo build --release
-
-# Set up environment
 cp .env.example .env
-# Edit .env and add your provider API keys
+# edit .env with your keys
 ```
 
-### Usage
+### Run
 
-Run both components from compiled binaries:
+Run gateway + TUI from the compiled binaries:
 
 ```bash
-# Terminal 1: Start T-KOMA
 ./target/release/t-koma-gateway
-
-# Terminal 2: Start the TUI
 ./target/release/t-koma-cli
 ```
 
-### Operator/Ghost Flow
+## Operator and Ghost Flow
 
-1. First message on an interface (Discord or TUI) prompts whether the interface belongs
-   to a NEW or EXISTING operator.
-2. NEW operator creation is supported; EXISTING operator linking is not yet implemented.
-3. Operators must be approved via the management CLI before interacting.
-4. GHOST creation happens in Discord. The bot prompts for a name, then boots the GHOST
-   with `prompts/system/bootstrap.md` as the first user message.
-
-### TUI Controls
-
-| Key               | Action           |
-| ----------------- | ---------------- |
-| `Enter`           | Send message     |
-| `Esc` or `Ctrl+C` | Quit             |
-| `Backspace`       | Delete character |
-| `←` `→`           | Move cursor      |
+1. First contact asks `new` vs `existing` operator.
+2. New operator flow is implemented.
+3. Existing-operator linking is not fully implemented yet.
+4. Approved operators can create and chat with ghosts.
 
 ## Configuration
 
-Configuration is loaded from a TOML file and environment variables:
+Config file:
 
-- Settings: `~/.config/t-koma/config.toml` (Linux/macOS) or
-  `%APPDATA%/t-koma/config.toml` (Windows)
-- Secrets: `.env` or environment variables for API keys
+- Linux: `~/.config/t-koma/config.toml`
+- macOS: `~/Library/Application Support/t-koma/config.toml`
+- Windows: `%APPDATA%/t-koma/config.toml`
+- Override root with `T_KOMA_CONFIG_DIR`
 
-### Example `config.toml`
+Data root:
+
+- Linux: `~/.local/share/t-koma/`
+- macOS: `~/Library/Application Support/t-koma/`
+- Override root with `T_KOMA_DATA_DIR`
+
+Core data paths:
+
+- `koma.sqlite3`: unified DB (operators, ghosts, interfaces, sessions, messages, usage,
+  job logs)
+- `ghosts/<name>/`: ghost workspace
+- `shared/`: shared knowledge files and index
+
+Example `config.toml`:
 
 ```toml
 default_model = "primary"
-heartbeat_model = "fallback"
+heartbeat_model = ["fallback", "primary"]
 
 [models]
 [models.primary]
 provider = "openrouter"
-model = "your-openrouter-model-id"
-routing = ["anthropic"] # optional OpenRouter provider order
+model = "anthropic/claude-sonnet-4-5-20250929"
+routing = ["anthropic"]
 
 [models.fallback]
 provider = "openai_compatible"
@@ -112,146 +112,69 @@ base_url = "http://127.0.0.1:8080"
 [gateway]
 host = "127.0.0.1"
 port = 3000
+
+[heartbeat_timing]
+idle_minutes = 4
+check_seconds = 60
+continue_minutes = 30
 ```
 
-### Example `.env`
+## API Surface
+
+- `GET /health`
+- `WS /ws` (interactive session transport)
+- `WS /logs` (log streaming)
+
+## Docs (mdBook)
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
-OPENROUTER_API_KEY=sk-or-...
-OPENAI_API_KEY=sk-openai-...
-```
-
-## API Endpoints
-
-T-KOMA exposes the following HTTP endpoints:
-
-### `GET /health`
-
-Health check endpoint.
-
-**Response:**
-
-```json
-{
-  "status": "ok",
-  "version": "0.1.0",
-  "koma": "running"
-}
-```
-
-### `POST /chat`
-
-Send a message to the configured provider.
-
-**Request:**
-
-```json
-{
-  "content": "Hello!"
-}
-```
-
-**Response:**
-
-```json
-{
-  "id": "msg_01ABC123",
-  "content": "Hello! How can I help?",
-  "model": "your-model-id",
-  "usage": {
-    "input_tokens": 10,
-    "output_tokens": 15
-  }
-}
-```
-
-### `WS /ws`
-
-WebSocket endpoint for real-time communication.
-
-**Client → Server:**
-
-```json
-{ "type": "chat", "content": "Hello!" }
-```
-
-**Server → Client:**
-
-```json
-{
-  "type": "response",
-  "id": "msg_01ABC123",
-  "content": "Hello! How can I help?",
-  "done": true
-}
+just doc         # build docs to docs/book
+just doc-serve   # local live preview
 ```
 
 ## Development
 
-### Running Tests
-
 ```bash
-# Run all unit tests (fast, no API calls)
-cargo test
-
-# Run live integration tests (requires ANTHROPIC_API_KEY)
-cargo test --features live-tests
+just check
+just clippy
+just test
+just fmt
 ```
 
-### Code Quality
+Other useful commands:
 
 ```bash
-# Run clippy
-cargo clippy --all-targets --all-features
-
-# Format all code (Rust, Markdown, SQL)
-just fmt                     # Format everything
-
-# Or format individually:
-just fmt-rust                # Rust code only
-just fmt-md                  # Markdown only
-just fmt-sql                 # SQL only
-
-# Check formatting without modifying files
-just check-fmt
-
-# Full CI pipeline (format check + clippy + tests)
+just run-gateway
+just run-cli
 just ci
 ```
 
-See [FORMATTING.md](./FORMATTING.md) for detailed formatting documentation.
+## Architecture Snapshot
 
-## Architecture
-
+```text
+CLI / Discord / WS transports
+            |
+            v
+      Session orchestration
+            |
+            v
+      Provider abstraction
+            |
+            v
+      External model APIs
 ```
-┌─────────────┐     WebSocket      ┌─────────────┐     HTTP      ┌────────────┐
-│  t-koma-cli │ ◄────────────────► │  T-KOMA     │ ◄───────────► │ Provider   │
-│   (TUI)     │                    │             │               │    APIs    │
-└─────────────┘                    └─────────────┘               └────────────┘
-```
 
-- **t-koma-cli**: ratatui-based TUI, connects via WebSocket
-- **t-koma-gateway**: axum HTTP server (T-KOMA), proxies to provider APIs
-- **t-koma-core**: Shared types (messages, config)
+Key rule: transports do not orchestrate chat/tool logic. `SessionChat` does.
 
-### Resetting the Database
-
-For /testing, delete the database file:
+## Reset Local State
 
 ```bash
 # Linux
-rm ~/.local/share/t-koma/db.sqlite3
+rm ~/.local/share/t-koma/koma.sqlite3
 
 # macOS
-rm ~/Library/Application\ Support/t-koma/db.sqlite3
+rm ~/Library/Application\ Support/t-koma/koma.sqlite3
 ```
 
-The database will be recreated with migrations on next startup.
-
-## Acknowledgments
-
-- Built with [axum](https://github.com/tokio-rs/axum),
-  [ratatui](https://github.com/ratatui/ratatui), and
-  [tokio](https://github.com/tokio-rs/tokio)
-- Powered by external LLM provider APIs
+Knowledge and workspace files remain under `shared/` and `ghosts/` unless you remove
+them.

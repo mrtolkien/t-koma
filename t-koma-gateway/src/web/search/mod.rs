@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::web::cache::TimedCache;
 
 pub mod brave;
+pub mod perplexity;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchQuery {
@@ -37,8 +38,8 @@ pub enum SearchError {
     Disabled,
     #[error("unsupported web search provider: {0}")]
     UnsupportedProvider(String),
-    #[error("missing Brave API key (BRAVE_API_KEY)")]
-    MissingApiKey,
+    #[error("missing API key ({0})")]
+    MissingApiKey(&'static str),
     #[error("rate limited, retry after {0:?}")]
     RateLimited(Duration),
     #[error("request failed: {0}")]

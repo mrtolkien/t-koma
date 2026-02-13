@@ -512,6 +512,7 @@ impl TuiApp {
                 routing: None,
                 context_window: None,
                 headers: None,
+                retry_on_empty: None,
             },
         );
         self.settings_dirty = true;
@@ -751,14 +752,6 @@ impl TuiApp {
                     label: "Kimi Code".to_string(),
                     value: "kimi_code".to_string(),
                 },
-                SelectionItem {
-                    label: "Anthropic (OAuth)".to_string(),
-                    value: "anthropic_oauth".to_string(),
-                },
-                SelectionItem {
-                    label: "OpenAI Codex (OAuth)".to_string(),
-                    value: "openai_codex".to_string(),
-                },
             ],
             selected_idx: 0,
             on_select: SelectionAction::SelectProvider,
@@ -779,11 +772,9 @@ impl TuiApp {
                 self.set_operator_access_level(&operator_id, &selected.value)
                     .await;
             }
-            SelectionAction::SelectProvider => match selected.value.as_str() {
-                "anthropic_oauth" => self.start_oauth_anthropic(),
-                "openai_codex" => self.start_oauth_callback("openai_codex").await,
-                _ => self.show_provider_instructions_and_prompt(&selected.value),
-            },
+            SelectionAction::SelectProvider => {
+                self.show_provider_instructions_and_prompt(&selected.value);
+            }
         }
     }
 
@@ -795,117 +786,6 @@ impl TuiApp {
         );
     }
 
-    /// Anthropic OAuth: generate auth URL, open browser, show code paste prompt.
-    fn start_oauth_anthropic(&mut self) {
-        let (url, pkce) = t_koma_oauth::providers::anthropic::authorize_url();
-        self.oauth_pending = Some(super::state::OAuthPendingState {
-            provider: "anthropic_oauth".to_string(),
-            pkce,
-        });
-        if let Err(e) = open::that(&url) {
-            self.status = format!("Failed to open browser: {e}");
-            return;
-        }
-        self.begin_prompt(
-            PromptKind::OAuthCodePaste,
-            Some("anthropic_oauth".to_string()),
-            None,
-        );
-    }
-
-    /// Callback-based OAuth (Codex): open browser, run callback server in background.
-    async fn start_oauth_callback(&mut self, provider: &str) {
-        let (url, pkce, _state, port, path) = match provider {
-            "openai_codex" => {
-                let (url, pkce, state) = t_koma_oauth::providers::openai_codex::authorize_url();
-                (url, pkce, state, 1455u16, "/auth/callback".to_string())
-            }
-            _ => {
-                self.status = format!("Unknown OAuth callback provider: {provider}");
-                return;
-            }
-        };
-
-        if let Err(e) = open::that(&url) {
-            self.status = format!("Failed to open browser: {e}");
-            return;
-        }
-
-        self.status = format!("Waiting for {provider} login in browser...");
-        let provider_name = provider.to_string();
-
-        let result = tokio::spawn(async move {
-            let callback =
-                t_koma_oauth::callback_server::wait_for_callback(port, &path, 120).await?;
-            let token = match provider_name.as_str() {
-                "openai_codex" => {
-                    t_koma_oauth::providers::openai_codex::exchange_code(&callback.code, &pkce)
-                        .await?
-                }
-                _ => return Err(t_koma_oauth::OAuthError::TokenExchange("unknown".into())),
-            };
-            let mut store = t_koma_oauth::TokenStore::load()?;
-            store.set(token.clone());
-            store.save()?;
-            Ok::<t_koma_oauth::OAuthToken, t_koma_oauth::OAuthError>(token)
-        })
-        .await;
-
-        match result {
-            Ok(Ok(token)) => {
-                self.status = format!("OAuth login successful for {}!", token.provider);
-            }
-            Ok(Err(e)) => {
-                self.status = format!("OAuth login failed: {e}");
-            }
-            Err(e) => {
-                self.status = format!("OAuth task failed: {e}");
-            }
-        }
-    }
-
-    /// Complete Anthropic OAuth code paste: exchange code for token.
-    pub(super) async fn finish_oauth_code_paste(&mut self, code: &str) {
-        let Some(pending) = self.oauth_pending.take() else {
-            self.status = "No pending OAuth flow".to_string();
-            return;
-        };
-
-        self.status = format!("Exchanging {} authorization code...", pending.provider);
-
-        let result = match pending.provider.as_str() {
-            "anthropic_oauth" => {
-                t_koma_oauth::providers::anthropic::exchange_code(code, &pending.pkce).await
-            }
-            _ => {
-                self.status = format!("Unexpected OAuth provider: {}", pending.provider);
-                return;
-            }
-        };
-
-        match result {
-            Ok(token) => {
-                match t_koma_oauth::TokenStore::load() {
-                    Ok(mut store) => {
-                        store.set(token.clone());
-                        if let Err(e) = store.save() {
-                            self.status = format!("Token save failed: {e}");
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        self.status = format!("Token store load failed: {e}");
-                        return;
-                    }
-                }
-                self.status = format!("OAuth login successful for {}!", token.provider);
-            }
-            Err(e) => {
-                self.status = format!("OAuth code exchange failed: {e}");
-            }
-        }
-    }
-
     pub(super) fn write_provider_api_key(&mut self, provider: &str, api_key: &str) {
         let env_var = match provider {
             "anthropic" => "ANTHROPIC_API_KEY",
@@ -913,10 +793,6 @@ impl TuiApp {
             "gemini" => "GEMINI_API_KEY",
             "openai_compatible" => "OPENAI_API_KEY",
             "kimi_code" => "KIMI_API_KEY",
-            "anthropic_oauth" | "openai_codex" => {
-                self.status = format!("{}: use OAuth login (no API key needed)", provider);
-                return;
-            }
             _ => {
                 self.status = format!("Unknown provider: {}", provider);
                 return;
@@ -1237,7 +1113,10 @@ fn last_message_line_offset(messages: &[Message]) -> u16 {
 fn content_block_line_count(block: &ContentBlock) -> u16 {
     match block {
         ContentBlock::Text { text } => text.lines().count().max(1) as u16,
-        ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. } => 1,
+        ContentBlock::ToolUse { .. }
+        | ContentBlock::ToolResult { .. }
+        | ContentBlock::Image { .. }
+        | ContentBlock::File { .. } => 1,
     }
 }
 

@@ -24,6 +24,24 @@ pub enum ChatContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    Image {
+        /// Absolute path to the image file on disk.
+        path: String,
+        /// MIME type (e.g. "image/png").
+        mime_type: String,
+        /// Original filename.
+        filename: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    File {
+        /// Absolute path to the file on disk.
+        path: String,
+        /// Original filename.
+        filename: String,
+        /// File size in bytes.
+        size: u64,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -136,6 +154,25 @@ fn convert_content_block(
             is_error: *is_error,
             cache_control: None,
         },
+        ContentBlock::Image {
+            path,
+            mime_type,
+            filename,
+        } => ChatContentBlock::Image {
+            path: path.clone(),
+            mime_type: mime_type.clone(),
+            filename: filename.clone(),
+            cache_control: None,
+        },
+        ContentBlock::File {
+            path,
+            filename,
+            size,
+        } => ChatContentBlock::File {
+            path: path.clone(),
+            filename: filename.clone(),
+            size: *size,
+        },
     }
 }
 
@@ -179,6 +216,78 @@ pub fn build_tool_result_message(results: Vec<ToolResultData>) -> ChatMessage {
     ChatMessage {
         role: ChatRole::User,
         content,
+    }
+}
+
+/// Maximum dimension (width or height) for images sent to LLM providers.
+///
+/// Images larger than this are resized down, preserving aspect ratio.
+/// 1568px matches Anthropic's recommended maximum for optimal token usage.
+const IMAGE_MAX_DIMENSION: u32 = 1568;
+
+/// Read an image file, resize if needed, and return (base64_data, mime_type).
+///
+/// Large images are resized to fit within [`IMAGE_MAX_DIMENSION`] and
+/// re-encoded as JPEG (quality 85) to reduce token cost.  If the image
+/// is already small enough, the original bytes are returned as-is.
+///
+/// Returns `None` if the file cannot be read (e.g. deleted after storage).
+pub async fn load_image_base64(path: &str) -> Option<(String, String)> {
+    use base64::Engine;
+    let data = tokio::fs::read(path).await.ok()?;
+
+    match compress_image(&data) {
+        Some((compressed, mime)) => {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&compressed);
+            Some((encoded, mime))
+        }
+        None => {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+            let mime = mime_from_path(path).to_string();
+            Some((encoded, mime))
+        }
+    }
+}
+
+/// Resize and compress an image if it exceeds [`IMAGE_MAX_DIMENSION`].
+///
+/// Returns `Some((bytes, mime_type))` when compression was applied,
+/// `None` if the image is already small enough or cannot be decoded.
+fn compress_image(data: &[u8]) -> Option<(Vec<u8>, String)> {
+    use image::ImageReader;
+    use std::io::Cursor;
+
+    let reader = ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .ok()?;
+    let img = reader.decode().ok()?;
+
+    let (w, h) = (img.width(), img.height());
+    let max_dim = w.max(h);
+    if max_dim <= IMAGE_MAX_DIMENSION {
+        return None;
+    }
+
+    let resized = img.resize(
+        IMAGE_MAX_DIMENSION,
+        IMAGE_MAX_DIMENSION,
+        image::imageops::FilterType::Lanczos3,
+    );
+
+    let mut buf = Cursor::new(Vec::new());
+    resized.write_to(&mut buf, image::ImageFormat::Jpeg).ok()?;
+    Some((buf.into_inner(), "image/jpeg".to_string()))
+}
+
+fn mime_from_path(path: &str) -> &str {
+    let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
     }
 }
 

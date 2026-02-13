@@ -62,19 +62,12 @@ pub struct Ghost {
     pub name: String,
     pub owner_operator_id: String,
     pub cwd: Option<String>,
-    /// Per-ghost model alias override (JSON array of alias strings).
-    /// `None` means "use the system default_model chain".
+    /// JSON-encoded model alias override (single string or list).
+    /// When set, this ghost uses its own model chain instead of the global default.
     pub model_aliases: Option<String>,
+    /// Whether to append a metadata statusline to each response.
+    pub statusline: bool,
     pub created_at: i64,
-}
-
-impl Ghost {
-    /// Parse the stored `model_aliases` JSON into a `Vec<String>`.
-    /// Returns `None` when no override is set.
-    pub fn model_chain(&self) -> Option<Vec<String>> {
-        let json = self.model_aliases.as_deref()?;
-        serde_json::from_str::<Vec<String>>(json).ok()
-    }
 }
 
 /// Ghost tool state (cwd only)
@@ -125,7 +118,7 @@ impl GhostRepository {
     /// Get ghost by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
              FROM ghosts
              WHERE id = ?",
         )
@@ -139,7 +132,7 @@ impl GhostRepository {
     /// Get ghost by name
     pub async fn get_by_name(pool: &SqlitePool, name: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
              FROM ghosts
              WHERE name = ?",
         )
@@ -156,7 +149,7 @@ impl GhostRepository {
         owner_operator_id: &str,
     ) -> DbResult<Vec<Ghost>> {
         let rows = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
              FROM ghosts
              WHERE owner_operator_id = ?
              ORDER BY created_at ASC",
@@ -171,7 +164,7 @@ impl GhostRepository {
     /// List all ghosts.
     pub async fn list_all(pool: &SqlitePool) -> DbResult<Vec<Ghost>> {
         let rows = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
              FROM ghosts
              ORDER BY created_at ASC",
         )
@@ -223,16 +216,37 @@ impl GhostRepository {
         Ok(())
     }
 
-    /// Update the per-ghost model alias override.
-    /// Pass `None` to clear the override (reverts to system default).
+    /// Update the model alias override for a ghost by name.
+    ///
+    /// Pass `None` to clear the override (revert to global default).
+    /// Pass `Some(json)` with a JSON-encoded `ModelAliases` value.
     pub async fn update_model_aliases(
         pool: &SqlitePool,
         name: &str,
-        aliases: Option<&[String]>,
+        model_aliases: Option<&str>,
     ) -> DbResult<()> {
-        let json = aliases.map(|a| serde_json::to_string(a).expect("alias vec is serializable"));
-        let updated = sqlx::query("UPDATE ghosts SET model_aliases = ? WHERE name = ?")
-            .bind(&json)
+        let updated = sqlx::query(
+            "UPDATE ghosts
+             SET model_aliases = ?
+             WHERE name = ?",
+        )
+        .bind(model_aliases)
+        .bind(name)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+        if updated == 0 {
+            return Err(DbError::GhostNotFound(name.to_string()));
+        }
+
+        Ok(())
+    }
+
+    /// Toggle the statusline preference for a ghost.
+    pub async fn set_statusline(pool: &SqlitePool, name: &str, enabled: bool) -> DbResult<()> {
+        let updated = sqlx::query("UPDATE ghosts SET statusline = ? WHERE name = ?")
+            .bind(enabled)
             .bind(name)
             .execute(pool)
             .await?
@@ -267,6 +281,7 @@ struct GhostRow {
     owner_operator_id: String,
     cwd: Option<String>,
     model_aliases: Option<String>,
+    statusline: bool,
     created_at: i64,
 }
 
@@ -283,6 +298,7 @@ impl From<GhostRow> for Ghost {
             owner_operator_id: row.owner_operator_id,
             cwd: row.cwd,
             model_aliases: row.model_aliases,
+            statusline: row.statusline,
             created_at: row.created_at,
         }
     }
@@ -364,7 +380,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_model_aliases_lifecycle() {
+    async fn test_set_statusline() {
         let db = create_test_pool().await.unwrap();
         let pool = db.pool();
 
@@ -380,35 +396,27 @@ mod tests {
         let ghost = GhostRepository::create(pool, &operator.id, "Alpha")
             .await
             .unwrap();
+        assert!(!ghost.statusline);
 
-        // New ghosts have no model override
-        assert!(ghost.model_aliases.is_none());
-        assert!(ghost.model_chain().is_none());
-
-        // Set a model override
-        let aliases = vec!["kimi25".to_string(), "gemma3".to_string()];
-        GhostRepository::update_model_aliases(pool, "Alpha", Some(&aliases))
+        GhostRepository::set_statusline(pool, "Alpha", true)
             .await
             .unwrap();
-
-        let ghost = GhostRepository::get_by_name(pool, "Alpha")
+        let updated = GhostRepository::get_by_name(pool, "Alpha")
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(
-            ghost.model_chain(),
-            Some(vec!["kimi25".to_string(), "gemma3".to_string()])
-        );
+        assert!(updated.statusline);
 
-        // Reset to default
-        GhostRepository::update_model_aliases(pool, "Alpha", None)
+        GhostRepository::set_statusline(pool, "Alpha", false)
             .await
             .unwrap();
-
-        let ghost = GhostRepository::get_by_name(pool, "Alpha")
+        let toggled = GhostRepository::get_by_name(pool, "Alpha")
             .await
             .unwrap()
             .unwrap();
-        assert!(ghost.model_chain().is_none());
+        assert!(!toggled.statusline);
+
+        let err = GhostRepository::set_statusline(pool, "nonexistent", true).await;
+        assert!(err.is_err());
     }
 }

@@ -191,7 +191,8 @@ impl AnthropicClient {
             history,
             new_message,
             message_limit,
-        );
+        )
+        .await;
 
         // Build tool definitions
         let tool_definitions = if tools.is_empty() {

@@ -4,15 +4,48 @@
 //! `t-koma-knowledge`. They are created from the user-facing
 //! `KnowledgeToolsSettings` TOML structs via `From`.
 
+use std::fmt;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
 use super::settings::{KnowledgeSearchSettings, KnowledgeToolsSettings};
 
+/// Which embedding backend to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingProviderKind {
+    #[default]
+    Ollama,
+    OpenRouter,
+}
+
+impl fmt::Display for EmbeddingProviderKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ollama => write!(f, "ollama"),
+            Self::OpenRouter => write!(f, "openrouter"),
+        }
+    }
+}
+
+impl FromStr for EmbeddingProviderKind {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ollama" => Ok(Self::Ollama),
+            "openrouter" | "open_router" => Ok(Self::OpenRouter),
+            other => Err(format!("unknown embedding provider: {other}")),
+        }
+    }
+}
+
 /// Resolved knowledge engine settings (all values filled with defaults).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeSettings {
+    #[serde(default)]
+    pub embedding_provider: EmbeddingProviderKind,
     #[serde(default = "default_embedding_url")]
     pub embedding_url: String,
     #[serde(default = "default_embedding_model")]
@@ -37,6 +70,7 @@ pub struct KnowledgeSettings {
 impl Default for KnowledgeSettings {
     fn default() -> Self {
         Self {
+            embedding_provider: EmbeddingProviderKind::default(),
             embedding_url: default_embedding_url(),
             embedding_model: default_embedding_model(),
             embedding_dim: None,
@@ -46,6 +80,14 @@ impl Default for KnowledgeSettings {
             data_root_override: None,
             search: SearchDefaults::default(),
         }
+    }
+}
+
+impl KnowledgeSettings {
+    /// Composite key that identifies the current embedding configuration.
+    /// When this changes, all existing embeddings must be recomputed.
+    pub fn embedding_fingerprint(&self) -> String {
+        format!("{}:{}", self.embedding_provider, self.embedding_model)
     }
 }
 
@@ -85,6 +127,10 @@ impl Default for SearchDefaults {
 
 fn default_embedding_url() -> String {
     "http://127.0.0.1:11434".to_string()
+}
+
+fn default_openrouter_embedding_url() -> String {
+    "https://openrouter.ai/api/v1".to_string()
 }
 
 fn default_embedding_model() -> String {
@@ -130,8 +176,15 @@ fn default_doc_boost() -> f32 {
 impl From<&KnowledgeToolsSettings> for KnowledgeSettings {
     fn from(value: &KnowledgeToolsSettings) -> Self {
         let mut settings = KnowledgeSettings::default();
+        if let Some(provider) = &value.embedding_provider {
+            settings.embedding_provider = provider
+                .parse::<EmbeddingProviderKind>()
+                .unwrap_or_default();
+        }
         if let Some(url) = &value.embedding_url {
             settings.embedding_url = url.clone();
+        } else if settings.embedding_provider == EmbeddingProviderKind::OpenRouter {
+            settings.embedding_url = default_openrouter_embedding_url();
         }
         if let Some(model) = &value.embedding_model {
             settings.embedding_model = model.clone();

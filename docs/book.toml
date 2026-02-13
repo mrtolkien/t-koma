@@ -1,0 +1,12 @@
+[book]
+title = "t-koma Documentation"
+authors = ["t-koma contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/tolki/t-koma"
+edit-url-template = "https://github.com/tolki/t-koma/edit/main/docs/{path}"

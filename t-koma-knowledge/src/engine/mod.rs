@@ -5,7 +5,9 @@ use crate::KnowledgeSettings;
 use crate::embeddings::EmbeddingClient;
 use crate::errors::KnowledgeError;
 use crate::errors::KnowledgeResult;
-use crate::index::{reconcile_ghost, reconcile_shared};
+use crate::index::{
+    check_embedding_provider_change, reconcile_ghost, reconcile_shared, reindex_embeddings,
+};
 use crate::models::{
     DiaryQuery, DiarySearchResult, IndexStats, IndexStatsEntry, KnowledgeGetQuery, KnowledgeScope,
     KnowledgeSearchQuery, KnowledgeSearchResult, MatchedTopic, NoteCreateRequest, NoteDocument,
@@ -722,6 +724,31 @@ impl KnowledgeEngine {
                 })
                 .collect(),
         })
+    }
+
+    /// Check if the embedding provider/model changed and needs reindexing.
+    ///
+    /// Returns `true` if embeddings were invalidated and a reindex is needed.
+    pub async fn check_embedding_change(&self) -> KnowledgeResult<bool> {
+        check_embedding_provider_change(&self.settings, self.store.pool()).await
+    }
+
+    /// Re-embed chunks that are missing embedding vectors.
+    ///
+    /// Processes up to `max_chunks` in batches. Returns count of re-embedded chunks.
+    pub async fn reindex_embeddings(&self, max_chunks: usize) -> KnowledgeResult<usize> {
+        reindex_embeddings(
+            &self.settings,
+            self.store.pool(),
+            &self.embedder,
+            max_chunks,
+        )
+        .await
+    }
+
+    /// Count chunks that still need embedding (for progress tracking).
+    pub async fn chunks_needing_embedding(&self) -> KnowledgeResult<i64> {
+        crate::storage::count_chunks_needing_embedding(self.store.pool()).await
     }
 
     async fn maybe_reconcile(

@@ -80,7 +80,8 @@ async fn test_multi_turn_story_conversation() {
     let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
-    let model = state.default_model().model.as_str();
+    let default_model = state.default_model();
+    let model = default_model.model.as_str();
 
     let mut conversation_turns = vec![];
 
@@ -304,7 +305,8 @@ async fn test_multi_turn_with_tool_use() {
     let system_blocks = build_system_prompt(&system_prompt);
     let shell_tool = ShellTool;
     let tools: Vec<&dyn Tool> = vec![&shell_tool];
-    let model = state.default_model().model.as_str();
+    let default_model = state.default_model();
+    let model = default_model.model.as_str();
 
     // === TURN 1: Ask to run pwd ===
     let turn1_message = "What directory are we in? Use the shell tool to find out.";

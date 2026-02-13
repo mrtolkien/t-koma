@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -6,12 +5,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use t_koma_gateway::state::LogEntry;
 
 use t_koma_gateway::discord::start_discord_bot;
-use t_koma_gateway::providers::anthropic::AnthropicClient;
-use t_koma_gateway::providers::anthropic_oauth::AnthropicOAuthClient;
-use t_koma_gateway::providers::gemini::GeminiClient;
-use t_koma_gateway::providers::openai_codex::OpenAiCodexClient;
-use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
-use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::server;
 use t_koma_gateway::state::AppState;
 
@@ -51,283 +44,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Initialize OAuth token manager (shared across OAuth provider clients)
-    let oauth_store = t_koma_oauth::TokenStore::load().unwrap_or_default();
-    let oauth_token_manager = Arc::new(t_koma_oauth::OAuthTokenManager::new(oauth_store));
-
-    // Create provider clients based on configured models
-    let mut models: HashMap<String, t_koma_gateway::state::ModelEntry> = HashMap::new();
-    for (alias, model_config) in &config.settings.models {
-        match model_config.provider.as_str() {
-            "anthropic" => {
-                if let Some(api_key) = config.anthropic_api_key() {
-                    let client = AnthropicClient::new(api_key, &model_config.model)
-                        .with_dump_queries(config.settings.logging.dump_queries);
-                    info!(
-                        "Anthropic client created for alias '{}' with model: {}",
-                        alias, model_config.model
-                    );
-                    models.insert(
-                        alias.clone(),
-                        t_koma_gateway::state::ModelEntry {
-                            alias: alias.clone(),
-                            provider: model_config.provider.to_string(),
-                            model: model_config.model.clone(),
-                            client: Arc::new(client),
-                            context_window: model_config.context_window,
-                        },
-                    );
-                } else {
-                    info!(
-                        "Skipping model '{}' (anthropic) - no ANTHROPIC_API_KEY configured",
-                        alias
-                    );
-                }
-            }
-            "openrouter" => {
-                let api_key = match config.api_key_for_alias(alias) {
-                    Ok(Some(key)) => key,
-                    Ok(None) => {
-                        info!(
-                            "Skipping model '{}' (openrouter) - no resolved API key configured",
-                            alias
-                        );
-                        continue;
-                    }
-                    Err(err) => {
-                        info!(
-                            "Skipping model '{}' (openrouter) - API key resolution error: {}",
-                            alias, err
-                        );
-                        continue;
-                    }
-                };
-                let http_referer = config.settings.openrouter.http_referer.clone();
-                let app_name = config.settings.openrouter.app_name.clone();
-                let client = OpenRouterClient::new(
-                    api_key,
-                    &model_config.model,
-                    model_config.base_url.clone(),
-                    http_referer,
-                    app_name,
-                    model_config.routing.clone(),
-                )
-                .with_dump_queries(config.settings.logging.dump_queries);
-                info!(
-                    "OpenRouter client created for alias '{}' with model: {}",
-                    alias, model_config.model
-                );
-                models.insert(
-                    alias.clone(),
-                    t_koma_gateway::state::ModelEntry {
-                        alias: alias.clone(),
-                        provider: model_config.provider.to_string(),
-                        model: model_config.model.clone(),
-                        client: Arc::new(client),
-                        context_window: model_config.context_window,
-                    },
-                );
-            }
-            "openai_compatible" => {
-                let base_url = model_config
-                    .base_url
-                    .clone()
-                    .expect("openai_compatible model.base_url must be validated by Config::load");
-                let api_key = match config.api_key_for_alias(alias) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        info!(
-                            "Skipping model '{}' (openai_compatible) - API key resolution error: {}",
-                            alias, err
-                        );
-                        continue;
-                    }
-                };
-                let client = OpenAiCompatibleClient::new(
-                    base_url,
-                    api_key,
-                    &model_config.model,
-                    "openai_compatible",
-                )
-                .with_dump_queries(config.settings.logging.dump_queries);
-                info!(
-                    "OpenAI-compatible client created for alias '{}' with model: {}",
-                    alias, model_config.model
-                );
-                models.insert(
-                    alias.clone(),
-                    t_koma_gateway::state::ModelEntry {
-                        alias: alias.clone(),
-                        provider: model_config.provider.to_string(),
-                        model: model_config.model.clone(),
-                        client: Arc::new(client),
-                        context_window: model_config.context_window,
-                    },
-                );
-            }
-            "kimi_code" => {
-                let base_url = model_config
-                    .base_url
-                    .clone()
-                    .unwrap_or_else(|| "https://api.kimi.com/coding/v1".to_string());
-                if let Some(api_key) = config.kimi_api_key() {
-                    use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
-
-                    let mut extra = HeaderMap::new();
-                    extra.insert(USER_AGENT, HeaderValue::from_static("KimiCLI/1.12.0"));
-                    if let Some(cfg_headers) = &model_config.headers {
-                        for (k, v) in cfg_headers {
-                            if let (Ok(name), Ok(val)) =
-                                (HeaderName::try_from(k.as_str()), HeaderValue::from_str(v))
-                            {
-                                extra.insert(name, val);
-                            }
-                        }
-                    }
-
-                    let client = OpenAiCompatibleClient::new(
-                        base_url,
-                        Some(api_key.to_string()),
-                        &model_config.model,
-                        "kimi_code",
-                    )
-                    .with_extra_headers(extra)
-                    .with_dump_queries(config.settings.logging.dump_queries);
-                    info!(
-                        "Kimi Code client created for alias '{}' with model: {}",
-                        alias, model_config.model
-                    );
-                    models.insert(
-                        alias.clone(),
-                        t_koma_gateway::state::ModelEntry {
-                            alias: alias.clone(),
-                            provider: model_config.provider.to_string(),
-                            model: model_config.model.clone(),
-                            client: Arc::new(client),
-                            context_window: model_config.context_window,
-                        },
-                    );
-                } else {
-                    info!(
-                        "Skipping model '{}' (kimi_code) - no KIMI_API_KEY configured",
-                        alias
-                    );
-                }
-            }
-            "gemini" => {
-                if let Some(api_key) = config.gemini_api_key() {
-                    let client = GeminiClient::new(api_key, &model_config.model)
-                        .with_dump_queries(config.settings.logging.dump_queries);
-                    info!(
-                        "Gemini client created for alias '{}' with model: {}",
-                        alias, model_config.model
-                    );
-                    models.insert(
-                        alias.clone(),
-                        t_koma_gateway::state::ModelEntry {
-                            alias: alias.clone(),
-                            provider: model_config.provider.to_string(),
-                            model: model_config.model.clone(),
-                            client: Arc::new(client),
-                            context_window: model_config.context_window,
-                        },
-                    );
-                } else {
-                    info!(
-                        "Skipping model '{}' (gemini) - no GEMINI_API_KEY configured",
-                        alias
-                    );
-                }
-            }
-            "anthropic_oauth" => {
-                let tm = Arc::clone(&oauth_token_manager);
-                let has = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(tm.has_token("anthropic_oauth"))
-                });
-                if has {
-                    let client = AnthropicOAuthClient::new(
-                        Arc::clone(&oauth_token_manager),
-                        &model_config.model,
-                    )
-                    .with_dump_queries(config.settings.logging.dump_queries);
-                    info!(
-                        "Anthropic OAuth client created for alias '{}' with model: {}",
-                        alias, model_config.model
-                    );
-                    models.insert(
-                        alias.clone(),
-                        t_koma_gateway::state::ModelEntry {
-                            alias: alias.clone(),
-                            provider: model_config.provider.to_string(),
-                            model: model_config.model.clone(),
-                            client: Arc::new(client),
-                            context_window: model_config.context_window,
-                        },
-                    );
-                } else {
-                    info!(
-                        "Skipping model '{}' (anthropic_oauth) - not logged in (run: t-koma-cli oauth login anthropic)",
-                        alias
-                    );
-                }
-            }
-            "openai_codex" => {
-                let tm = Arc::clone(&oauth_token_manager);
-                let has = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(tm.has_token("openai_codex"))
-                });
-                if has {
-                    let client = OpenAiCodexClient::new(
-                        Arc::clone(&oauth_token_manager),
-                        &model_config.model,
-                    )
-                    .with_dump_queries(config.settings.logging.dump_queries);
-                    info!(
-                        "OpenAI Codex client created for alias '{}' with model: {}",
-                        alias, model_config.model
-                    );
-                    models.insert(
-                        alias.clone(),
-                        t_koma_gateway::state::ModelEntry {
-                            alias: alias.clone(),
-                            provider: model_config.provider.to_string(),
-                            model: model_config.model.clone(),
-                            client: Arc::new(client),
-                            context_window: model_config.context_window,
-                        },
-                    );
-                } else {
-                    info!(
-                        "Skipping model '{}' (openai_codex) - not logged in (run: t-koma-cli oauth login codex)",
-                        alias
-                    );
-                }
-            }
-            other => {
-                info!("Skipping model '{}' - unknown provider '{}'", alias, other);
-            }
-        }
-    }
-
-    let default_model_chain: Vec<String> = config
-        .default_model_aliases()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    // Verify at least the first alias in the chain was initialized
-    let first_alias = default_model_chain
-        .first()
-        .expect("default_model chain must not be empty");
-    let default_model = models.get(first_alias).ok_or_else(|| {
-        format!(
-            "Default model alias '{}' was not initialized (check API keys and config)",
-            first_alias
-        )
-    })?;
-    info!(
-        "Default model chain: {:?} (primary: {}/{})",
-        default_model_chain, default_model.provider, default_model.model
-    );
+    let registry = t_koma_gateway::model_registry::build_from_config(&config)?;
+    let default_model_chain = registry.default_model_chain;
+    let models = registry.models;
 
     // Get Discord token from secrets
     let discord_token = config.discord_bot_token().map(|s| s.to_string());
@@ -340,6 +59,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .expect("failed to open knowledge store"),
     );
+
+    // Check for embedding provider/model changes and reindex in the background
+    {
+        let engine = Arc::clone(&knowledge_engine);
+        tokio::spawn(async move {
+            match engine.check_embedding_change().await {
+                Ok(true) => {
+                    tracing::info!(
+                        "embedding provider/model changed — starting background reindex"
+                    );
+                    match engine.reindex_embeddings(usize::MAX).await {
+                        Ok(count) => {
+                            tracing::info!(count, "embedding reindex complete");
+                        }
+                        Err(err) => {
+                            tracing::warn!("embedding reindex failed: {err}");
+                        }
+                    }
+                }
+                Ok(false) => {
+                    tracing::debug!("embedding provider unchanged");
+                }
+                Err(err) => {
+                    tracing::warn!("embedding change check failed: {err}");
+                }
+            }
+        });
+    }
+
     // Build skill search paths from SkillRegistry (user config first, then project defaults)
     let skill_registry = t_koma_core::skill_registry::SkillRegistry::new()
         .unwrap_or_else(|_| t_koma_core::skill_registry::SkillRegistry::empty());

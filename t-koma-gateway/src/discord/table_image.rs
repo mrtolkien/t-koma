@@ -1,7 +1,7 @@
 /// SVG-based table-to-PNG renderer for Discord messages.
 ///
 /// Builds an SVG from parsed markdown table rows and rasterizes it via resvg.
-/// Styled with Discord dark theme colors for seamless inline display.
+/// Styled with a modern dark theme for seamless inline display in Discord.
 use std::fmt::Write;
 use std::sync::LazyLock;
 
@@ -9,21 +9,40 @@ use resvg::tiny_skia;
 use resvg::usvg;
 use tracing::warn;
 
-const FONT_SIZE: f32 = 14.0;
-/// Approximate pixel width of one monospace character at [`FONT_SIZE`].
-/// Slightly overestimated to prevent text overflow across column boundaries.
-const CHAR_WIDTH: f32 = 9.0;
-const ROW_HEIGHT: f32 = 28.0;
-const CELL_PAD_X: f32 = 12.0;
-const CORNER_RADIUS: f32 = 8.0;
+// ---------------------------------------------------------------------------
+// Render scale: generate a 2× SVG for crisp images on HiDPI / Discord scaling
+// ---------------------------------------------------------------------------
+const SCALE: f32 = 2.0;
 
-// Discord dark-theme palette
+// ---------------------------------------------------------------------------
+// Layout (logical pixels — multiplied by SCALE at rasterization)
+// ---------------------------------------------------------------------------
+const FONT_SIZE: f32 = 14.0;
+/// Average character width for a proportional sans-serif at FONT_SIZE.
+/// Slightly overestimated to prevent text overflow.
+const CHAR_WIDTH: f32 = 8.4;
+const ROW_HEIGHT: f32 = 36.0;
+const CELL_PAD_X: f32 = 14.0;
+const CELL_PAD_Y_TOP: f32 = 0.0; // extra top padding (baseline math handles centering)
+const CORNER_RADIUS: f32 = 10.0;
+const HEADER_ACCENT_HEIGHT: f32 = 3.0;
+
+// ---------------------------------------------------------------------------
+// Color palette — refined Discord dark theme
+// ---------------------------------------------------------------------------
 const BG_COLOR: &str = "#2B2D31";
 const HEADER_BG: &str = "#1E1F22";
-const TEXT_COLOR: &str = "#DBDEE1";
-const HEADER_TEXT: &str = "#F2F3F5";
-const BORDER_COLOR: &str = "#3F4147";
-const HEADER_BORDER: &str = "#4E5058";
+const HEADER_ACCENT: &str = "#5865F2"; // Discord blurple accent line under header
+const ZEBRA_EVEN: &str = "#2B2D31"; // same as BG
+const ZEBRA_ODD: &str = "#2E3035"; // very subtle alternation
+const TEXT_COLOR: &str = "#D2D5D9";
+const HEADER_TEXT: &str = "#FFFFFF";
+const BORDER_COLOR: &str = "#3B3D44";
+
+// ---------------------------------------------------------------------------
+// Font stack — proportional for readability, bold actually renders
+// ---------------------------------------------------------------------------
+const FONT_FAMILY: &str = "'Inter', 'Segoe UI', 'Helvetica Neue', 'Arial', 'Noto Sans', sans-serif";
 
 static SVG_OPTIONS: LazyLock<usvg::Options> = LazyLock::new(|| {
     let mut opt = usvg::Options::default();
@@ -62,12 +81,19 @@ pub(super) fn render_table_png(raw_lines: &[String]) -> Option<Vec<u8>> {
         return None;
     }
 
-    // Column widths in characters (minimum 3 to avoid tiny columns)
+    // Column widths in visible characters (markdown markers excluded).
+    // Header cells get a small bonus to account for bold being slightly wider.
     let mut col_chars = vec![3usize; col_count];
-    for row in &rows {
+    for (row_idx, row) in rows.iter().enumerate() {
         for (i, cell) in row.iter().enumerate() {
             if i < col_count {
-                col_chars[i] = col_chars[i].max(cell.chars().count());
+                let len = visible_len(cell);
+                let effective = if row_idx == 0 {
+                    len + (len / 8).max(1) // bold compensation
+                } else {
+                    len
+                };
+                col_chars[i] = col_chars[i].max(effective);
             }
         }
     }
@@ -78,7 +104,7 @@ pub(super) fn render_table_png(raw_lines: &[String]) -> Option<Vec<u8>> {
         .collect();
 
     let total_w = col_px.iter().sum::<f32>().ceil();
-    let total_h = (rows.len() as f32 * ROW_HEIGHT).ceil();
+    let total_h = (rows.len() as f32 * ROW_HEIGHT + HEADER_ACCENT_HEIGHT).ceil();
 
     let svg = build_svg(&rows, &col_px, col_count, total_w, total_h);
 
@@ -92,50 +118,61 @@ pub(super) fn render_table_png(raw_lines: &[String]) -> Option<Vec<u8>> {
 }
 
 fn build_svg(rows: &[Vec<String>], col_px: &[f32], col_count: usize, w: f32, h: f32) -> String {
-    let mut s = String::with_capacity(2048);
+    // SVG viewport is at logical size; viewBox + width/height at SCALE produce crisp output.
+    let pw = (w * SCALE).ceil();
+    let ph = (h * SCALE).ceil();
 
-    // Root + background
-    let _ = write!(
-        s,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}">"#
-    );
-    let _ = write!(
-        s,
-        r#"<rect width="{w}" height="{h}" fill="{BG_COLOR}" rx="{CORNER_RADIUS}"/>"#,
-    );
+    let mut s = String::with_capacity(4096);
 
-    // Clip path for rounded corners on the header
+    // Root element — physical pixel dimensions with a logical viewBox
     let _ = write!(
         s,
-        r#"<defs><clipPath id="c"><rect width="{w}" height="{h}" rx="{CORNER_RADIUS}"/></clipPath></defs>"#,
-    );
-    let _ = write!(
-        s,
-        r#"<rect width="{w}" height="{ROW_HEIGHT}" fill="{HEADER_BG}" clip-path="url(#c)"/>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{pw}" height="{ph}" viewBox="0 0 {w} {h}">"#,
     );
 
-    // Header separator line
+    // Defs: clip path for rounded corners
     let _ = write!(
         s,
-        r#"<line x1="0" y1="{ROW_HEIGHT}" x2="{w}" y2="{ROW_HEIGHT}" stroke="{HEADER_BORDER}" stroke-width="1"/>"#,
+        r#"<defs><clipPath id="table-clip"><rect width="{w}" height="{h}" rx="{CORNER_RADIUS}"/></clipPath></defs>"#,
     );
 
-    // Data row separators
-    for i in 2..rows.len() {
-        let y = i as f32 * ROW_HEIGHT;
+    // Everything inside the clip
+    let _ = write!(s, r#"<g clip-path="url(#table-clip)">"#);
+
+    // Background fill
+    let _ = write!(s, r#"<rect width="{w}" height="{h}" fill="{BG_COLOR}"/>"#);
+
+    // Header background
+    let _ = write!(
+        s,
+        r#"<rect width="{w}" height="{ROW_HEIGHT}" fill="{HEADER_BG}"/>"#,
+    );
+
+    // Header accent bar (thin colored line below header)
+    let accent_y = ROW_HEIGHT;
+    let _ = write!(
+        s,
+        r#"<rect y="{accent_y}" width="{w}" height="{HEADER_ACCENT_HEIGHT}" fill="{HEADER_ACCENT}"/>"#,
+    );
+
+    // Zebra-striped data rows
+    let data_top = ROW_HEIGHT + HEADER_ACCENT_HEIGHT;
+    for i in 1..rows.len() {
+        let fill = if i % 2 == 0 { ZEBRA_ODD } else { ZEBRA_EVEN };
+        let ry = data_top + (i - 1) as f32 * ROW_HEIGHT;
         let _ = write!(
             s,
-            r#"<line x1="0" y1="{y}" x2="{w}" y2="{y}" stroke="{BORDER_COLOR}" stroke-width="0.5"/>"#,
+            r#"<rect y="{ry}" width="{w}" height="{ROW_HEIGHT}" fill="{fill}"/>"#,
         );
     }
 
-    // Column separators
+    // Subtle column separators (skip first and last edges)
     let mut x = 0.0;
     for &cw in col_px.iter().take(col_count - 1) {
         x += cw;
         let _ = write!(
             s,
-            r#"<line x1="{x}" y1="0" x2="{x}" y2="{h}" stroke="{BORDER_COLOR}" stroke-width="0.5"/>"#,
+            r#"<line x1="{x}" y1="0" x2="{x}" y2="{h}" stroke="{BORDER_COLOR}" stroke-width="0.5" opacity="0.5"/>"#,
         );
     }
 
@@ -143,8 +180,19 @@ fn build_svg(rows: &[Vec<String>], col_px: &[f32], col_count: usize, w: f32, h: 
     for (row_idx, row) in rows.iter().enumerate() {
         let is_header = row_idx == 0;
         let fill = if is_header { HEADER_TEXT } else { TEXT_COLOR };
-        let weight = if is_header { "bold" } else { "normal" };
-        let baseline_y = row_idx as f32 * ROW_HEIGHT + ROW_HEIGHT * 0.68;
+        let weight = if is_header { "600" } else { "400" };
+        let letter_spacing = if is_header {
+            " letter-spacing=\"0.3\""
+        } else {
+            ""
+        };
+
+        let row_top = if is_header {
+            0.0
+        } else {
+            ROW_HEIGHT + HEADER_ACCENT_HEIGHT + (row_idx - 1) as f32 * ROW_HEIGHT
+        };
+        let baseline_y = row_top + CELL_PAD_Y_TOP + ROW_HEIGHT * 0.62;
 
         let mut col_x = 0.0_f32;
         for (col_idx, cell) in row.iter().enumerate() {
@@ -152,14 +200,38 @@ fn build_svg(rows: &[Vec<String>], col_px: &[f32], col_count: usize, w: f32, h: 
                 break;
             }
             let tx = col_x + CELL_PAD_X;
-            let escaped = xml_escape(cell);
+            let spans = parse_inline(cell);
             let _ = write!(
                 s,
-                r#"<text x="{tx}" y="{baseline_y}" font-family="monospace, 'DejaVu Sans Mono', 'Liberation Mono'" font-size="{FONT_SIZE}" fill="{fill}" font-weight="{weight}">{escaped}</text>"#,
+                r#"<text x="{tx}" y="{baseline_y}" font-family="{FONT_FAMILY}" font-size="{FONT_SIZE}" fill="{fill}" font-weight="{weight}"{letter_spacing}>"#,
             );
+            for span in &spans {
+                let escaped = xml_escape(&span.text);
+                match span.style {
+                    SpanStyle::Normal => {
+                        let _ = write!(s, "{escaped}");
+                    }
+                    SpanStyle::Bold => {
+                        let _ = write!(s, r#"<tspan font-weight="700">{escaped}</tspan>"#);
+                    }
+                    SpanStyle::Italic => {
+                        let _ = write!(s, r#"<tspan font-style="italic">{escaped}</tspan>"#);
+                    }
+                    SpanStyle::Code => {
+                        let _ = write!(s, r#"<tspan font-family="monospace">{escaped}</tspan>"#,);
+                    }
+                }
+            }
+            let _ = write!(s, "</text>");
             col_x += col_px[col_idx];
         }
     }
+
+    // Outer border (rounded rect stroke, drawn last so it sits on top)
+    let _ = write!(
+        s,
+        r#"</g><rect width="{w}" height="{h}" rx="{CORNER_RADIUS}" fill="none" stroke="{BORDER_COLOR}" stroke-width="1"/>"#,
+    );
 
     s.push_str("</svg>");
     s
@@ -176,6 +248,99 @@ fn rasterize(svg_str: &str) -> Result<Vec<u8>, String> {
     resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
 
     pixmap.encode_png().map_err(|e| format!("PNG encode: {e}"))
+}
+
+// ---------------------------------------------------------------------------
+// Inline markdown → styled spans
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SpanStyle {
+    Normal,
+    Bold,
+    Italic,
+    Code,
+}
+
+#[derive(Debug)]
+struct StyledSpan {
+    text: String,
+    style: SpanStyle,
+}
+
+/// Parse inline markdown (`**bold**`, `*italic*`, `` `code` ``) into styled spans.
+fn parse_inline(input: &str) -> Vec<StyledSpan> {
+    let mut spans = Vec::new();
+    let mut buf = String::new();
+    let chars: Vec<char> = input.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        match chars[i] {
+            '`' => {
+                flush(&mut spans, &mut buf, SpanStyle::Normal);
+                i += 1;
+                while i < len && chars[i] != '`' {
+                    buf.push(chars[i]);
+                    i += 1;
+                }
+                if i < len {
+                    i += 1;
+                }
+                flush(&mut spans, &mut buf, SpanStyle::Code);
+            }
+            '*' if i + 1 < len && chars[i + 1] == '*' => {
+                flush(&mut spans, &mut buf, SpanStyle::Normal);
+                i += 2;
+                while i < len {
+                    if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
+                        i += 2;
+                        break;
+                    }
+                    buf.push(chars[i]);
+                    i += 1;
+                }
+                flush(&mut spans, &mut buf, SpanStyle::Bold);
+            }
+            '*' => {
+                flush(&mut spans, &mut buf, SpanStyle::Normal);
+                i += 1;
+                while i < len && chars[i] != '*' {
+                    buf.push(chars[i]);
+                    i += 1;
+                }
+                if i < len {
+                    i += 1;
+                }
+                flush(&mut spans, &mut buf, SpanStyle::Italic);
+            }
+            ch => {
+                buf.push(ch);
+                i += 1;
+            }
+        }
+    }
+
+    flush(&mut spans, &mut buf, SpanStyle::Normal);
+    spans
+}
+
+fn flush(spans: &mut Vec<StyledSpan>, buf: &mut String, style: SpanStyle) {
+    if !buf.is_empty() {
+        spans.push(StyledSpan {
+            text: std::mem::take(buf),
+            style,
+        });
+    }
+}
+
+/// Count visible characters (excluding markdown markers like `**`, `*`, `` ` ``).
+fn visible_len(input: &str) -> usize {
+    parse_inline(input)
+        .iter()
+        .map(|s| s.text.chars().count())
+        .sum()
 }
 
 fn parse_cells(line: &str) -> Vec<String> {
@@ -252,9 +417,9 @@ mod tests {
         let lines = vec![
             "| Kind | Identifier / Location | Summary |".to_string(),
             "|------|-----------------------|---------|".to_string(),
-            "| Reference topic | 3d-printers (topic ID 42a525e0) | Enclosed 3D printers for home use |".to_string(),
-            "| Web fetch | https://www.3dsourced.com/printers/ | Top three enclosed 3D printers |".to_string(),
-            "| Memory capture | ping test | Operator sent a ping test. |".to_string(),
+            "| **Reference topic** | `42a525e0` 3d-printers | Enclosed 3D printers for *home use* |".to_string(),
+            "| **Web fetch** | https://www.3dsourced.com/printers/ | Top three enclosed **3D printers** |".to_string(),
+            "| **Memory capture** | ping test | Operator sent a *ping* test. |".to_string(),
         ];
         let png = render_table_png(&lines).expect("render failed");
         std::fs::write("/tmp/t-koma-table-preview.png", &png).expect("write failed");
@@ -277,5 +442,58 @@ mod tests {
         assert!(is_separator_line("|---|---|"));
         assert!(is_separator_line("| --- | :---: |"));
         assert!(!is_separator_line("| A | B |"));
+    }
+
+    #[test]
+    fn parse_inline_plain_text() {
+        let spans = parse_inline("hello world");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].text, "hello world");
+        assert_eq!(spans[0].style, SpanStyle::Normal);
+    }
+
+    #[test]
+    fn parse_inline_bold() {
+        let spans = parse_inline("before **bold** after");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].text, "before ");
+        assert_eq!(spans[0].style, SpanStyle::Normal);
+        assert_eq!(spans[1].text, "bold");
+        assert_eq!(spans[1].style, SpanStyle::Bold);
+        assert_eq!(spans[2].text, " after");
+        assert_eq!(spans[2].style, SpanStyle::Normal);
+    }
+
+    #[test]
+    fn parse_inline_italic() {
+        let spans = parse_inline("some *italic* text");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[1].text, "italic");
+        assert_eq!(spans[1].style, SpanStyle::Italic);
+    }
+
+    #[test]
+    fn parse_inline_code() {
+        let spans = parse_inline("run `cargo test` now");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[1].text, "cargo test");
+        assert_eq!(spans[1].style, SpanStyle::Code);
+    }
+
+    #[test]
+    fn parse_inline_mixed() {
+        let spans = parse_inline("**bold** and `code`");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].style, SpanStyle::Bold);
+        assert_eq!(spans[1].style, SpanStyle::Normal);
+        assert_eq!(spans[2].style, SpanStyle::Code);
+    }
+
+    #[test]
+    fn visible_len_strips_markers() {
+        assert_eq!(visible_len("**bold**"), 4);
+        assert_eq!(visible_len("plain **bold** more"), 15);
+        assert_eq!(visible_len("`code`"), 4);
+        assert_eq!(visible_len("no markers"), 10);
     }
 }

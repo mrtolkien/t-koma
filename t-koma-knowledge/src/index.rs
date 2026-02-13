@@ -2,6 +2,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use sqlx::SqlitePool;
+use tracing::info;
 use walkdir::WalkDir;
 
 use crate::KnowledgeSettings;
@@ -11,7 +12,10 @@ use crate::ingest::{ingest_diary_entry, ingest_markdown, ingest_reference_file_w
 use crate::models::{KnowledgeScope, SourceRole};
 use crate::paths::{ghost_diary_root, ghost_notes_root, shared_notes_root, shared_references_root};
 use crate::storage::{
-    ensure_vec_table_dim, replace_chunks, replace_links, replace_tags, upsert_note, upsert_vec,
+    chunks_missing_embeddings, clear_chunk_embedding_metadata, count_chunks_needing_embedding,
+    drop_vec_table, ensure_vec_table_dim, get_embedding_fingerprint, mark_chunk_embedded,
+    replace_chunks, replace_links, replace_tags, set_embedding_fingerprint, upsert_note,
+    upsert_vec,
 };
 
 pub async fn reconcile_shared(
@@ -376,4 +380,86 @@ async fn is_unchanged(pool: &SqlitePool, path: &Path, content_hash: &str) -> Kno
 fn is_archived_path(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == ".archive")
+}
+
+/// Check if the embedding provider/model has changed and invalidate stale embeddings.
+///
+/// Returns `true` if a full re-embed is needed (caller should schedule a background job).
+pub async fn check_embedding_provider_change(
+    settings: &KnowledgeSettings,
+    store: &SqlitePool,
+) -> KnowledgeResult<bool> {
+    let current_fp = settings.embedding_fingerprint();
+    let stored_fp = get_embedding_fingerprint(store).await?;
+
+    match stored_fp {
+        Some(ref fp) if fp == &current_fp => Ok(false),
+        Some(ref old_fp) => {
+            info!(
+                old = %old_fp,
+                new = %current_fp,
+                "embedding provider/model changed — invalidating all embeddings"
+            );
+            drop_vec_table(store).await?;
+            clear_chunk_embedding_metadata(store).await?;
+            set_embedding_fingerprint(store, &current_fp).await?;
+            Ok(true)
+        }
+        None => {
+            set_embedding_fingerprint(store, &current_fp).await?;
+            let stale = count_chunks_needing_embedding(store).await?;
+            Ok(stale > 0)
+        }
+    }
+}
+
+/// Re-embed chunks that have no embedding vector.
+///
+/// Processes up to `max_chunks` in batches. Returns the number of chunks re-embedded.
+pub async fn reindex_embeddings(
+    settings: &KnowledgeSettings,
+    store: &SqlitePool,
+    embedder: &EmbeddingClient,
+    max_chunks: usize,
+) -> KnowledgeResult<usize> {
+    let batch_size = settings.embedding_batch.max(1);
+    let mut total = 0;
+
+    loop {
+        if total >= max_chunks {
+            break;
+        }
+
+        let remaining = (max_chunks - total).min(batch_size);
+        let stale = chunks_missing_embeddings(store, remaining).await?;
+        if stale.is_empty() {
+            break;
+        }
+
+        let inputs: Vec<String> = stale.iter().map(|(_, content)| content.clone()).collect();
+        let chunk_ids: Vec<i64> = stale.iter().map(|(id, _)| *id).collect();
+
+        let embeddings = embedder.embed_batch(&inputs).await?;
+        if embeddings.is_empty() {
+            break;
+        }
+
+        let dim = embeddings[0].len();
+        ensure_vec_table_dim(store, dim).await?;
+
+        let model = embedder.model_id();
+        for (i, embedding) in embeddings.into_iter().enumerate() {
+            let chunk_id = chunk_ids[i];
+            upsert_vec(store, chunk_id, &embedding).await?;
+            mark_chunk_embedded(store, chunk_id, model, dim).await?;
+        }
+
+        total += chunk_ids.len();
+    }
+
+    if total > 0 {
+        info!(count = total, "re-embedded chunks with new provider/model");
+    }
+
+    Ok(total)
 }

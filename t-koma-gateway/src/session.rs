@@ -15,7 +15,7 @@ use crate::providers::provider::{
     Provider, ProviderContentBlock, ProviderError, ProviderResponse, extract_all_text,
     has_tool_uses,
 };
-use crate::state::ToolCallSummary;
+use crate::state::{ChatUsage, ToolCallSummary};
 use crate::system_info;
 use crate::tools::context::{ApprovalReason, is_within_workspace};
 use crate::tools::{JobHandle, ToolContext, ToolManager};
@@ -440,9 +440,11 @@ impl SessionChat {
         session_id: &str,
         operator_id: &str,
         message: &str,
+        attachments: &[DbContentBlock],
         message_already_persisted: bool,
         tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
-    ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
+        retry_on_empty: u32,
+    ) -> Result<(String, Vec<ToolCallSummary>, ChatUsage), ChatError> {
         // Verify session exists and belongs to operator
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
             .await?
@@ -459,9 +461,10 @@ impl SessionChat {
 
         // Save operator message to database (skip on retry — already persisted)
         if !message_already_persisted {
-            let user_content = vec![DbContentBlock::Text {
+            let mut user_content = vec![DbContentBlock::Text {
                 text: message.to_string(),
             }];
+            user_content.extend_from_slice(attachments);
             SessionRepository::add_message(
                 pool.pool(),
                 ghost_id,
@@ -505,6 +508,8 @@ impl SessionChat {
             None,
             DEFAULT_TOOL_LOOP_LIMIT,
             tool_call_tx,
+            retry_on_empty,
+            &self.tool_manager,
         )
         .await
     }
@@ -540,6 +545,7 @@ impl SessionChat {
         tool_manager_override: Option<&ToolManager>,
         job_handle: Option<JobHandle>,
         max_tool_iterations: Option<usize>,
+        retry_on_empty: u32,
     ) -> Result<JobChatResult, ChatError> {
         // Verify session exists
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
@@ -602,6 +608,7 @@ impl SessionChat {
                 limit,
                 tm,
                 job_handle,
+                retry_on_empty,
             )
             .await?;
 
@@ -632,6 +639,7 @@ impl SessionChat {
         max_iterations: usize,
         tool_manager: &ToolManager,
         job_handle: Option<JobHandle>,
+        retry_on_empty: u32,
     ) -> Result<String, ChatError> {
         let tools = tool_manager.get_tools();
 
@@ -722,11 +730,29 @@ impl SessionChat {
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
         }
 
-        // Extract final text and append to transcript
-        let text = extract_all_text(&response);
-        let text = text.trim().to_string();
-        if text.is_empty() {
-            // raw_json is only populated when dump_queries is enabled.
+        // Extract final text, retrying on empty if configured
+        for attempt in 0..=retry_on_empty {
+            let text = extract_all_text(&response);
+            let text = text.trim().to_string();
+            if !text.is_empty() {
+                info!(
+                    event_kind = "chat_io",
+                    "[session:{session_id}] Job final response ({provider_name} / {model}): {}",
+                    if text.len() > 100 {
+                        &text[..text.floor_char_boundary(100)]
+                    } else {
+                        &text
+                    }
+                );
+                transcript.push(TranscriptEntry {
+                    role: MessageRole::Ghost,
+                    content: vec![DbContentBlock::Text { text: text.clone() }],
+                    model: Some(model.to_string()),
+                });
+                return Ok(text);
+            }
+
+            // Log the empty response for debugging
             if let Some(raw_json) = &response.raw_json {
                 let log_path = self.write_empty_response_log(session_id, raw_json).await;
                 warn!(
@@ -738,29 +764,29 @@ impl SessionChat {
                     "Empty response detected in job. Full raw response written to log file."
                 );
             }
-            return Err(ChatError::EmptyResponse);
-        }
 
-        info!(
-            event_kind = "chat_io",
-            "[session:{}] Job final response ({} / {}): {}",
-            session_id,
-            provider_name,
-            model,
-            if text.len() > 100 {
-                &text[..text.floor_char_boundary(100)]
-            } else {
-                &text
+            if attempt < retry_on_empty {
+                warn!(
+                    "[session:{session_id}] Job empty response (attempt {}/{retry_on_empty}), retrying…",
+                    attempt + 1,
+                );
+                let mut api_messages: Vec<ChatMessage> = session_history.to_vec();
+                api_messages.extend(build_transcript_messages(transcript));
+                response = send_with_retry(
+                    provider,
+                    Some(system_blocks.clone()),
+                    api_messages,
+                    tools.clone(),
+                )
+                .await
+                .map_err(|e| {
+                    warn!("Job empty-retry send failed: {e:#}");
+                    ChatError::Provider(e)
+                })?;
+                Self::log_usage(pool, ghost_id, session_id, model, &response).await;
             }
-        );
-
-        transcript.push(TranscriptEntry {
-            role: MessageRole::Ghost,
-            content: vec![DbContentBlock::Text { text: text.clone() }],
-            model: Some(model.to_string()),
-        });
-
-        Ok(text)
+        }
+        Err(ChatError::EmptyResponse)
     }
 
     /// Internal method: Send conversation to the provider with full tool use loop.
@@ -785,10 +811,13 @@ impl SessionChat {
         new_message: Option<&str>,
         max_iterations: usize,
         tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
-    ) -> Result<(String, Vec<ToolCallSummary>), ChatError> {
-        let tools = self.tool_manager.get_tools();
+        retry_on_empty: u32,
+        tool_manager: &ToolManager,
+    ) -> Result<(String, Vec<ToolCallSummary>, ChatUsage), ChatError> {
+        let tools = tool_manager.get_tools();
         let mut tool_call_log: Vec<ToolCallSummary> = Vec::new();
         let mut prev_tool_count: usize = 0;
+        let mut usage = ChatUsage::default();
 
         // Initial request to the provider
         let mut response = provider
@@ -803,6 +832,7 @@ impl SessionChat {
             .await
             .map_err(ChatError::Provider)?;
         Self::log_usage(pool, ghost_id, session_id, model, &response).await;
+        usage.accumulate(&response);
 
         // Handle tool use loop (bounded to prevent infinite loops)
         let mut tool_context = self
@@ -834,15 +864,20 @@ impl SessionChat {
             }
 
             // Execute tools and get results
+            let tool_uses = collect_pending_tool_uses(&response);
+            let mut tool_results_buf = Vec::new();
             let tool_results = match self
-                .execute_tools_from_response(
+                .execute_tool_uses_with(
                     session_id,
-                    &response,
+                    &tool_uses,
                     pool,
                     &mut tool_context,
+                    &mut tool_results_buf,
                     &mut tool_call_log,
+                    tool_manager,
                 )
                 .await
+                .map(|()| tool_results_buf)
             {
                 Ok(results) => results,
                 Err(ChatError::ToolLoopLimitReached(pending)) => {
@@ -889,14 +924,50 @@ impl SessionChat {
                 .await
                 .map_err(ChatError::Provider)?;
             Self::log_usage(pool, ghost_id, session_id, model, &response).await;
+            usage.accumulate(&response);
         }
 
-        // Extract and save final text response
-        let text = self
-            .finalize_response(pool, session_id, provider_name, model, &response)
-            .await?;
-
-        Ok((text, tool_call_log))
+        // Extract and save final text response, retrying on empty if configured
+        for attempt in 0..=retry_on_empty {
+            match self
+                .finalize_response(pool, session_id, provider_name, model, &response)
+                .await
+            {
+                Ok(text) => return Ok((text, tool_call_log, usage)),
+                Err(ChatError::EmptyResponse) if attempt < retry_on_empty => {
+                    warn!(
+                        "[session:{session_id}] Empty response (attempt {}/{retry_on_empty}), retrying…",
+                        attempt + 1,
+                    );
+                    // Rebuild history and resend
+                    let history = SessionRepository::get_messages(pool.pool(), session_id).await?;
+                    let raw_messages = build_history_messages(&history, None);
+                    let tool_refs: Vec<&dyn crate::tools::Tool> = tools.to_vec();
+                    let retry_messages = self.apply_masking_if_needed(
+                        model,
+                        context_window_override,
+                        &system_blocks,
+                        &tool_refs,
+                        raw_messages,
+                    );
+                    response = provider
+                        .send_conversation(
+                            Some(system_blocks.clone()),
+                            retry_messages,
+                            tools.clone(),
+                            None,
+                            None,
+                            None,
+                        )
+                        .await
+                        .map_err(ChatError::Provider)?;
+                    Self::log_usage(pool, ghost_id, session_id, model, &response).await;
+                    usage.accumulate(&response);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(ChatError::EmptyResponse)
     }
 
     /// Save a ghost response (with tool_use blocks) to the database
@@ -924,31 +995,6 @@ impl SessionChat {
         )
         .await?;
         Ok(())
-    }
-
-    /// Execute all tool_use blocks from a response and return the results.
-    async fn execute_tools_from_response(
-        &self,
-        session_id: &str,
-        response: &ProviderResponse,
-        pool: &KomaDbPool,
-        tool_context: &mut ToolContext,
-        tool_call_log: &mut Vec<ToolCallSummary>,
-    ) -> Result<Vec<DbContentBlock>, ChatError> {
-        let tool_uses = collect_pending_tool_uses(response);
-
-        let mut tool_results = Vec::new();
-        self.execute_tool_uses(
-            session_id,
-            &tool_uses,
-            pool,
-            tool_context,
-            &mut tool_results,
-            tool_call_log,
-        )
-        .await?;
-
-        Ok(tool_results)
     }
 
     async fn execute_tool_uses(
@@ -1041,6 +1087,7 @@ impl SessionChat {
         operator_id: &str,
         pending: PendingToolApproval,
         decision: ToolApprovalDecision,
+        retry_on_empty: u32,
     ) -> Result<String, ChatError> {
         let mut tool_context = self
             .load_tool_context(pool, ghost_id, operator_id, model)
@@ -1092,6 +1139,7 @@ impl SessionChat {
             session_id,
             operator_id,
             DEFAULT_TOOL_LOOP_LIMIT,
+            retry_on_empty,
         )
         .await
     }
@@ -1109,6 +1157,7 @@ impl SessionChat {
         operator_id: &str,
         pending: PendingToolContinuation,
         extra_iterations: usize,
+        retry_on_empty: u32,
     ) -> Result<String, ChatError> {
         let mut tool_context = self
             .load_tool_context(pool, ghost_id, operator_id, model)
@@ -1138,6 +1187,7 @@ impl SessionChat {
             session_id,
             operator_id,
             extra_iterations,
+            retry_on_empty,
         )
         .await
     }
@@ -1154,6 +1204,7 @@ impl SessionChat {
         session_id: &str,
         operator_id: &str,
         max_iterations: usize,
+        retry_on_empty: u32,
     ) -> Result<String, ChatError> {
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
             .await?
@@ -1174,7 +1225,7 @@ impl SessionChat {
             )
             .await?;
 
-        let (text, _tool_calls) = self
+        let (text, _tool_calls, _usage) = self
             .send_with_tool_loop(
                 pool,
                 ghost_id,
@@ -1189,6 +1240,8 @@ impl SessionChat {
                 None,
                 max_iterations,
                 None,
+                retry_on_empty,
+                &self.tool_manager,
             )
             .await?;
         Ok(text)

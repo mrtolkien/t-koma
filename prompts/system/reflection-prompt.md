@@ -180,7 +180,6 @@ Summarize:
 - Web-cache status: list files curated or skipped
 - Unclear information from the user that will need clarification
 - Items deferred or blocked
-- Suggestions for next run
 
 ## Rules
 
