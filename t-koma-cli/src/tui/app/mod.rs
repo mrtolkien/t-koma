@@ -20,8 +20,8 @@ use t_koma_db::{KomaDbPool, Operator};
 use crate::tui::state::{Category, FocusPane, GateFilter};
 
 use self::state::{
-    ContentView, GateEvent, GhostRow, JobViewState, KnowledgeViewState, Metrics, OperatorView,
-    PromptState, SelectionModal, SessionViewState,
+    ContentView, GateEvent, GhostRow, JobViewState, KnowledgeViewState, Metrics, OAuthPendingState,
+    OperatorView, PromptState, SelectionModal, SessionViewState,
 };
 
 pub struct TuiApp {
@@ -46,6 +46,7 @@ pub struct TuiApp {
 
     prompt: PromptState,
     modal: Option<SelectionModal>,
+    oauth_pending: Option<OAuthPendingState>,
     content_view: ContentView,
 
     job_view: JobViewState,
@@ -96,6 +97,7 @@ impl TuiApp {
 
             prompt: PromptState::default(),
             modal: None,
+            oauth_pending: None,
             content_view: ContentView::default(),
 
             job_view: JobViewState::default(),

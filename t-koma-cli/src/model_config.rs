@@ -151,14 +151,14 @@ fn add_or_update_model(
             "Base URL (optional)",
             existing.as_ref().and_then(|e| e.base_url.as_deref()),
         )?,
-        ProviderType::Anthropic => None,
+        _ => None,
     };
     let api_key_env = match provider {
         ProviderType::OpenRouter | ProviderType::OpenAiCompatible => prompt_optional_text(
             "API key env var (optional)",
             existing.as_ref().and_then(|e| e.api_key_env.as_deref()),
         )?,
-        ProviderType::Anthropic => None,
+        _ => None,
     };
     let routing = if provider == ProviderType::OpenRouter {
         let existing_routing = existing
@@ -235,6 +235,8 @@ fn prompt_provider(
         ProviderType::Anthropic,
         ProviderType::OpenRouter,
         ProviderType::OpenAiCompatible,
+        ProviderType::AnthropicOAuth,
+        ProviderType::OpenAiCodex,
     ];
     let default_index = default
         .and_then(|value| providers.iter().position(|p| *p == value))

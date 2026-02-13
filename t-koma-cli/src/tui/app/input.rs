@@ -541,6 +541,14 @@ impl TuiApp {
                             self.status = "No provider selected".to_string();
                         }
                     }
+                    Some(PromptKind::OAuthCodePaste) => {
+                        if input.is_empty() {
+                            self.status = "OAuth code paste cancelled".to_string();
+                            self.oauth_pending = None;
+                        } else {
+                            self.finish_oauth_code_paste(&input).await;
+                        }
+                    }
                     None => {}
                 }
             }

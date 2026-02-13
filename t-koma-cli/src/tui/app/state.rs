@@ -1,5 +1,6 @@
 use t_koma_core::{KnowledgeIndexStats, KnowledgeResultInfo};
 use t_koma_db::{Ghost, JobLog, JobLogSummary, SessionInfo};
+use t_koma_oauth::pkce::PkceChallenge;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OperatorView {
@@ -19,6 +20,7 @@ pub(super) enum PromptKind {
     SetOperatorRateLimits,
     KnowledgeSearch,
     AddProviderApiKey, // Enter API key for selected provider
+    OAuthCodePaste,    // Paste OAuth authorization code (Anthropic)
 }
 
 #[derive(Debug, Default)]
@@ -124,4 +126,11 @@ pub(super) struct KnowledgeViewState {
     pub(super) detail_body: Option<String>,
     pub(super) scroll: u16,
     pub(super) stats: Option<KnowledgeIndexStats>,
+}
+
+/// Pending OAuth flow state (PKCE challenge stored between URL generation and code exchange).
+#[derive(Debug, Clone)]
+pub(super) struct OAuthPendingState {
+    pub(super) provider: String,
+    pub(super) pkce: PkceChallenge,
 }

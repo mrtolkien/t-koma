@@ -42,8 +42,10 @@ pub async fn select_provider_interactive_with_mode(
     println!("║  2. OpenRouter                     ║");
     println!("║  3. OpenAI-compatible              ║");
     println!("║  4. Kimi Code                      ║");
+    println!("║  5. Anthropic (OAuth)              ║");
+    println!("║  6. OpenAI Codex (OAuth)           ║");
     println!("╚════════════════════════════════════╝");
-    print!("\nSelect [1-4]: ");
+    print!("\nSelect [1-6]: ");
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -65,6 +67,14 @@ pub async fn select_provider_interactive_with_mode(
         "4" => {
             info!("User selected Kimi Code provider");
             select_kimi_code_model(ws_tx, ws_rx, mode).await
+        }
+        "5" => {
+            info!("User selected Anthropic (OAuth) provider");
+            select_oauth_model(ProviderType::AnthropicOAuth, "Anthropic (OAuth)", mode)
+        }
+        "6" => {
+            info!("User selected OpenAI Codex (OAuth) provider");
+            select_oauth_model(ProviderType::OpenAiCodex, "OpenAI Codex (OAuth)", mode)
         }
         _ => {
             println!("Invalid selection, defaulting to Anthropic");
@@ -445,6 +455,30 @@ async fn wait_for_provider_confirmation(
             Err(_) => return Err("Timeout waiting for provider confirmation".into()),
         }
     }
+}
+
+/// Select a model for an OAuth provider (no gateway list, manual ID entry).
+fn select_oauth_model(
+    provider: ProviderType,
+    label: &str,
+    _mode: ProviderSelectionMode,
+) -> Result<ProviderSelection, Box<dyn std::error::Error>> {
+    print!("Enter {} model ID: ", label);
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let model_id = input.trim().to_string();
+
+    if model_id.is_empty() {
+        return Err("Model ID cannot be empty".into());
+    }
+
+    println!("Selected {label} model: {model_id}");
+    Ok(ProviderSelection {
+        provider,
+        model: model_id,
+    })
 }
 
 /// Truncate a string to a maximum length with ellipsis
