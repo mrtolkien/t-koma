@@ -819,7 +819,8 @@ impl EventHandler for Bot {
         .await
         {
             Ok(messages) => {
-                // Wait for all streamed tool calls to finish before sending the final response
+                // Drop the sender so the receiver task sees channel close and exits
+                drop(tool_tx);
                 if let Some(handle) = tool_stream_handle {
                     let _ = handle.await;
                 }
