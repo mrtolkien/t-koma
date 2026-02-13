@@ -79,6 +79,8 @@ impl Secrets {
             ProviderType::OpenAiCompatible => true,
             ProviderType::Gemini => self.gemini_api_key.is_some(),
             ProviderType::KimiCode => self.kimi_api_key.is_some(),
+            // OAuth providers use token store, not env-var secrets
+            ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => false,
         }
     }
 

@@ -5,6 +5,7 @@ members = [
   "t-koma-db",
   "t-koma-gateway",
   "t-koma-knowledge",
+  "t-koma-oauth",
 ]
 resolver = "2"
 

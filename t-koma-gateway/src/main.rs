@@ -7,7 +7,9 @@ use t_koma_gateway::state::LogEntry;
 
 use t_koma_gateway::discord::start_discord_bot;
 use t_koma_gateway::providers::anthropic::AnthropicClient;
+use t_koma_gateway::providers::anthropic_oauth::AnthropicOAuthClient;
 use t_koma_gateway::providers::gemini::GeminiClient;
+use t_koma_gateway::providers::openai_codex::OpenAiCodexClient;
 use t_koma_gateway::providers::openai_compatible::OpenAiCompatibleClient;
 use t_koma_gateway::providers::openrouter::OpenRouterClient;
 use t_koma_gateway::server;
@@ -48,6 +50,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::warn!("Failed to prune pending operators: {}", e);
         }
     }
+
+    // Initialize OAuth token manager (shared across OAuth provider clients)
+    let oauth_store = t_koma_oauth::TokenStore::load().unwrap_or_default();
+    let oauth_token_manager = Arc::new(t_koma_oauth::OAuthTokenManager::new(oauth_store));
 
     // Create provider clients based on configured models
     let mut models: HashMap<String, t_koma_gateway::state::ModelEntry> = HashMap::new();
@@ -229,6 +235,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     info!(
                         "Skipping model '{}' (gemini) - no GEMINI_API_KEY configured",
+                        alias
+                    );
+                }
+            }
+            "anthropic_oauth" => {
+                let tm = Arc::clone(&oauth_token_manager);
+                let has = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(tm.has_token("anthropic_oauth"))
+                });
+                if has {
+                    let client = AnthropicOAuthClient::new(
+                        Arc::clone(&oauth_token_manager),
+                        &model_config.model,
+                    )
+                    .with_dump_queries(config.settings.logging.dump_queries);
+                    info!(
+                        "Anthropic OAuth client created for alias '{}' with model: {}",
+                        alias, model_config.model
+                    );
+                    models.insert(
+                        alias.clone(),
+                        t_koma_gateway::state::ModelEntry {
+                            alias: alias.clone(),
+                            provider: model_config.provider.to_string(),
+                            model: model_config.model.clone(),
+                            client: Arc::new(client),
+                            context_window: model_config.context_window,
+                        },
+                    );
+                } else {
+                    info!(
+                        "Skipping model '{}' (anthropic_oauth) - not logged in (run: t-koma-cli oauth login anthropic)",
+                        alias
+                    );
+                }
+            }
+            "openai_codex" => {
+                let tm = Arc::clone(&oauth_token_manager);
+                let has = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(tm.has_token("openai_codex"))
+                });
+                if has {
+                    let client = OpenAiCodexClient::new(
+                        Arc::clone(&oauth_token_manager),
+                        &model_config.model,
+                    )
+                    .with_dump_queries(config.settings.logging.dump_queries);
+                    info!(
+                        "OpenAI Codex client created for alias '{}' with model: {}",
+                        alias, model_config.model
+                    );
+                    models.insert(
+                        alias.clone(),
+                        t_koma_gateway::state::ModelEntry {
+                            alias: alias.clone(),
+                            provider: model_config.provider.to_string(),
+                            model: model_config.model.clone(),
+                            client: Arc::new(client),
+                            context_window: model_config.context_window,
+                        },
+                    );
+                } else {
+                    info!(
+                        "Skipping model '{}' (openai_codex) - not logged in (run: t-koma-cli oauth login codex)",
                         alias
                     );
                 }

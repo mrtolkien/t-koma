@@ -462,6 +462,13 @@ fn create_models_from_config(model_alias: &str) -> (HashMap<String, ModelEntry>,
                 "kimi_code",
             ))
         }
+        ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => {
+            eprintln!(
+                "\n\x1b[31mError: OAuth providers are not supported in this e2e test script.\x1b[0m\n\
+                 Use API-key-based providers instead."
+            );
+            std::process::exit(1);
+        }
     };
 
     models.insert(

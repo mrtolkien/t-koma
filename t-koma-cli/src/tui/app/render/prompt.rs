@@ -9,7 +9,10 @@ use super::super::{TuiApp, state::PromptKind, util::centered_rect};
 
 impl TuiApp {
     pub(super) fn draw_prompt_overlay(&self, frame: &mut Frame, kind: PromptKind) {
-        let size = if kind == PromptKind::AddProviderApiKey {
+        let size = if matches!(
+            kind,
+            PromptKind::AddProviderApiKey | PromptKind::OAuthCodePaste
+        ) {
             (70, 50)
         } else {
             (70, 30)
@@ -28,6 +31,17 @@ impl TuiApp {
                 let instructions = self.provider_api_key_instructions();
                 format!("{}\n\n> {}", instructions, self.prompt.buffer)
             }
+            PromptKind::OAuthCodePaste => {
+                let instructions = "\
+Anthropic OAuth Login
+
+Your browser should have opened to the Anthropic
+authorization page. After granting access, you will
+see a code on the callback page.
+
+Paste the full code (code#state format) below:";
+                format!("{}\n\n> {}", instructions, self.prompt.buffer)
+            }
             _ => {
                 let title = match kind {
                     PromptKind::AddOperator => "Operator name",
@@ -39,7 +53,7 @@ impl TuiApp {
                     PromptKind::GateSearch => "Search logs (blank clears)",
                     PromptKind::SetOperatorRateLimits => "Rate limits: 5m,1h or 'none'",
                     PromptKind::KnowledgeSearch => "Search knowledge",
-                    PromptKind::AddProviderApiKey => unreachable!(),
+                    PromptKind::AddProviderApiKey | PromptKind::OAuthCodePaste => unreachable!(),
                 };
                 format!("{}\n\n{}", title, self.prompt.buffer)
             }

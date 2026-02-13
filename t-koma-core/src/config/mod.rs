@@ -208,6 +208,16 @@ impl Config {
                     return Err(not_configured());
                 }
             }
+            ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => {
+                if model.routing.is_some() {
+                    return Err(ConfigError::OpenRouterProviderOnNonOpenRouterModel {
+                        alias: alias.to_string(),
+                        provider: model.provider.to_string(),
+                    });
+                }
+                // OAuth tokens are checked at gateway startup via OAuthTokenManager,
+                // not via env-var secrets.
+            }
             ProviderType::OpenRouter => {
                 if let Some(routing) = &model.routing {
                     let has_non_empty_order = routing.iter().any(|item| !item.trim().is_empty());
@@ -264,6 +274,13 @@ impl Config {
         if model.provider == ProviderType::KimiCode {
             return Ok(secrets.kimi_api_key.clone());
         }
+        // OAuth providers don't use env-var API keys
+        if matches!(
+            model.provider,
+            ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex
+        ) {
+            return Ok(None);
+        }
         let env_var = model
             .api_key_env
             .as_deref()
@@ -273,6 +290,7 @@ impl Config {
                 ProviderType::Anthropic => "ANTHROPIC_API_KEY",
                 ProviderType::Gemini => "GEMINI_API_KEY",
                 ProviderType::KimiCode => "KIMI_API_KEY",
+                ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => unreachable!(),
             });
         match std::env::var(env_var) {
             Ok(value) => Ok(Some(value)),

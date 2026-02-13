@@ -5,6 +5,14 @@ implementation details live in `docs/dev/`.
 
 `CLAUDE.md` is symlinked to this file.
 
+## HOW TO WORK
+
+ASK QUESTIONS ABOUT DESIGN. DON'T JUST START WRITING CODE.
+
+You are _great_ at writing code, but _horrendous_ at designing systems. You should make
+extremely few assumptions and regularly ask the user if your approach is right. DO NOT
+MAKE ASSUMPTIONS ABOUT WHAT THE USER WANTS: ASKS HIM.
+
 ## CRUCIAL
 
 Always update this file when:
