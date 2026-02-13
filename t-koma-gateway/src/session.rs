@@ -91,6 +91,7 @@ struct GhostContextVars {
     ghost_diary: String,
     ghost_skills: String,
     system_info: String,
+    model_info: String,
 }
 
 impl GhostContextVars {
@@ -101,6 +102,7 @@ impl GhostContextVars {
             ("ghost_diary", self.ghost_diary.as_str()),
             ("ghost_skills", self.ghost_skills.as_str()),
             ("system_info", self.system_info.as_str()),
+            ("model_info", self.model_info.as_str()),
         ]
     }
 }
@@ -444,6 +446,7 @@ impl SessionChat {
         message_already_persisted: bool,
         tool_call_tx: Option<&tokio::sync::mpsc::UnboundedSender<Vec<ToolCallSummary>>>,
         retry_on_empty: u32,
+        model_info: &str,
     ) -> Result<(String, Vec<ToolCallSummary>, ChatUsage), ChatError> {
         // Verify session exists and belongs to operator
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
@@ -478,7 +481,7 @@ impl SessionChat {
 
         // Build system prompt with ghost context (cached for 5 min)
         let system_blocks = self
-            .build_cached_system_blocks(pool, ghost_id, session_id)
+            .build_cached_system_blocks(pool, ghost_id, session_id, model_info)
             .await?;
 
         // Load history (compaction-aware) and apply compaction if needed
@@ -546,6 +549,7 @@ impl SessionChat {
         job_handle: Option<JobHandle>,
         max_tool_iterations: Option<usize>,
         retry_on_empty: u32,
+        model_info: &str,
     ) -> Result<JobChatResult, ChatError> {
         // Verify session exists
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
@@ -563,7 +567,7 @@ impl SessionChat {
 
         // Build system prompt (cached for 5 min)
         let system_blocks = self
-            .build_cached_system_blocks(pool, ghost_id, session_id)
+            .build_cached_system_blocks(pool, ghost_id, session_id, model_info)
             .await?;
 
         // Optionally load session history (compaction-aware)
@@ -1088,6 +1092,7 @@ impl SessionChat {
         pending: PendingToolApproval,
         decision: ToolApprovalDecision,
         retry_on_empty: u32,
+        model_info: &str,
     ) -> Result<String, ChatError> {
         let mut tool_context = self
             .load_tool_context(pool, ghost_id, operator_id, model)
@@ -1140,6 +1145,7 @@ impl SessionChat {
             operator_id,
             DEFAULT_TOOL_LOOP_LIMIT,
             retry_on_empty,
+            model_info,
         )
         .await
     }
@@ -1158,6 +1164,7 @@ impl SessionChat {
         pending: PendingToolContinuation,
         extra_iterations: usize,
         retry_on_empty: u32,
+        model_info: &str,
     ) -> Result<String, ChatError> {
         let mut tool_context = self
             .load_tool_context(pool, ghost_id, operator_id, model)
@@ -1188,6 +1195,7 @@ impl SessionChat {
             operator_id,
             extra_iterations,
             retry_on_empty,
+            model_info,
         )
         .await
     }
@@ -1205,13 +1213,14 @@ impl SessionChat {
         operator_id: &str,
         max_iterations: usize,
         retry_on_empty: u32,
+        model_info: &str,
     ) -> Result<String, ChatError> {
         let session = SessionRepository::get_by_id(pool.pool(), session_id)
             .await?
             .ok_or(ChatError::SessionNotFound)?;
 
         let system_blocks = self
-            .build_cached_system_blocks(pool, ghost_id, session_id)
+            .build_cached_system_blocks(pool, ghost_id, session_id, model_info)
             .await?;
 
         let api_messages = self
@@ -1462,6 +1471,7 @@ impl SessionChat {
         pool: &KomaDbPool,
         ghost_id: &str,
         session_id: &str,
+        model_info: &str,
     ) -> Result<Vec<SystemBlock>, ChatError> {
         // Fetch ghost to get name and derive workspace path
         let ghost = GhostRepository::get_by_id(pool.pool(), ghost_id)
@@ -1471,7 +1481,9 @@ impl SessionChat {
         let workspace_root = ghost_workspace_path(&ghost.name)?;
 
         // Build context vars to compute hash
-        let ghost_vars = self.build_ghost_context_vars(&workspace_root).await?;
+        let ghost_vars = self
+            .build_ghost_context_vars(&workspace_root, model_info)
+            .await?;
         let pairs = ghost_vars.as_pairs();
         let ctx_hash = hash_context(&pairs);
 
@@ -1494,6 +1506,7 @@ impl SessionChat {
     async fn build_ghost_context_vars(
         &self,
         workspace_root: &std::path::Path,
+        model_info: &str,
     ) -> Result<GhostContextVars, ChatError> {
         // Ghost identity (BOOT.md + SOUL.md + USER.md)
         let mut identity_parts = Vec::new();
@@ -1531,6 +1544,7 @@ impl SessionChat {
             ghost_diary,
             ghost_skills,
             system_info: self.system_info.clone(),
+            model_info: model_info.to_string(),
         })
     }
 

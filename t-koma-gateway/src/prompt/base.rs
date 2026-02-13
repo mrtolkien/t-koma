@@ -27,6 +27,7 @@ mod tests {
             ("ghost_diary", ""),
             ("ghost_skills", ""),
             ("system_info", ""),
+            ("model_info", ""),
         ]);
         assert!(full.contains("T-KOMA"));
         assert!(full.contains("GHOST"));

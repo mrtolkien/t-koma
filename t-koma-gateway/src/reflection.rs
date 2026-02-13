@@ -161,6 +161,10 @@ async fn run_reflection(
     } else {
         state.default_model()
     };
+    let model_info = format!(
+        "# Model\n- {} ({}/{})\n",
+        model.alias, model.provider, model.model
+    );
 
     let chat_key = format!("{operator_id}:{ghost_name}:{session_id}");
     state.set_chat_in_flight(&chat_key).await;
@@ -182,6 +186,7 @@ async fn run_reflection(
             Some(job_handle),
             Some(crate::session::REFLECTION_TOOL_LOOP_LIMIT),
             model.retry_on_empty,
+            &model_info,
         )
         .await;
 

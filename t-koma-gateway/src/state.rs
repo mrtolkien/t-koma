@@ -1041,6 +1041,23 @@ impl AppState {
         chain
     }
 
+    /// Build a human-readable model info string for the system prompt.
+    ///
+    /// Shows the full fallback chain with provider and model ID for each alias.
+    fn build_model_info(&self, chain: &[String]) -> String {
+        let entries: Vec<String> = chain
+            .iter()
+            .filter_map(|alias| {
+                self.get_model_by_alias(alias)
+                    .map(|e| format!("{} ({}/{})", alias, e.provider, e.model))
+            })
+            .collect();
+        if entries.is_empty() {
+            return String::new();
+        }
+        format!("# Model\n- Chain: {}\n", entries.join(" → "))
+    }
+
     fn select_model_for_chain(&self, chain: &[String]) -> Option<ModelEntry> {
         if let Some(alias) = self.circuit_breaker.first_available(chain)
             && let Some(entry) = self.get_model_by_alias(alias)
@@ -1071,6 +1088,7 @@ impl AppState {
     ) -> Result<(String, Vec<ToolCallSummary>, String, ChatUsage), ChatError> {
         let mut message_persisted = false;
         let mut last_error: Option<ChatError> = None;
+        let model_info = self.build_model_info(chain);
 
         for alias in chain {
             if !self.circuit_breaker.is_available(alias) {
@@ -1097,6 +1115,7 @@ impl AppState {
                     message_persisted,
                     tool_call_tx,
                     model.retry_on_empty,
+                    &model_info,
                 )
                 .await;
 
@@ -1394,6 +1413,7 @@ impl AppState {
             };
         let base_chain = self.resolve_ghost_model_chain(&ghost);
         let chain = Self::build_model_chain(model_alias, &base_chain);
+        let model_info = self.build_model_info(&chain);
         let model = self
             .select_model_for_chain(&chain)
             .unwrap_or_else(|| self.default_model());
@@ -1411,6 +1431,7 @@ impl AppState {
                 pending,
                 decision,
                 model.retry_on_empty,
+                &model_info,
             )
             .await?;
 
@@ -1445,6 +1466,7 @@ impl AppState {
             };
         let base_chain = self.resolve_ghost_model_chain(&ghost);
         let chain = Self::build_model_chain(model_alias, &base_chain);
+        let model_info = self.build_model_info(&chain);
         let model = self
             .select_model_for_chain(&chain)
             .unwrap_or_else(|| self.default_model());
@@ -1462,6 +1484,7 @@ impl AppState {
                 pending,
                 extra_iterations.unwrap_or(DEFAULT_TOOL_LOOP_EXTRA),
                 model.retry_on_empty,
+                &model_info,
             )
             .await?;
 

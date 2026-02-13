@@ -107,11 +107,21 @@ fn convert_message(msg: &Message) -> ChatMessage {
     };
 
     let mut stamped = false;
-    let content = msg
+    let mut content: Vec<ChatContentBlock> = msg
         .content
         .iter()
         .map(|block| convert_content_block(block, timestamp.as_deref(), &mut stamped))
         .collect();
+
+    // Append model tag after assistant content (after, to preserve cache)
+    if role == ChatRole::Assistant
+        && let Some(model) = &msg.model
+    {
+        content.push(ChatContentBlock::Text {
+            text: format!("[model: {}]", model),
+            cache_control: None,
+        });
+    }
 
     ChatMessage { role, content }
 }

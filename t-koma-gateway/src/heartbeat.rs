@@ -229,6 +229,10 @@ async fn run_heartbeat_for_session(
     } else {
         state.default_model()
     };
+    let model_info = format!(
+        "# Model\n- {} ({}/{})\n",
+        model.alias, model.provider, model.model
+    );
 
     let workspace_path = t_koma_db::ghosts::ghost_workspace_path(ghost_name)?;
     let heartbeat_path = workspace_path.join("HEARTBEAT.md");
@@ -253,6 +257,7 @@ async fn run_heartbeat_for_session(
             None, // no job handle needed for heartbeat
             None, // use default loop limit
             model.retry_on_empty,
+            &model_info,
         )
         .await
 }

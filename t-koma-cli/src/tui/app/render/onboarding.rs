@@ -113,9 +113,7 @@ fn build_step_lines(ob: &OnboardingState) -> Vec<Line<'static>> {
     let dim = Style::default().fg(Color::DarkGray);
     let normal = Style::default().fg(Color::White);
     let accent = Style::default().fg(Color::Yellow);
-    let warning = Style::default()
-        .fg(Color::Red)
-        .add_modifier(Modifier::BOLD);
+    let warning = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
 
     match &ob.step {
         OnboardingStep::Welcome => vec![

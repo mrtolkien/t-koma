@@ -118,6 +118,7 @@ mod tests {
         ("ghost_diary", ""),
         ("ghost_skills", ""),
         ("system_info", ""),
+        ("model_info", ""),
     ];
 
     #[test]
