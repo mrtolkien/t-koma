@@ -19,6 +19,8 @@ pub enum ProviderType {
     OpenAiCompatible,
     Gemini,
     KimiCode,
+    AnthropicOAuth,
+    OpenAiCodex,
 }
 
 impl ProviderType {
@@ -29,6 +31,8 @@ impl ProviderType {
             ProviderType::OpenAiCompatible => "openai_compatible",
             ProviderType::Gemini => "gemini",
             ProviderType::KimiCode => "kimi_code",
+            ProviderType::AnthropicOAuth => "anthropic_oauth",
+            ProviderType::OpenAiCodex => "openai_codex",
         }
     }
 }
@@ -51,6 +55,8 @@ impl std::str::FromStr for ProviderType {
             }
             "gemini" => Ok(ProviderType::Gemini),
             "kimi_code" | "kimi-code" | "kimicode" => Ok(ProviderType::KimiCode),
+            "anthropic_oauth" | "anthropic-oauth" => Ok(ProviderType::AnthropicOAuth),
+            "openai_codex" | "openai-codex" | "codex" => Ok(ProviderType::OpenAiCodex),
             _ => Err(format!("Unknown provider: {}", s)),
         }
     }
