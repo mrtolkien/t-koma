@@ -3,6 +3,13 @@
 A Rust-based AI system with multi-provider model support, featuring the T-KOMA
 (ティーコマ) server and a terminal UI client.
 
+## Status
+
+This project is in an extremely early stage and is experimental.
+Expect breaking changes and rough edges.
+
+Only one runtime path is currently supported: run the compiled binaries directly.
+
 ## Overview
 
 t-koma is an AI system consisting of:
@@ -49,23 +56,15 @@ cp .env.example .env
 
 ### Usage
 
-#### Option 1: Run both components manually
+Run both components from compiled binaries:
 
 ```bash
 # Terminal 1: Start T-KOMA
-cargo run --release --bin t-koma-gateway
+./target/release/t-koma-gateway
 
 # Terminal 2: Start the TUI
-cargo run --release --bin t-koma-cli
+./target/release/t-koma-cli
 ```
-
-#### Option 2: Run just the TUI (auto-starts T-KOMA)
-
-```bash
-cargo run --release --bin t-koma-cli
-```
-
-The TUI will automatically detect if T-KOMA is running and start it if needed.
 
 ### Operator/Ghost Flow
 
