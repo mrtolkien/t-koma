@@ -222,7 +222,9 @@ Use these detailed guides for feature-specific work:
 - `docs/dev/add-provider.md`
 - `docs/dev/add-interface.md`
 - `docs/dev/add-tool.md`
+- `docs/dev/mcp-usage.md`
 - `docs/dev/prompts-and-messages.md`
 - `docs/dev/background-jobs.md`
 - `docs/dev/knowledge-system.md`
 - `docs/dev/multi-model-fallback.md`
+- `docs/dev/assistant-first-tooling-migration.md`

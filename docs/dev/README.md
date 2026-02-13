@@ -13,5 +13,8 @@ Use `AGENTS.md` for universal rules. Use these docs for feature work:
 - `docs/dev/knowledge-system.md`: scopes, tools, storage, and indexing model.
 - `docs/dev/multi-model-fallback.md`: model chain config, circuit breaker, and fallback
   loop.
+- `docs/dev/assistant-first-tooling-migration.md`: aggressive target-state rebuild plan
+  for assistant-first tooling, profile split, process lifecycle tooling, and
+  skills-first workflows.
 
 If you change behavior covered by one of these guides, update that file in the same PR.
