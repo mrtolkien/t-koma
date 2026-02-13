@@ -13,7 +13,7 @@ resolver = "2"
 version = "0.1.0"
 authors = ["t-koma contributors"]
 edition = "2024"
-license = "None"
+license = "MIT"
 repository = "https://github.com/tolki/t-koma"
 
 [workspace.dependencies]
