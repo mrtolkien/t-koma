@@ -308,10 +308,16 @@ fn format_with_statusline(
     } else {
         String::new()
     };
+    let cache_part = if usage.cache_read_tokens > 0 {
+        format!(" {}⚡", format_token_count(usage.cache_read_tokens))
+    } else {
+        String::new()
+    };
     let tokens_part = format!(
-        " | {}↑ {}↓",
+        " | {}↑ {}↓{}",
         format_token_count(usage.input_tokens),
         format_token_count(usage.output_tokens),
+        cache_part,
     );
     let turns_part = if usage.turn_count > 1 {
         format!(
@@ -368,6 +374,7 @@ mod tests {
         ChatUsage {
             input_tokens: input,
             output_tokens: output,
+            cache_read_tokens: 0,
             turn_count: turns,
         }
     }
@@ -401,6 +408,18 @@ mod tests {
         let u = usage(1_500_000, 250_000, 1);
         let result = format_with_statusline("Hi", "model", 0, &u);
         assert_eq!(result, "Hi\n─\n`model | 1.5M↑ 250.0k↓`");
+    }
+
+    #[test]
+    fn test_statusline_cache_read() {
+        let u = ChatUsage {
+            input_tokens: 8000,
+            output_tokens: 500,
+            cache_read_tokens: 12500,
+            turn_count: 1,
+        };
+        let result = format_with_statusline("Hi", "claude-sonnet", 0, &u);
+        assert_eq!(result, "Hi\n─\n`claude-sonnet | 8.0k↑ 500↓ 12.5k⚡`");
     }
 
     #[test]

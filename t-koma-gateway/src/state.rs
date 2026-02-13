@@ -89,6 +89,7 @@ pub struct ChatResult {
 pub struct ChatUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    pub cache_read_tokens: u32,
     /// Number of provider API calls (initial + tool iterations + retries).
     pub turn_count: u32,
 }
@@ -100,6 +101,7 @@ impl ChatUsage {
         if let Some(u) = &response.usage {
             self.input_tokens += u.input_tokens;
             self.output_tokens += u.output_tokens;
+            self.cache_read_tokens += u.cache_read_tokens.unwrap_or(0);
         }
     }
 }
