@@ -504,6 +504,35 @@ impl OperatorRepository {
             .ok_or_else(|| DbError::OperatorNotFound(id.to_string()))
     }
 
+    /// List approved puppet master operators that have a Discord interface.
+    /// Returns each operator paired with their Discord `external_id`.
+    pub async fn list_puppet_masters_with_discord_interface(
+        pool: &SqlitePool,
+    ) -> DbResult<Vec<(Operator, String)>> {
+        let rows = sqlx::query_as::<_, OperatorWithExternalIdRow>(
+            "SELECT o.id, o.name, o.platform, o.status, o.access_level,
+                    o.rate_limit_5m_max, o.rate_limit_1h_max,
+                    o.allow_workspace_escape, o.verbose,
+                    o.created_at, o.updated_at, o.approved_at, o.denied_at, o.welcomed,
+                    i.external_id AS discord_external_id
+             FROM operators o
+             JOIN interfaces i ON i.operator_id = o.id
+             WHERE o.access_level = 'puppet_master'
+               AND o.status = 'approved'
+               AND i.platform = 'discord'",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let ext_id = r.discord_external_id.clone();
+                (Operator::from(r), ext_id)
+            })
+            .collect())
+    }
+
     /// Auto-prune pending operators older than the specified hours
     pub async fn prune_pending(pool: &SqlitePool, hours: i64) -> DbResult<i64> {
         let cutoff = Utc::now().timestamp() - (hours * 3600);
@@ -573,8 +602,51 @@ struct OperatorRow {
     welcomed: i64,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct OperatorWithExternalIdRow {
+    id: String,
+    name: String,
+    platform: String,
+    status: String,
+    access_level: String,
+    rate_limit_5m_max: Option<i64>,
+    rate_limit_1h_max: Option<i64>,
+    allow_workspace_escape: i64,
+    verbose: i64,
+    created_at: i64,
+    updated_at: i64,
+    approved_at: Option<i64>,
+    denied_at: Option<i64>,
+    welcomed: i64,
+    discord_external_id: String,
+}
+
 impl From<OperatorRow> for Operator {
     fn from(row: OperatorRow) -> Self {
+        Operator {
+            id: row.id,
+            name: row.name,
+            platform: row.platform.parse().unwrap_or(Platform::Api),
+            status: row.status.parse().unwrap_or(OperatorStatus::Pending),
+            access_level: row
+                .access_level
+                .parse()
+                .unwrap_or(OperatorAccessLevel::Standard),
+            rate_limit_5m_max: row.rate_limit_5m_max,
+            rate_limit_1h_max: row.rate_limit_1h_max,
+            allow_workspace_escape: row.allow_workspace_escape != 0,
+            verbose: row.verbose != 0,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            approved_at: row.approved_at,
+            denied_at: row.denied_at,
+            welcomed: row.welcomed != 0,
+        }
+    }
+}
+
+impl From<OperatorWithExternalIdRow> for Operator {
+    fn from(row: OperatorWithExternalIdRow) -> Self {
         Operator {
             id: row.id,
             name: row.name,

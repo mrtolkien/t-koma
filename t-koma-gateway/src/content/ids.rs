@@ -22,6 +22,15 @@ pub const TOOL_LOOP_DENIED: &str = "tool-loop-denied";
 /// content: messages/en/approvals.toml#tool-loop-limit-reached
 pub const TOOL_LOOP_LIMIT_REACHED: &str = "tool-loop-limit-reached";
 
+/// content: messages/en/discord.toml#admin-new-operator-pending
+pub const ADMIN_NEW_OPERATOR_PENDING: &str = "admin-new-operator-pending";
+
+/// content: messages/en/discord.toml#admin-operator-approved
+pub const ADMIN_OPERATOR_APPROVED: &str = "admin-operator-approved";
+
+/// content: messages/en/discord.toml#admin-operator-denied
+pub const ADMIN_OPERATOR_DENIED: &str = "admin-operator-denied";
+
 /// content: messages/en/discord.toml#discord-existing-operator-todo
 pub const DISCORD_EXISTING_OPERATOR_TODO: &str = "discord-existing-operator-todo";
 

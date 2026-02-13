@@ -553,6 +553,125 @@ pub async fn send_outbound_messages(
 }
 
 // ---------------------------------------------------------------------------
+// PM notification for new operator registration
+// ---------------------------------------------------------------------------
+
+pub async fn send_new_operator_notification_to_pms(
+    state: &AppState,
+    http: &serenity::http::Http,
+    new_operator: &t_koma_db::Operator,
+) {
+    let pms = match t_koma_db::OperatorRepository::list_puppet_masters_with_discord_interface(
+        state.koma_db.pool(),
+    )
+    .await
+    {
+        Ok(list) => list,
+        Err(e) => {
+            warn!(
+                "Failed to list PM operators for new-operator notification: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    if pms.is_empty() {
+        debug!("No PM operators with Discord interfaces to notify");
+        return;
+    }
+
+    let text = super::render_message(
+        ids::ADMIN_NEW_OPERATOR_PENDING,
+        &[("operator_name", &new_operator.name)],
+    );
+
+    for (pm_op, discord_external_id) in &pms {
+        let user_id_raw: u64 = match discord_external_id.parse() {
+            Ok(id) => id,
+            Err(_) => {
+                warn!(
+                    "Invalid Discord external_id '{}' for PM operator {}",
+                    discord_external_id, pm_op.id
+                );
+                continue;
+            }
+        };
+
+        let user_id = serenity::model::id::UserId::new(user_id_raw);
+        let dm = match user_id.create_dm_channel(http).await {
+            Ok(ch) => ch,
+            Err(e) => {
+                warn!(
+                    "Failed to open DM channel with PM {} for new-operator notification: {}",
+                    pm_op.id, e
+                );
+                continue;
+            }
+        };
+
+        let approve_token = uuid::Uuid::new_v4().to_string();
+        let deny_token = uuid::Uuid::new_v4().to_string();
+
+        state
+            .set_pending_gateway_action(
+                &approve_token,
+                PendingGatewayAction {
+                    operator_id: pm_op.id.clone(),
+                    ghost_name: String::new(),
+                    session_id: String::new(),
+                    external_id: discord_external_id.clone(),
+                    channel_id: dm.id.get().to_string(),
+                    intent: "admin.approve_operator".to_string(),
+                    payload: Some(new_operator.id.clone()),
+                    expires_at: chrono::Utc::now().timestamp() + 3600,
+                },
+            )
+            .await;
+
+        state
+            .set_pending_gateway_action(
+                &deny_token,
+                PendingGatewayAction {
+                    operator_id: pm_op.id.clone(),
+                    ghost_name: String::new(),
+                    session_id: String::new(),
+                    external_id: discord_external_id.clone(),
+                    channel_id: dm.id.get().to_string(),
+                    intent: "admin.deny_operator".to_string(),
+                    payload: Some(new_operator.id.clone()),
+                    expires_at: chrono::Utc::now().timestamp() + 3600,
+                },
+            )
+            .await;
+
+        let buttons = vec![
+            serenity::builder::CreateButton::new(format!("tk:a:{}", approve_token))
+                .label("APPROVE")
+                .style(serenity::model::application::ButtonStyle::Success),
+            serenity::builder::CreateButton::new(format!("tk:a:{}", deny_token))
+                .label("DENY")
+                .style(serenity::model::application::ButtonStyle::Danger),
+        ];
+
+        if let Err(e) = send_gateway_v2(
+            http,
+            dm.id,
+            &text,
+            Some(vec![CreateActionRow::Buttons(buttons)]),
+            Some(APPROVAL_EMBED_COLOR),
+        )
+        .await
+        {
+            warn!(
+                "Failed to send new-operator notification to PM {}: {}",
+                pm_op.id, e
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // DM for approved operators
 // ---------------------------------------------------------------------------
 

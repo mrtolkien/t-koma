@@ -189,9 +189,11 @@ Transport layers (Discord, WebSocket) do NOT manage tools. They call
 Provider-neutral chat history is defined in `t-koma-gateway/src/chat/history.rs`;
 provider adapters convert from that neutral model internally.
 
-CLI admin actions that need cross-interface side effects (for example OPERATOR approval
-that must trigger a Discord follow-up prompt) must go through a gateway WebSocket
-command handled in `t-koma-gateway`, not direct CLI DB writes.
+CLI admin actions (in `t-koma-cli`) that need cross-interface side effects (for example
+OPERATOR approval that must trigger a Discord follow-up prompt) must go through a
+gateway WebSocket command handled in `t-koma-gateway`, not direct CLI DB writes. Code
+_within_ the gateway crate already has `AppState` + DB + HTTP context and may perform
+direct operations without routing through WebSocket.
 
 Gateway outbound responses use semantic `GatewayMessage` payloads in
 `t-koma-core::message` and are rendered per interface. Every interactive gateway message
