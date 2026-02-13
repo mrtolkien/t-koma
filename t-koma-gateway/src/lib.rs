@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod circuit_breaker;
 pub mod content;
+pub mod cron;
 pub mod discord;
 pub mod gateway_message;
 pub mod heartbeat;

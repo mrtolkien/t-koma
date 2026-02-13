@@ -1,4 +1,4 @@
-# Background Jobs: Heartbeat and Reflection
+# Background Jobs: Heartbeat, Reflection, and CRON
 
 Background jobs are orchestrated by scheduler state in
 `t-koma-gateway/src/scheduler.rs`. Do not create ad-hoc per-module timers.
@@ -54,9 +54,29 @@ Background jobs are orchestrated by scheduler state in
   with `reference_manage(action="delete", cache_file=...)`.
 - `.web-cache/` is auto-cleared after successful reflection.
 
+## CRON (File-Based Scheduled Jobs)
+
+- Source of truth: markdown files under `$WORKSPACE/cron/*.md` (frontmatter + prompt
+  body).
+- Schedule format: standard 5-field CRON expression, evaluated in UTC.
+- Runtime:
+  - gateway watches `cron/` directories for changes (create/update/delete)
+  - updates in-memory CRON schedule queue from files
+  - missed windows while gateway is down are skipped
+- Job execution:
+  - optional fixed `pre_tools` run before model call
+  - prompt body is sent via `chat_job()`
+  - final response is posted to the OPERATOR's active session (heartbeat-style)
+  - when `carry_last_output = true`, previous output is loaded from
+    `$WORKSPACE/cron/.state/*.last.md` and written back after success
+- Persistence:
+  - run transcript/status in `job_logs` with `job_kind = cron`
+  - CRON definitions are not stored in DB
+
 ## Key Files
 
 - `t-koma-gateway/src/heartbeat.rs`
 - `t-koma-gateway/src/reflection.rs`
+- `t-koma-gateway/src/cron.rs`
 - `t-koma-gateway/src/scheduler.rs`
 - `t-koma-db/src/job_logs.rs`

@@ -1,4 +1,5 @@
 pub mod config;
+pub mod cron;
 pub mod default_skills;
 pub mod message;
 pub mod skill_registry;
@@ -14,6 +15,7 @@ pub use config::{
     OpenRouterSettings, ReflectionTimingSettings, Secrets, SecretsError, Settings, SettingsError,
     load_dotenv,
 };
+pub use cron::{CronParseError, CronPreToolCall, ParsedCronJobFile, parse_cron_job_markdown};
 
 // Message re-exports
 pub use message::{

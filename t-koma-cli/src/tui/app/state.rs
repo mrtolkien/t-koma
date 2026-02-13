@@ -108,10 +108,29 @@ pub(super) struct GhostRow {
     pub(super) heartbeat: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct CronFileRow {
+    pub(super) ghost_name: String,
+    pub(super) name: String,
+    pub(super) schedule: String,
+    pub(super) enabled: bool,
+    pub(super) carry_last_output: bool,
+    pub(super) path: String,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum JobViewMode {
+    #[default]
+    Logs,
+    Cron,
+}
+
 /// View state for the job viewer.
 #[derive(Debug, Default)]
 pub(super) struct JobViewState {
+    pub(super) mode: JobViewMode,
     pub(super) summaries: Vec<JobLogSummary>,
+    pub(super) cron_jobs: Vec<CronFileRow>,
     pub(super) detail: Option<JobLog>,
 }
 

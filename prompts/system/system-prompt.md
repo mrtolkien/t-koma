@@ -217,4 +217,5 @@ For advanced operations, load dedicated skills with `load_skill`:
 
 ## Ghost Runtime Context
 
-{{ system_info }} {{ model_info }} {{ ghost_identity }} {{ ghost_diary }} {{ ghost_skills }}
+{{ system_info }} {{ model_info }} {{ ghost_identity }} {{ ghost_diary }} {{
+ghost_skills }}

@@ -301,7 +301,12 @@ impl TuiApp {
                         }
                     }
                     Category::Jobs => {
-                        if self.content_idx + 1 < self.job_view.summaries.len() {
+                        let content_len = if self.job_view.mode == super::state::JobViewMode::Cron {
+                            self.job_view.cron_jobs.len() + self.job_view.summaries.len()
+                        } else {
+                            self.job_view.summaries.len()
+                        };
+                        if self.content_idx + 1 < content_len {
                             self.content_idx += 1;
                         }
                     }
@@ -472,9 +477,10 @@ impl TuiApp {
                 _ => {}
             },
             Category::Jobs => match self.options_idx {
-                0 => self.refresh_jobs(None).await,
+                0 => self.refresh_cron_jobs_view().await,
+                1 => self.refresh_jobs(None).await,
                 idx => {
-                    let ghost_id = self.ghosts.get(idx - 1).map(|g| g.ghost.id.clone());
+                    let ghost_id = self.ghosts.get(idx - 2).map(|g| g.ghost.id.clone());
                     self.refresh_jobs(ghost_id.as_deref()).await;
                 }
             },
@@ -623,7 +629,13 @@ impl TuiApp {
                 self.refresh_operators().await;
             }
             Category::Ghosts => self.refresh_ghosts().await,
-            Category::Jobs => self.refresh_jobs(None).await,
+            Category::Jobs => {
+                if self.options_idx == 0 {
+                    self.refresh_cron_jobs_view().await;
+                } else {
+                    self.refresh_jobs(None).await;
+                }
+            }
             Category::Knowledge => {
                 if self.knowledge_view.notes.is_empty() {
                     self.refresh_knowledge_recent().await;
