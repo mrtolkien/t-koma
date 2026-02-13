@@ -37,3 +37,15 @@ body = "`SESSION` bootstrap failed for this `GHOST` (ゴースト)."
 
 [error-init-session-discord]
 body = "`SESSION` initialization fault detected. セッション初期化エラー。"
+
+[admin-new-operator-pending]
+vars = ["operator_name"]
+body = "NEW `OPERATOR` `{{operator_name}}` requesting access. 新規オペレーター承認待ち。"
+
+[admin-operator-approved]
+vars = ["operator_name"]
+body = "`OPERATOR` `{{operator_name}}` approved. オペレーター承認済み。"
+
+[admin-operator-denied]
+vars = ["operator_name"]
+body = "`OPERATOR` `{{operator_name}}` denied. オペレーター拒否済み。"

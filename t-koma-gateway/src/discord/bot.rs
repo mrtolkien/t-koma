@@ -194,6 +194,12 @@ pub(super) async fn handle_interface_choice(
         None,
     )
     .await;
+
+    let state = bot.state.clone();
+    let http = ctx.http.clone();
+    tokio::spawn(async move {
+        super::send::send_new_operator_notification_to_pms(&state, &http, &operator).await;
+    });
 }
 
 pub(super) async fn run_action_intent(
@@ -227,6 +233,94 @@ pub(super) async fn run_action_intent(
                     &[("ghost_name", ghost_name.as_str())],
                 );
                 let _ = send_gateway_embed(ctx, channel_id, &text, None).await;
+            }
+            return;
+        }
+        "admin.approve_operator" => {
+            let Some(target_id) = pending.payload.as_deref() else {
+                return;
+            };
+            let pm = match t_koma_db::OperatorRepository::get_by_id(
+                bot.state.koma_db.pool(),
+                &pending.operator_id,
+            )
+            .await
+            {
+                Ok(Some(op)) if op.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster => {
+                    op
+                }
+                _ => return,
+            };
+            match t_koma_db::OperatorRepository::approve(bot.state.koma_db.pool(), target_id).await
+            {
+                Ok(approved_op) => {
+                    if let Some(token) = bot.state.discord_bot_token().await
+                        && let Err(e) = super::send::send_approved_operator_ghost_prompt_dm(
+                            bot.state.as_ref(),
+                            &token,
+                            target_id,
+                        )
+                        .await
+                    {
+                        warn!(
+                            "Approved operator {}, but Discord welcome DM failed: {}",
+                            target_id, e
+                        );
+                    }
+                    let text = super::render_message(
+                        ids::ADMIN_OPERATOR_APPROVED,
+                        &[("operator_name", &approved_op.name)],
+                    );
+                    let _ = send_gateway_embed(ctx, channel_id, &text, None).await;
+                }
+                Err(e) => {
+                    warn!(
+                        "PM {} failed to approve operator {}: {}",
+                        pm.name, target_id, e
+                    );
+                    let _ = send_gateway_embed(
+                        ctx,
+                        channel_id,
+                        &format!("Approve failed: {}", e),
+                        None,
+                    )
+                    .await;
+                }
+            }
+            return;
+        }
+        "admin.deny_operator" => {
+            let Some(target_id) = pending.payload.as_deref() else {
+                return;
+            };
+            let pm = match t_koma_db::OperatorRepository::get_by_id(
+                bot.state.koma_db.pool(),
+                &pending.operator_id,
+            )
+            .await
+            {
+                Ok(Some(op)) if op.access_level == t_koma_db::OperatorAccessLevel::PuppetMaster => {
+                    op
+                }
+                _ => return,
+            };
+            match t_koma_db::OperatorRepository::deny(bot.state.koma_db.pool(), target_id).await {
+                Ok(denied_op) => {
+                    let text = super::render_message(
+                        ids::ADMIN_OPERATOR_DENIED,
+                        &[("operator_name", &denied_op.name)],
+                    );
+                    let _ = send_gateway_embed(ctx, channel_id, &text, None).await;
+                }
+                Err(e) => {
+                    warn!(
+                        "PM {} failed to deny operator {}: {}",
+                        pm.name, target_id, e
+                    );
+                    let _ =
+                        send_gateway_embed(ctx, channel_id, &format!("Deny failed: {}", e), None)
+                            .await;
+                }
             }
             return;
         }
