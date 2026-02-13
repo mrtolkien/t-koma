@@ -1,6 +1,7 @@
 use std::{
     fs,
     io::{self, Write},
+    path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -14,10 +15,14 @@ use crossterm::{
 use futures::StreamExt;
 use tempfile::NamedTempFile;
 
-use t_koma_core::{GatewayMessageKind, ModelConfig, ProviderType, Settings, WsMessage, WsResponse};
+use t_koma_core::{
+    GatewayMessageKind, ModelConfig, ProviderType, Settings, WsMessage, WsResponse,
+    parse_cron_job_markdown,
+};
 use t_koma_db::{
-    ContentBlock, Ghost, GhostRepository, JobLog, JobLogRepository, Message, OperatorAccessLevel,
-    OperatorRepository, OperatorStatus, Platform, SessionRepository, ghosts::ghost_workspace_path,
+    ContentBlock, Ghost, GhostRepository, JobKind as DbJobKind, JobLog, JobLogRepository, Message,
+    OperatorAccessLevel, OperatorRepository, OperatorStatus, Platform, SessionRepository,
+    ghosts::ghost_workspace_path,
 };
 
 use crate::client::WsClient;
@@ -25,14 +30,28 @@ use crate::client::WsClient;
 use super::{
     TuiApp,
     state::{
-        ContentView, GhostRow, Metrics, OperatorView, PromptKind, SelectionAction, SelectionItem,
-        SelectionModal,
+        ContentView, CronFileRow, GhostRow, Metrics, OperatorView, PromptKind, SelectionAction,
+        SelectionItem, SelectionModal,
     },
     util::{load_disk_config, shell_quote, ws_url_for_cli},
 };
 
 const HEARTBEAT_IDLE_SECONDS: i64 = 15 * 60;
 const HEARTBEAT_OK_TOKEN: &str = "HEARTBEAT_OK";
+
+fn collect_markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_markdown_files(&path, out);
+        } else if path.extension().and_then(|v| v.to_str()) == Some("md") {
+            out.push(path);
+        }
+    }
+}
 
 fn extract_message_text(message: &Message) -> String {
     let mut parts = Vec::new();
@@ -854,7 +873,9 @@ impl TuiApp {
 
         match result {
             Ok(summaries) => {
+                self.job_view.mode = super::state::JobViewMode::Logs;
                 self.job_view.summaries = summaries;
+                self.job_view.cron_jobs.clear();
                 self.job_view.detail = None;
                 self.content_view = ContentView::List;
                 self.content_idx = 0;
@@ -864,8 +885,89 @@ impl TuiApp {
         }
     }
 
+    pub(super) async fn refresh_cron_jobs_view(&mut self) {
+        let Some(db) = &self.db else {
+            self.status = "DB unavailable".to_string();
+            return;
+        };
+
+        let cron_jobs = match GhostRepository::list_all(db.pool()).await {
+            Ok(ghosts) => {
+                let mut out = Vec::new();
+                for ghost in ghosts {
+                    let Ok(workspace_root) = ghost_workspace_path(&ghost.name) else {
+                        continue;
+                    };
+                    let cron_dir = workspace_root.join("cron");
+                    if !cron_dir.exists() {
+                        continue;
+                    }
+                    let mut files = Vec::new();
+                    collect_markdown_files(&cron_dir, &mut files);
+                    for path in files {
+                        let Ok(raw) = fs::read_to_string(&path) else {
+                            continue;
+                        };
+                        let Ok(parsed) = parse_cron_job_markdown(&path, &raw) else {
+                            continue;
+                        };
+                        out.push(CronFileRow {
+                            ghost_name: ghost.name.clone(),
+                            name: parsed.name,
+                            schedule: parsed.schedule,
+                            enabled: parsed.enabled,
+                            carry_last_output: parsed.carry_last_output,
+                            path: path.display().to_string(),
+                        });
+                    }
+                }
+                out
+            }
+            Err(e) => {
+                self.status = format!("CRON load failed: {}", e);
+                return;
+            }
+        };
+
+        let summaries = JobLogRepository::list_recent(db.pool(), 400)
+            .await
+            .map(|logs| {
+                logs.into_iter()
+                    .filter(|j| j.job_kind == DbJobKind::Cron)
+                    .collect::<Vec<_>>()
+            });
+
+        match summaries {
+            Ok(summaries) => {
+                self.job_view.mode = super::state::JobViewMode::Cron;
+                self.job_view.cron_jobs = cron_jobs;
+                self.job_view.summaries = summaries;
+                self.job_view.detail = None;
+                self.content_view = ContentView::List;
+                self.content_idx = 0;
+                self.status = format!(
+                    "{} CRON definitions, {} CRON logs",
+                    self.job_view.cron_jobs.len(),
+                    self.job_view.summaries.len()
+                );
+            }
+            Err(e) => self.status = format!("CRON logs failed: {}", e),
+        }
+    }
+
     pub(super) async fn drill_into_job(&mut self) {
-        let Some(job) = self.job_view.summaries.get(self.content_idx) else {
+        if self.job_view.mode == super::state::JobViewMode::Cron
+            && self.content_idx < self.job_view.cron_jobs.len()
+        {
+            return;
+        }
+        let log_idx = if self.job_view.mode == super::state::JobViewMode::Cron {
+            self.content_idx
+                .saturating_sub(self.job_view.cron_jobs.len())
+        } else {
+            self.content_idx
+        };
+        let Some(job) = self.job_view.summaries.get(log_idx) else {
             return;
         };
         let job_id = job.id.clone();

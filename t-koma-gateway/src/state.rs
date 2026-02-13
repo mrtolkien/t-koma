@@ -146,6 +146,13 @@ pub enum LogEntry {
         session_id: String,
         status: String,
     },
+    /// CRON job status
+    Cron {
+        ghost_name: String,
+        session_id: String,
+        status: String,
+        job_name: String,
+    },
     /// Routing decision for operator -> ghost/session
     Routing {
         platform: String,
@@ -233,6 +240,16 @@ impl std::fmt::Display for LogEntry {
                 "[{}] [REFLECTION] {} ({}) {}",
                 timestamp, ghost_name, session_id, status
             ),
+            LogEntry::Cron {
+                ghost_name,
+                session_id,
+                status,
+                job_name,
+            } => write!(
+                f,
+                "[{}] [CRON] {} ({}) [{}] {}",
+                timestamp, ghost_name, session_id, job_name, status
+            ),
             LogEntry::Routing {
                 platform,
                 operator_id,
@@ -309,6 +326,8 @@ pub struct AppState {
 
     /// Heartbeat runner handle
     heartbeat_runner: RwLock<Option<JoinHandle<()>>>,
+    /// CRON runner handle
+    cron_runner: RwLock<Option<JoinHandle<()>>>,
 
     /// Heartbeat override schedule per session (chat_key)
     heartbeat_overrides: RwLock<HashMap<String, HeartbeatOverride>>,
@@ -372,6 +391,7 @@ impl AppState {
             shared_knowledge_watcher: RwLock::new(None),
             ghost_knowledge_watchers: RwLock::new(HashMap::new()),
             heartbeat_runner: RwLock::new(None),
+            cron_runner: RwLock::new(None),
             heartbeat_overrides: RwLock::new(HashMap::new()),
             scheduler: RwLock::new(SchedulerState::new()),
             discord_bot_token: RwLock::new(None),
@@ -463,7 +483,6 @@ impl AppState {
     /// Start the heartbeat runner if it isn't already running.
     pub async fn start_heartbeat_runner(
         self: &Arc<Self>,
-        heartbeat_model_chain: Vec<String>,
         timing: t_koma_core::HeartbeatTimingSettings,
     ) {
         let mut guard = self.heartbeat_runner.write().await;
@@ -473,11 +492,20 @@ impl AppState {
             return;
         }
 
-        let handle = crate::heartbeat::start_heartbeat_runner(
-            Arc::clone(self),
-            heartbeat_model_chain,
-            timing,
-        );
+        let handle = crate::heartbeat::start_heartbeat_runner(Arc::clone(self), timing);
+        *guard = Some(handle);
+    }
+
+    /// Start the CRON runner if it isn't already running.
+    pub async fn start_cron_runner(self: &Arc<Self>, check_seconds: u64) {
+        let mut guard = self.cron_runner.write().await;
+        if let Some(handle) = guard.as_ref()
+            && !handle.is_finished()
+        {
+            return;
+        }
+
+        let handle = crate::cron::start_cron_runner(Arc::clone(self), check_seconds);
         *guard = Some(handle);
     }
 
@@ -1024,6 +1052,42 @@ impl AppState {
             }
         }
         chain
+    }
+
+    /// Resolve a model for a ghost using an optional job-specific override chain.
+    ///
+    /// Precedence: `job_override_json` -> ghost `model_aliases` -> global default chain.
+    pub fn resolve_model_for_ghost_with_override_json(
+        &self,
+        ghost: &t_koma_db::Ghost,
+        job_override_json: Option<&str>,
+    ) -> ModelEntry {
+        let defaults = self.resolve_ghost_model_chain(ghost);
+        let preferred = job_override_json
+            .and_then(|json| t_koma_core::config::ModelAliases::from_json(json).ok())
+            .map(|ma| ma.into_vec())
+            .unwrap_or_default();
+
+        let mut chain = Vec::with_capacity(preferred.len() + defaults.len());
+        for alias in preferred {
+            if self.get_model_by_alias(&alias).is_some() {
+                chain.push(alias);
+            } else {
+                tracing::warn!(
+                    ghost = ghost.name.as_str(),
+                    alias = alias.as_str(),
+                    "job model alias not found in config, skipping"
+                );
+            }
+        }
+        for alias in defaults {
+            if !chain.iter().any(|a| a == &alias) {
+                chain.push(alias);
+            }
+        }
+
+        self.select_model_for_chain(&chain)
+            .unwrap_or_else(|| self.default_model())
     }
 
     /// Build an ordered model chain, placing `preferred` first (if given) and

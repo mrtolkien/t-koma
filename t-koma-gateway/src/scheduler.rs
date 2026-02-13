@@ -4,6 +4,7 @@ use std::collections::HashMap;
 pub enum JobKind {
     Heartbeat,
     Reflection,
+    Cron,
 }
 
 #[derive(Debug, Clone, Copy)]

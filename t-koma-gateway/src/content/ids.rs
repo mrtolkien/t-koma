@@ -217,5 +217,8 @@ pub const PROMPT_COMPACTION: &str = "compaction-prompt";
 /// content: prompts/system/reflection-prompt.md
 pub const PROMPT_REFLECTION: &str = "reflection-prompt";
 
+/// content: prompts/system/cron-prompt.md
+pub const PROMPT_CRON: &str = "cron-prompt";
+
 /// content: prompts/system/system-prompt.md
 pub const PROMPT_SYSTEM_PROMPT: &str = "system-prompt";

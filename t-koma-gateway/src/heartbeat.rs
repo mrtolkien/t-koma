@@ -220,16 +220,8 @@ async fn run_heartbeat_for_session(
     ghost_id: &str,
     session_id: &str,
     operator_id: &str,
-    heartbeat_model_alias: Option<&str>,
+    model: &crate::state::ModelEntry,
 ) -> Result<JobChatResult, ChatError> {
-    let model = if let Some(alias) = heartbeat_model_alias {
-        state
-            .get_model_by_alias(alias)
-            .unwrap_or_else(|| state.default_model())
-    } else {
-        state.default_model()
-    };
-
     let workspace_path = t_koma_db::ghosts::ghost_workspace_path(ghost_name)?;
     let heartbeat_path = workspace_path.join("HEARTBEAT.md");
     let prompt = fs::read_to_string(&heartbeat_path)
@@ -257,12 +249,7 @@ async fn run_heartbeat_for_session(
         .await
 }
 
-pub async fn run_heartbeat_tick(
-    state: Arc<AppState>,
-    heartbeat_model_chain: Vec<String>,
-    idle_minutes: i64,
-    continue_minutes: i64,
-) {
+pub async fn run_heartbeat_tick(state: Arc<AppState>, idle_minutes: i64, continue_minutes: i64) {
     let threshold = Utc::now() - ChronoDuration::minutes(idle_minutes);
     let threshold_ts = threshold.timestamp();
     let now_ts = Utc::now().timestamp();
@@ -274,12 +261,6 @@ pub async fn run_heartbeat_tick(
             return;
         }
     };
-
-    // Resolve best available model for this tick via circuit breaker
-    let resolved_alias = state
-        .circuit_breaker
-        .first_available(&heartbeat_model_chain)
-        .map(|s| s.to_string());
 
     for ghost in ghosts {
         let sessions = match SessionRepository::list_active(state.koma_db.pool()).await {
@@ -294,6 +275,9 @@ pub async fn run_heartbeat_tick(
         };
 
         for session in sessions {
+            if session.ghost_id != ghost.id {
+                continue;
+            }
             let chat_key = format!("{}:{}:{}", session.operator_id, ghost.name, session.id);
             if state.is_chat_in_flight(&chat_key).await {
                 continue;
@@ -327,7 +311,10 @@ pub async fn run_heartbeat_tick(
                 idle_minutes,
             );
             state.set_heartbeat_due(&chat_key, next_due).await;
-            let model_alias = resolved_alias.as_deref();
+            let heartbeat_model = state.resolve_model_for_ghost_with_override_json(
+                &ghost,
+                ghost.heartbeat_model_aliases.as_deref(),
+            );
 
             if let Some(entry) = override_entry
                 && now_ts < entry.next_due
@@ -339,7 +326,7 @@ pub async fn run_heartbeat_tick(
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
-                    model_alias,
+                    ghost.reflection_model_aliases.as_deref(),
                     None, // uses default reflection idle_minutes
                 )
                 .await;
@@ -354,7 +341,7 @@ pub async fn run_heartbeat_tick(
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
-                    model_alias,
+                    ghost.reflection_model_aliases.as_deref(),
                     None, // uses default reflection idle_minutes
                 )
                 .await;
@@ -369,7 +356,7 @@ pub async fn run_heartbeat_tick(
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
-                    model_alias,
+                    ghost.reflection_model_aliases.as_deref(),
                     None, // uses default reflection idle_minutes
                 )
                 .await;
@@ -388,7 +375,7 @@ pub async fn run_heartbeat_tick(
                     &session.id,
                     session.updated_at,
                     &session.operator_id,
-                    model_alias,
+                    ghost.reflection_model_aliases.as_deref(),
                     None, // uses default reflection idle_minutes
                 )
                 .await;
@@ -402,16 +389,14 @@ pub async fn run_heartbeat_tick(
                 &ghost.id,
                 &session.id,
                 &session.operator_id,
-                model_alias,
+                &heartbeat_model,
             )
             .await;
             state.clear_chat_in_flight(&chat_key).await;
 
             match result {
                 Ok(job_result) => {
-                    if let Some(alias) = &resolved_alias {
-                        state.circuit_breaker.record_success(alias);
-                    }
+                    state.circuit_breaker.record_success(&heartbeat_model.alias);
                     let text = &job_result.response_text;
 
                     // Determine status and write job log
@@ -485,15 +470,14 @@ pub async fn run_heartbeat_tick(
                         &session.id,
                         session.updated_at,
                         &session.operator_id,
-                        model_alias,
+                        ghost.reflection_model_aliases.as_deref(),
                         None,
                     )
                     .await;
                 }
                 Err(err) => {
                     // Update circuit breaker for retryable provider failures
-                    if let Some(alias) = &resolved_alias
-                        && let ChatError::Provider(ref e) = err
+                    if let ChatError::Provider(ref e) = err
                         && e.is_retryable()
                     {
                         let reason = if e.is_rate_limited() {
@@ -501,7 +485,9 @@ pub async fn run_heartbeat_tick(
                         } else {
                             CooldownReason::ServerError
                         };
-                        state.circuit_breaker.record_failure(alias, reason);
+                        state
+                            .circuit_breaker
+                            .record_failure(&heartbeat_model.alias, reason);
                     }
 
                     // Write error job log
@@ -524,7 +510,6 @@ pub async fn run_heartbeat_tick(
 
 pub fn start_heartbeat_runner(
     state: Arc<AppState>,
-    heartbeat_model_chain: Vec<String>,
     timing: t_koma_core::HeartbeatTimingSettings,
 ) -> tokio::task::JoinHandle<()> {
     let check_seconds = timing.check_seconds;
@@ -539,13 +524,7 @@ pub fn start_heartbeat_runner(
     let handle = tokio::spawn(async move {
         loop {
             interval.tick().await;
-            run_heartbeat_tick(
-                Arc::clone(&state),
-                heartbeat_model_chain.clone(),
-                idle_minutes,
-                continue_minutes,
-            )
-            .await;
+            run_heartbeat_tick(Arc::clone(&state), idle_minutes, continue_minutes).await;
         }
     });
 

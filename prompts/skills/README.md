@@ -55,6 +55,8 @@ Detailed instructions for the agent...
 ## Available Skills
 
 - **skill-creator**: Guide for creating new skills
+- **reference-researcher**: Advanced research/import strategies for reference topics
+- **cron-job-author**: Create and improve file-based CRON jobs under `workspace/cron/`
 
 ## Using Skills
 

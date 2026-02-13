@@ -15,7 +15,8 @@ use crate::scheduler::JobKind;
 use crate::state::{AppState, LogEntry};
 use crate::tools::{JobHandle, ToolManager};
 use t_koma_db::{
-    ContentBlock, JobKind as DbJobKind, JobLog, JobLogRepository, MessageRole, SessionRepository,
+    ContentBlock, GhostRepository, JobKind as DbJobKind, JobLog, JobLogRepository, MessageRole,
+    SessionRepository,
 };
 
 /// Default reflection idle minutes (overridden by config).
@@ -35,7 +36,7 @@ pub async fn maybe_run_reflection(
     session_id: &str,
     session_updated_at: i64,
     operator_id: &str,
-    heartbeat_model_alias: Option<&str>,
+    reflection_model_aliases_json: Option<&str>,
     idle_minutes: Option<i64>,
 ) {
     run_reflection(
@@ -45,7 +46,7 @@ pub async fn maybe_run_reflection(
         session_id,
         session_updated_at,
         operator_id,
-        heartbeat_model_alias,
+        reflection_model_aliases_json,
         true,
         idle_minutes.unwrap_or(DEFAULT_REFLECTION_IDLE_MINUTES),
     )
@@ -62,7 +63,7 @@ pub async fn run_reflection_now(
     ghost_id: &str,
     session_id: &str,
     operator_id: &str,
-    heartbeat_model_alias: Option<&str>,
+    reflection_model_aliases_json: Option<&str>,
 ) {
     run_reflection(
         state,
@@ -71,7 +72,7 @@ pub async fn run_reflection_now(
         session_id,
         Utc::now().timestamp(),
         operator_id,
-        heartbeat_model_alias,
+        reflection_model_aliases_json,
         false,
         0, // idle_minutes irrelevant when not enforced
     )
@@ -86,7 +87,7 @@ async fn run_reflection(
     session_id: &str,
     session_updated_at: i64,
     operator_id: &str,
-    heartbeat_model_alias: Option<&str>,
+    reflection_model_aliases_json: Option<&str>,
     enforce_idle_gate: bool,
     idle_minutes: i64,
 ) {
@@ -154,12 +155,11 @@ async fn run_reflection(
     // Build the filtered transcript prompt
     let prompt = build_reflection_prompt(&recent_messages, &previous_handoff, ghost_name).await;
 
-    let model = if let Some(alias) = heartbeat_model_alias {
-        state
-            .get_model_by_alias(alias)
-            .unwrap_or_else(|| state.default_model())
-    } else {
-        state.default_model()
+    let model = match GhostRepository::get_by_id(pool, ghost_id).await {
+        Ok(Some(ghost)) => {
+            state.resolve_model_for_ghost_with_override_json(&ghost, reflection_model_aliases_json)
+        }
+        _ => state.default_model(),
     };
 
     let chat_key = format!("{operator_id}:{ghost_name}:{session_id}");

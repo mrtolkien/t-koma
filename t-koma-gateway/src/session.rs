@@ -20,6 +20,7 @@ use crate::system_info;
 use crate::tools::context::{ApprovalReason, is_within_workspace};
 use crate::tools::{JobHandle, ToolContext, ToolManager};
 use serde_json::Value;
+use t_koma_core::CronPreToolCall;
 use t_koma_db::{
     ContentBlock as DbContentBlock, GhostRepository, KomaDbPool, MessageRole, OperatorRepository,
     Session, SessionRepository, TokenUsage, TranscriptEntry, UsageLog, UsageLogRepository,
@@ -616,6 +617,40 @@ impl SessionChat {
             response_text: text,
             transcript,
         })
+    }
+
+    /// Execute a fixed list of tools before model invocation for background jobs.
+    ///
+    /// Returns each tool call paired with its textual output.
+    pub async fn run_pre_model_tools_for_job(
+        &self,
+        pool: &KomaDbPool,
+        ghost_id: &str,
+        operator_id: &str,
+        model: &str,
+        tool_calls: &[CronPreToolCall],
+        tool_manager_override: Option<&ToolManager>,
+    ) -> Result<Vec<(CronPreToolCall, String)>, ChatError> {
+        if tool_calls.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tool_context = self
+            .load_tool_context(pool, ghost_id, operator_id, model)
+            .await?;
+        let tm = tool_manager_override.unwrap_or(&self.tool_manager);
+        let mut results = Vec::with_capacity(tool_calls.len());
+
+        for call in tool_calls {
+            let output = tm
+                .execute_with_context(&call.name, call.input.clone(), &mut tool_context)
+                .await
+                .map_err(|e| ChatError::ToolExecution(format!("{}: {}", call.name, e)))?;
+            results.push((call.clone(), output));
+        }
+
+        self.persist_tool_context(pool, &mut tool_context).await?;
+        Ok(results)
     }
 
     /// Tool loop for detached job conversations.

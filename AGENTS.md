@@ -42,6 +42,16 @@ Always update this file when:
 - Heartbeat: background session health check; transcripts go to `job_logs`
 - Reflection: background knowledge curation run after heartbeat ticks; writes to
   knowledge stores and `job_logs`
+- CRON jobs: markdown files in `$WORKSPACE/cron/` with frontmatter; watched and
+  scheduled by the gateway
+
+## Text-First Feature Design
+
+- Prefer plain text files in the GHOST workspace as the primary feature surface when
+  realistic (for example CRON job definitions).
+- Prefer skills + CLI workflows over adding new tool APIs.
+- Add a dedicated tool only when text + existing tools + CLI cannot deliver the feature
+  safely or ergonomically.
 
 ## MCP Usage (Core)
 

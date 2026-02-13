@@ -178,6 +178,89 @@ impl TuiApp {
     // ── Jobs ─────────────────────────────────────────────────────────
 
     fn draw_jobs_list(&self, frame: &mut Frame, inner: Rect) {
+        if self.job_view.mode == super::super::state::JobViewMode::Cron {
+            if self.job_view.cron_jobs.is_empty() && self.job_view.summaries.is_empty() {
+                let p = Paragraph::new("No CRON definitions or logs")
+                    .style(Style::default().fg(Color::DarkGray));
+                frame.render_widget(p, inner);
+                return;
+            }
+
+            let mut items: Vec<ListItem> = Vec::new();
+            for (idx, job) in self.job_view.cron_jobs.iter().enumerate() {
+                let ghost = job.ghost_name.as_str();
+                let enabled = if job.enabled { "on" } else { "off" };
+                let carry = if job.carry_last_output {
+                    "carry"
+                } else {
+                    "no-carry"
+                };
+                let mut item = ListItem::new(Line::styled(
+                    format!(
+                        "[CRON] {:16} ghost={:12} {} {} {} [{}]",
+                        truncate_snippet(&job.name, 16),
+                        ghost,
+                        job.schedule,
+                        enabled,
+                        carry,
+                        truncate_snippet(&job.path, 24)
+                    ),
+                    Style::default().fg(Color::Cyan),
+                ));
+                if idx == self.content_idx && self.focus == FocusPane::Content {
+                    item = item.style(theme::selected());
+                }
+                items.push(item);
+            }
+
+            for (idx, job) in self.job_view.summaries.iter().enumerate() {
+                let list_idx = self.job_view.cron_jobs.len() + idx;
+                let (status_icon, status_color) = job_status_style(job.status.as_deref());
+                let dur_str = job
+                    .finished_at
+                    .map(|f| {
+                        let secs = (f - job.started_at) as f64 / 1000.0;
+                        format!("{:.1}s", secs)
+                    })
+                    .unwrap_or_default();
+                let ghost = self
+                    .ghosts
+                    .iter()
+                    .find(|g| g.ghost.id == job.ghost_id)
+                    .map(|g| g.ghost.name.as_str())
+                    .unwrap_or("?");
+                let preview = job
+                    .last_message
+                    .as_deref()
+                    .map(|m| truncate_snippet(m, 60))
+                    .unwrap_or_default();
+                let mut lines = vec![Line::from(format!(
+                    "{} [RUN] {:12} {:12} {:8} {}",
+                    status_icon,
+                    "cron",
+                    ghost,
+                    dur_str,
+                    job.status.as_deref().unwrap_or("-"),
+                ))];
+                if !preview.is_empty() {
+                    lines.push(Line::styled(
+                        format!("      \"{}\"", preview),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+                let mut item = ListItem::new(Text::from(lines));
+                if list_idx == self.content_idx && self.focus == FocusPane::Content {
+                    item = item.style(theme::selected());
+                } else {
+                    item = item.style(Style::default().fg(status_color));
+                }
+                items.push(item);
+            }
+
+            frame.render_widget(List::new(items), inner);
+            return;
+        }
+
         if self.job_view.summaries.is_empty() {
             let p = Paragraph::new("No job logs found").style(Style::default().fg(Color::DarkGray));
             frame.render_widget(p, inner);
@@ -603,6 +686,9 @@ impl TuiApp {
 fn job_status_style(status: Option<&str>) -> (&'static str, Color) {
     match status {
         Some("ran") | Some("ok") => ("✓", Color::Green),
+        Some(s) if s.starts_with("ok ") || s.starts_with("ok[") || s.starts_with("ok (") => {
+            ("✓", Color::Green)
+        }
         Some(s) if s.starts_with("error") => ("✗", Color::Red),
         Some("skipped") | Some("suppressed") => ("·", Color::Yellow),
         _ => ("?", Color::DarkGray),
