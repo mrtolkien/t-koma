@@ -1,6 +1,6 @@
 # Multi-Model Fallback
 
-The multi-model fallback system lets you configure a chain of models so t-koma
+The multi-model fallback system lets you configure a chain of models so T-KOMA
 automatically rotates to the next one when rate limits or server errors are hit.
 
 ## Configuration
@@ -20,7 +20,7 @@ Every alias in the list must exist in `[models]` and pass model validation.
 
 ## Circuit Breaker
 
-t-koma uses a cooldown-based circuit breaker (shared across all sessions, since rate
+T-KOMA uses a cooldown-based circuit breaker (shared across all sessions, since rate
 limits are account-global):
 
 | Failure Type                    | Cooldown  |
@@ -42,7 +42,7 @@ When you send a message, `AppState::try_chat_with_chain()` iterates the model ch
 5. On non-retryable error (400, 404): return immediately (no fallback)
 6. If all models fail: return `AllModelsExhausted` error
 
-The operator's message is persisted on the first attempt and skipped on retries to
+The OPERATOR's message is persisted on the first attempt and skipped on retries to
 prevent duplicates.
 
 ## Background Jobs

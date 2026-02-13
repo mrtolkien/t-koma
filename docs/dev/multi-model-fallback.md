@@ -1,6 +1,6 @@
 # Multi-Model Fallback
 
-The multi-model fallback system lets operators configure a chain of models so t-koma
+The multi-model fallback system lets OPERATORS configure a chain of models so T-KOMA
 automatically rotates to the next one when rate limits or server errors are hit.
 
 ## Config Format
@@ -56,7 +56,7 @@ Key methods:
 6. If all models fail: return `ChatError::AllModelsExhausted`.
 
 The `message_already_persisted` flag prevents duplicate DB writes when retrying — the
-operator message is persisted on the first attempt and skipped on subsequent ones.
+OPERATOR message is persisted on the first attempt and skipped on subsequent ones.
 
 ### Background Jobs (`t-koma-gateway/src/heartbeat.rs`)
 

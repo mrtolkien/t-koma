@@ -1,11 +1,11 @@
 # Add an Interface
 
-This guide is for adding a new operator messaging interface/transport (beyond existing
+This guide is for adding a new OPERATOR messaging interface/transport (beyond existing
 Discord and WebSocket/CLI/API flows).
 
 ## Concept Reminder
 
-- An `Interface` is `(platform, external_id)` tied to an operator in `interfaces` table.
+- An `Interface` is `(platform, external_id)` tied to an OPERATOR in `interfaces` table.
 - Transport adapters do transport work only.
 - Chat/tool orchestration must remain in `SessionChat` + `operator_flow`.
 
@@ -31,7 +31,7 @@ Discord and WebSocket/CLI/API flows).
    - Do not re-implement tool loops, approval handling, or session lifecycle in
      transport layer.
 
-5. Interface identity and operator binding.
+5. Interface identity and OPERATOR binding.
    - Resolve/create interface records using `InterfaceRepository`.
    - Preserve approval flow semantics (`pending`, `approved`, `denied`).
 
@@ -66,5 +66,5 @@ Run:
 Add integration tests covering:
 
 - interface registration/reconnect
-- operator approval path
+- OPERATOR approval path
 - end-to-end message flow through gateway orchestration

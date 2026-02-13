@@ -12,7 +12,7 @@
 # Concepts
 
 - [Architecture](./concepts/architecture.md)
-- [Operators and Ghosts](./concepts/operators-and-ghosts.md)
+- [OPERATORS and GHOSTS](./concepts/OPERATORS-and-GHOSTS.md)
 - [Knowledge System](./concepts/knowledge-system.md)
 - [Background Jobs](./concepts/background-jobs.md)
 - [Multi-Model Fallback](./concepts/multi-model-fallback.md)

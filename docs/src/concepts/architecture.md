@@ -1,6 +1,6 @@
 # Architecture
 
-t-koma follows a layered architecture with clear separation between transport, chat
+T-KOMA follows a layered architecture with clear separation between transport, chat
 orchestration, and provider communication.
 
 ## Crate Hierarchy
@@ -9,7 +9,7 @@ orchestration, and provider communication.
 t-koma-cli          t-koma-gateway
    │                     │
    │  WebSocket          ├── providers/     (LLM API adapters)
-   └─────────────────►   ├── tools/         (ghost tool system)
+   └─────────────────►   ├── tools/         (GHOST tool system)
                          ├── discord/       (Discord transport)
                          ├── session.rs     (chat orchestration)
                          └── state.rs       (app state + fallback)
@@ -71,10 +71,10 @@ timers — all scheduling goes through the scheduler.
 
 ## Database Architecture
 
-t-koma uses a **unified SQLite database**:
+T-KOMA uses a **unified SQLite database**:
 
-- **Main DB** (`koma.sqlite3`): operators, ghosts, interfaces, sessions, messages, usage
+- **Main DB** (`koma.sqlite3`): OPERATORS, GHOSTS, interfaces, sessions, messages, usage
   logs, job logs, prompt cache
-- Ghost data remains isolated by `ghost_id` in ghost-scoped tables
+- GHOST data remains isolated by `ghost_id` in GHOST-scoped tables
 
 Knowledge indexing uses sqlite-vec for vector operations (embeddings search).

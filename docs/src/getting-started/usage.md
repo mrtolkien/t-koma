@@ -2,7 +2,7 @@
 
 The only supported runtime path right now is running compiled binaries directly.
 
-## Starting t-koma
+## Starting T-KOMA
 
 Run both components manually:
 
@@ -14,14 +14,14 @@ Run both components manually:
 ./target/release/t-koma-cli
 ```
 
-## Operator and Ghost Flow
+## OPERATOR and GHOST Flow
 
 1. Your first message on an interface (Discord or TUI) prompts you to register as a
-   **new** or **existing** operator (existing-operator linking is not fully implemented
+   **new** or **existing** OPERATOR (existing-OPERATOR linking is not fully implemented
    yet).
-2. New operators must be **approved** via the management CLI before they can chat.
-3. Once approved, you can create a **ghost** — your personal AI agent.
-4. The ghost is bootstrapped with an initial system prompt and is ready to chat.
+2. New OPERATORS must be **approved** via the management CLI before they can chat.
+3. Once approved, you can create a **GHOST** — your personal AI agent.
+4. The GHOST is bootstrapped with an initial system prompt and is ready to chat.
 
 ## TUI Controls
 

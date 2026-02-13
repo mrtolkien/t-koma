@@ -22,7 +22,7 @@ base_url = "https://custom-endpoint.example.com/v1" # optional override
 ## User-Agent Header
 
 The Kimi Code API (`api.kimi.com/coding`) restricts access to recognized coding agents
-via the `User-Agent` header. t-koma sends `User-Agent: KimiCLI/1.12.0` by default. This
+via the `User-Agent` header. T-KOMA sends `User-Agent: KimiCLI/1.12.0` by default. This
 can be overridden via the per-model `headers` config field:
 
 ```toml

@@ -6,7 +6,7 @@ This guide covers adding or updating system prompts, content templates, and mess
 
 System prompts live under `prompts/system/`:
 
-- `prompts/system/system-prompt.md` — operator chat prompt
+- `prompts/system/system-prompt.md` — OPERATOR chat prompt
 - `prompts/system/reflection-prompt.md` — reflection prompt
 
 Template variables used in prompt body must be listed in front matter `vars = [...]`.

@@ -1,6 +1,6 @@
 # Knowledge System
 
-The knowledge system gives ghosts persistent memory through notes, references, and diary
+The knowledge system gives GHOSTS persistent memory through notes, references, and diary
 entries, backed by embeddings-based search.
 
 ## Scopes
@@ -9,13 +9,13 @@ Knowledge is organized into five scopes:
 
 | Scope             | Visibility | Owner | Description              |
 | ----------------- | ---------- | ----- | ------------------------ |
-| `SharedNote`      | All ghosts | None  | Shared knowledge notes   |
-| `SharedReference` | All ghosts | None  | Shared reference topics  |
-| `GhostNote`       | One ghost  | Ghost | Private notes            |
-| `GhostReference`  | One ghost  | Ghost | Private reference topics |
-| `GhostDiary`      | One ghost  | Ghost | Date-based diary entries |
+| `SharedNote`      | All GHOSTS | None  | Shared knowledge notes   |
+| `SharedReference` | All GHOSTS | None  | Shared reference topics  |
+| `GhostNote`       | One GHOST  | GHOST | Private notes            |
+| `GhostReference`  | One GHOST  | GHOST | Private reference topics |
+| `GhostDiary`      | One GHOST  | GHOST | Date-based diary entries |
 
-**Rule**: shared notes must not contain private ghost data. Ghost notes can link to
+**Rule**: shared notes must not contain private GHOST data. GHOST notes can link to
 shared notes via `[[Title]]` wiki links.
 
 ## Storage Layout
@@ -25,7 +25,7 @@ $DATA_DIR/
 ├── shared/
 │   ├── notes/          # SharedNote files
 │   └── references/     # SharedReference topics
-└── ghosts/
+└── GHOSTS/
     └── $slug/
         ├── notes/      # GhostNote files
         ├── references/ # GhostReference topics

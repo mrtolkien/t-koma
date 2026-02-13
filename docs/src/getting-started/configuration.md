@@ -1,6 +1,6 @@
 # Configuration
 
-t-koma is configured through a TOML file and environment variables.
+T-KOMA is configured through a TOML file and environment variables.
 
 ## Config File Location
 
@@ -63,7 +63,7 @@ default_model = ["kimi25", "gemma3", "qwen3"]
 heartbeat_model = ["alpha", "kimi25"]
 ```
 
-When a model hits rate limits (429) or server errors (5xx), t-koma automatically falls
+When a model hits rate limits (429) or server errors (5xx), T-KOMA automatically falls
 back to the next model in the chain. See
 [Multi-Model Fallback](../concepts/multi-model-fallback.md) for details.
 
@@ -95,7 +95,7 @@ Data is stored at the platform data directory:
 
 Override with `T_KOMA_DATA_DIR` environment variable. This directory contains:
 
-- `koma.sqlite3` — unified main database (operators, ghosts, interfaces, sessions,
+- `koma.sqlite3` — unified main database (OPERATORS, GHOSTS, interfaces, sessions,
   messages, usage/job logs)
-- `ghosts/<name>/` — per-ghost workspace and knowledge files
+- `ghosts/<name>/` — per-GHOST workspace and knowledge files
 - `shared/` — shared knowledge (notes and references)

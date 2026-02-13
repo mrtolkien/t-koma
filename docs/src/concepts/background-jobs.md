@@ -1,17 +1,17 @@
 # Background Jobs
 
-t-koma runs background jobs to maintain session health and curate knowledge. All
+T-KOMA runs background jobs to maintain session health and curate knowledge. All
 scheduling is centralized in `scheduler.rs`.
 
 ## Heartbeat (Session Health Check)
 
-The heartbeat checks on idle sessions and lets the ghost process pending context.
+The heartbeat checks on idle sessions and lets the GHOST process pending context.
 
 - **Trigger**: session idle for `idle_minutes` (default 4)
 - **Skip guard**: skipped if a successful heartbeat already ran since last activity
-- **Prompt**: uses `HEARTBEAT.md` in the ghost workspace (auto-created on first use)
+- **Prompt**: uses `HEARTBEAT.md` in the GHOST workspace (auto-created on first use)
 - **Output**: full transcript stored in `job_logs`, not in session messages
-- **Continue mode**: if the ghost responds with `HEARTBEAT_CONTINUE`, the heartbeat
+- **Continue mode**: if the GHOST responds with `HEARTBEAT_CONTINUE`, the heartbeat
   reschedules after `continue_minutes` (default 30) without posting to the session
 
 Only meaningful heartbeat runs (status `"ran"`) post a summary into the session.

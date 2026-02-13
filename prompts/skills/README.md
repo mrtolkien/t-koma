@@ -1,7 +1,7 @@
-# t-koma Skills
+# T-KOMA Skills
 
 This directory contains [Agent Skills](https://agentskills.io) that extend the
-capabilities of the t-koma agent.
+capabilities of the T-KOMA agent.
 
 ## What are Skills?
 

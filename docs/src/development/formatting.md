@@ -1,6 +1,6 @@
 # Code Formatting
 
-t-koma uses automated formatters for consistent code style across all file types.
+T-KOMA uses automated formatters for consistent code style across all file types.
 
 ## Quick Start
 

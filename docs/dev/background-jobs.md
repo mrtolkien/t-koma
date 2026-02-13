@@ -9,7 +9,7 @@ Background jobs are orchestrated by scheduler state in
   (`[heartbeat_timing].idle_minutes`, default 4).
 - Skip guard: if a successful heartbeat already happened since last activity (checked
   via `job_logs`).
-- Prompt source: `HEARTBEAT.md` in ghost workspace (auto-created on first use).
+- Prompt source: `HEARTBEAT.md` in GHOST workspace (auto-created on first use).
 - Special response handling:
   - `HEARTBEAT_CONTINUE` suppresses session output and reschedules after
     `continue_minutes` (default 30).
@@ -45,7 +45,7 @@ Background jobs are orchestrated by scheduler state in
 ## Web Cache Interaction
 
 - `web_fetch` results (2xx only) and `web_search` results are auto-saved as plain files
-  to `.web-cache/` in the ghost workspace during chat. Files have YAML front matter
+  to `.web-cache/` in the GHOST workspace during chat. Files have YAML front matter
   (`source_url`, `fetched_at`). No DB records or embeddings are created.
 - Reflection sees the file list via the `web_cache_files` template variable in its
   system prompt.

@@ -5,7 +5,7 @@ cannot cover the workflow.
 
 ## Tool Surface Split
 
-- **Chat toolset**: `ToolManager::new_chat(...)` for interactive ghost sessions
+- **Chat toolset**: `ToolManager::new_chat(...)` for interactive GHOST sessions
 - **Reflection toolset**: `ToolManager::new_reflection(...)` for autonomous reflection
 
 Choose the right surface. Many write/admin tools belong only in reflection.
@@ -31,7 +31,7 @@ Choose the right surface. Many write/admin tools belong only in reflection.
    - Never silently allow workspace escape.
 
 5. **Update prompt/tool guidance when required.**
-   - If tool behavior changes operator/ghost expectations, update relevant prompt docs.
+   - If tool behavior changes OPERATOR/GHOST expectations, update relevant prompt docs.
 
 6. **Add tests.**
    - Unit tests in tool module for validation and edge cases.
@@ -40,7 +40,7 @@ Choose the right surface. Many write/admin tools belong only in reflection.
 ## Non-Negotiable Rules
 
 - Do not add overlapping tools with ambiguous responsibilities.
-- Administrative bulk operations belong in CLI/TUI, not ghost-facing tools.
+- Administrative bulk operations belong in CLI/TUI, not GHOST-facing tools.
 - Keep transport layers unaware of tool internals.
 
 ## Validation

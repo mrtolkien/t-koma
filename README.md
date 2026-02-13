@@ -1,40 +1,34 @@
-# t-koma
+# T-KOMA
 
-Deterministic AI gateway in Rust, with persistent ghost workspaces, background
-reflection, and multi-model fallback.
+Deterministic AI gateway in Rust, with persistent agent workspaces, long-term knowledge
+system, and multi-model management.
 
 ## Status
-
-This project is in an extremely early stage and is experimental.
-Expect breaking changes and rough edges.
-
-Only one runtime path is currently supported: run the compiled binaries directly.
-
-## Overview
 
 This project is in an extremely early stage and is experimental. Expect breaking changes
 and rough edges.
 
 Only one runtime path is currently supported: run the compiled binaries directly.
 
-`t-koma` is built for people who want an agent they can run, inspect, and evolve over
+## Overview
+
+T-KOMA is built for people who want an agent they can run, inspect, and evolve over
 time, instead of a stateless chat window.
 
-## Why t-koma
+## Why T-KOMA
 
 - Strong separation of concerns: transport, orchestration, providers, tools
 - Persistent memory model: notes, references, diary, embeddings search
 - Background maintenance: heartbeat and reflection jobs with full job transcripts
 - Multi-provider model chains with circuit-breaker fallback
-- Local-first operational model: SQLite, filesystem workspaces, plain config
+- Local-first operational model: SQLite, filesystem workspaces, plain config. While
+  strong models are still too big to run locally, at least you are in control of your
+  data.
 
 ## What You Run
 
 - `t-koma-gateway`: gateway server (providers, sessions, tools, scheduling)
 - `t-koma-cli`: terminal UI client
-- `t-koma-core`: shared types/config/message schema
-- `t-koma-db`: unified SQLite layer
-- `t-koma-knowledge`: knowledge indexing and retrieval
 
 ## Quick Start
 
@@ -63,12 +57,12 @@ Run gateway + TUI from the compiled binaries:
 ./target/release/t-koma-cli
 ```
 
-## Operator and Ghost Flow
+## OPERATOR and GHOST Flow
 
-1. First contact asks `new` vs `existing` operator.
-2. New operator flow is implemented.
-3. Existing-operator linking is not fully implemented yet.
-4. Approved operators can create and chat with ghosts.
+1. First contact asks `new` vs `existing` OPERATOR.
+2. New OPERATOR flow is implemented: approve the OPERATOR from the TUI.
+3. Existing-OPERATOR linking is not fully implemented yet.
+4. Approved OPERATORS can create and chat with GHOSTS.
 
 ## Configuration
 
@@ -87,9 +81,9 @@ Data root:
 
 Core data paths:
 
-- `koma.sqlite3`: unified DB (operators, ghosts, interfaces, sessions, messages, usage,
+- `koma.sqlite3`: unified DB (OPERATORS, GHOSTS, interfaces, sessions, messages, usage,
   job logs)
-- `ghosts/<name>/`: ghost workspace
+- `ghosts/<name>/`: GHOST workspace
 - `shared/`: shared knowledge files and index
 
 Example `config.toml`:

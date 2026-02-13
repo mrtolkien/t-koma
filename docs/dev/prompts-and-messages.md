@@ -5,7 +5,7 @@ Use this guide when adding/updating system prompts, content templates, or messag
 ## Prompts
 
 - System prompts live under `prompts/system/`.
-- Keep operator chat prompt in one file:
+- Keep OPERATOR chat prompt in one file:
   - `prompts/system/system-prompt.md`
 - Keep reflection prompt in one file:
   - `prompts/system/reflection-prompt.md`

@@ -7,16 +7,16 @@ tools in `t-koma-gateway/src/tools/`.
 
 Five-variant `KnowledgeScope` enum:
 
-- `SharedNote`: visible to all ghosts (`owner_ghost = NULL`)
+- `SharedNote`: visible to all GHOSTS (`owner_ghost = NULL`)
 - `SharedReference`: shared reference topics (`owner_ghost = NULL`)
-- `GhostNote`: private to one ghost (`owner_ghost` required)
-- `GhostReference`: ghost-owned reference topics (`owner_ghost` required)
-- `GhostDiary`: ghost diary entries, date-based markdown (`owner_ghost` required)
+- `GhostNote`: private to one GHOST (`owner_ghost` required)
+- `GhostReference`: GHOST-owned reference topics (`owner_ghost` required)
+- `GhostDiary`: GHOST diary entries, date-based markdown (`owner_ghost` required)
 
 Helpers: `is_shared()` = SharedNote | SharedReference, `is_reference()` =
 SharedReference | GhostReference, `is_note()` = SharedNote | GhostNote.
 
-Rule: shared notes must not contain private ghost data. Ghost notes can link shared
+Rule: shared notes must not contain private GHOST data. GHOST notes can link shared
 notes/reference topics via `[[Title]]` wiki links.
 
 ## Storage Layout
@@ -26,7 +26,7 @@ Shared:
 - `$DATA_DIR/shared/notes/`
 - `$DATA_DIR/shared/references/`
 
-Per ghost:
+Per GHOST:
 
 - `$DATA_DIR/ghosts/$slug/notes/`
 - `$DATA_DIR/ghosts/$slug/references/`
@@ -80,7 +80,7 @@ Key reflection tools:
 
 ## Web Cache (Filesystem Staging)
 
-Web results are staged as plain files in the ghost's `.web-cache/` directory:
+Web results are staged as plain files in the GHOST's `.web-cache/` directory:
 
 - `web_fetch` and `web_search` results are auto-saved during chat via
   `auto_save_web_result()` in `ToolContext`.
@@ -104,7 +104,7 @@ Web results are staged as plain files in the ghost's `.web-cache/` directory:
   - reads filtered transcript
   - curates insights into notes/references/diary/identity files
   - processes `.web-cache/` into reference topics
-- This keeps chat focused on operator response while background runs maintain memory
+- This keeps chat focused on OPERATOR response while background runs maintain memory
   quality.
 
 ## Testing

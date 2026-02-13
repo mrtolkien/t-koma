@@ -5,8 +5,8 @@ This folder holds implementation guides that are too detailed for `AGENTS.md`.
 Use `AGENTS.md` for universal rules. Use these docs for feature work:
 
 - `docs/dev/add-provider.md`: add a new LLM provider backend.
-- `docs/dev/add-interface.md`: add a new operator interface/transport.
-- `docs/dev/add-tool.md`: add or modify ghost/reflection tools.
+- `docs/dev/add-interface.md`: add a new OPERATOR interface/transport.
+- `docs/dev/add-tool.md`: add or modify GHOST/reflection tools.
 - `docs/dev/prompts-and-messages.md`: add/update prompt and message content.
 - `docs/dev/mcp-usage.md`: MCP usage rules and preferred tooling order.
 - `docs/dev/background-jobs.md`: heartbeat + reflection lifecycle and persistence.

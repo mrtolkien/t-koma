@@ -1,4 +1,4 @@
-# t-koma AGENTS.md
+# T-KOMA AGENTS.md
 
 This file is the high-signal baseline for all agent runs. Feature-specific
 implementation details live in `docs/dev/`.
@@ -13,6 +13,9 @@ You are _great_ at writing code, but _horrendous_ at designing systems and produ
 should make extremely few assumptions and regularly ask the user if your approach is
 right, and your understanding of the product and features are right. DO NOT MAKE
 ASSUMPTIONS ABOUT WHAT THE USER WANTS: ASKS HIM.
+
+Terminology rule for docs/prose: always write `T-KOMA`, `OPERATOR`, and `GHOST` in all
+caps. Keep real code/file identifiers (for example crate names and paths) unchanged.
 
 ## CRUCIAL
 
@@ -32,10 +35,10 @@ Always update this file when:
 ## Core Concepts
 
 - T-KOMA: deterministic gateway service
-- Operator: approved end user
-- Interface: messaging endpoint for an operator (Discord, TUI/API)
-- Ghost: agent with its own workspace and ghost-scoped data in the unified DB
-- Session: chat thread between an operator and a ghost
+- OPERATOR: approved end user
+- Interface: messaging endpoint for an OPERATOR (Discord, TUI/API)
+- GHOST: agent with its own workspace and GHOST-scoped data in the unified DB
+- Session: chat thread between an OPERATOR and a GHOST
 - Heartbeat: background session health check; transcripts go to `job_logs`
 - Reflection: background knowledge curation run after heartbeat ticks; writes to
   knowledge stores and `job_logs`
@@ -100,7 +103,7 @@ Make extensive use of MCPs available to you:
 ### Project Layout (Short)
 
 - `t-koma-core`: Shared types, config, WebSocket message schema.
-- `t-koma-db`: SQLite layer for operators/ghosts/interfaces/sessions/job_logs.
+- `t-koma-db`: SQLite layer for OPERATORS/GHOSTS/interfaces/sessions/job_logs.
 - `t-koma-knowledge`: Knowledge and memory indexing/search crate (tools-only gateway
   surface).
 - `t-koma-gateway`: T-KOMA server, providers, chat/session orchestration, tools, and
@@ -109,7 +112,7 @@ Make extensive use of MCPs available to you:
 
 ## Database Notes
 
-- SQLite storage for operators, ghosts, interfaces, sessions, messages, job logs, and
+- SQLite storage for OPERATORS, GHOSTS, interfaces, sessions, messages, job logs, and
   usage logs lives in a unified DB under the platform data dir.
 - Schema defined in SQLx migrations: `t-koma-db/migrations/`.
 - SQLite runtime bootstrap lives in `t-koma-db/src/sqlite_runtime.rs` (sqlite-vec init,
@@ -123,7 +126,7 @@ Key types:
 - `OperatorStatus`, `Platform`, `ContentBlock`
 - `JobLog`, `JobKind`, `TranscriptEntry`, `UsageLog`
 
-Ghost-scoped tables (in unified DB):
+GHOST-scoped tables (in unified DB):
 
 - `usage_log`: per-request token usage (input, output, cache_read, cache_creation).
   Linked to session_id.
@@ -158,10 +161,10 @@ Path override knobs for testing:
 
 - `T_KOMA_CONFIG_DIR`: overrides config root dir used by `Settings` (expects
   `config.toml` inside this dir).
-- `T_KOMA_DATA_DIR`: overrides data root dir used by `KomaDbPool` and ghost workspace
+- `T_KOMA_DATA_DIR`: overrides data root dir used by `KomaDbPool` and GHOST workspace
   paths.
 
-Ghost tool state persistence:
+GHOST tool state persistence:
 
 - `ghosts.cwd` stores the current working directory for tools.
 
@@ -176,7 +179,7 @@ Transport layers (Discord, WebSocket) do NOT manage tools. They call
 Provider-neutral chat history is defined in `t-koma-gateway/src/chat/history.rs`;
 provider adapters convert from that neutral model internally.
 
-CLI admin actions that need cross-interface side effects (for example operator approval
+CLI admin actions that need cross-interface side effects (for example OPERATOR approval
 that must trigger a Discord follow-up prompt) must go through a gateway WebSocket
 command handled in `t-koma-gateway`, not direct CLI DB writes.
 
@@ -198,7 +201,7 @@ with plain replies.
 - Keep provider-neutral history types in `t-koma-gateway/src/chat/history.rs`.
 - Keep provider adapters in `t-koma-gateway/src/providers/`.
 - Keep tool implementations and tool manager wiring in `t-koma-gateway/src/tools/`.
-- Keep transport-agnostic operator flow in `t-koma-gateway/src/operator_flow.rs`.
+- Keep transport-agnostic OPERATOR flow in `t-koma-gateway/src/operator_flow.rs`.
 - Keep scheduler state centralized in `t-koma-gateway/src/scheduler.rs`.
 - No endpoint may bypass normal chat orchestration for interactive chat.
 - Workspace boundary checks must remain canonicalization-aware (symlink-safe).

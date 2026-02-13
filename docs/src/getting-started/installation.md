@@ -1,6 +1,6 @@
 # Installation
 
-Status: t-koma is extremely early-stage and experimental. Only compiled binary execution
+Status: T-KOMA is extremely early-stage and experimental. Only compiled binary execution
 is supported right now.
 
 ## Prerequisites
