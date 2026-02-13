@@ -42,6 +42,7 @@ thiserror.workspace = true
 
 # Time
 chrono.workspace = true
+cron = "0.12"
 
 # Embedded content
 include_dir = "0.7"
@@ -67,6 +68,7 @@ grep-regex = "0.1"
 
 # File finding (fd-find uses this)
 ignore = "0.4"
+notify = "6.1"
 
 # Regex for glob matching
 globset = "0.4"

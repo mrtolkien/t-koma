@@ -28,6 +28,10 @@ pub const DEFAULT_SKILLS: &[DefaultSkill] = &[
         name: "reference-researcher",
         content: include_str!("../../prompts/skills/reference-researcher/SKILL.md"),
     },
+    DefaultSkill {
+        name: "cron-job-author",
+        content: include_str!("../../prompts/skills/cron-job-author/SKILL.md"),
+    },
 ];
 
 /// Manager for default skills.

@@ -65,6 +65,10 @@ pub struct Ghost {
     /// JSON-encoded model alias override (single string or list).
     /// When set, this ghost uses its own model chain instead of the global default.
     pub model_aliases: Option<String>,
+    /// Optional heartbeat model override (single alias or fallback chain JSON).
+    pub heartbeat_model_aliases: Option<String>,
+    /// Optional reflection model override (single alias or fallback chain JSON).
+    pub reflection_model_aliases: Option<String>,
     /// Whether to append a metadata statusline to each response.
     pub statusline: bool,
     pub created_at: i64,
@@ -118,7 +122,7 @@ impl GhostRepository {
     /// Get ghost by ID
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, heartbeat_model_aliases, reflection_model_aliases, statusline, created_at
              FROM ghosts
              WHERE id = ?",
         )
@@ -132,7 +136,7 @@ impl GhostRepository {
     /// Get ghost by name
     pub async fn get_by_name(pool: &SqlitePool, name: &str) -> DbResult<Option<Ghost>> {
         let row = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, heartbeat_model_aliases, reflection_model_aliases, statusline, created_at
              FROM ghosts
              WHERE name = ?",
         )
@@ -149,7 +153,7 @@ impl GhostRepository {
         owner_operator_id: &str,
     ) -> DbResult<Vec<Ghost>> {
         let rows = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, heartbeat_model_aliases, reflection_model_aliases, statusline, created_at
              FROM ghosts
              WHERE owner_operator_id = ?
              ORDER BY created_at ASC",
@@ -164,7 +168,7 @@ impl GhostRepository {
     /// List all ghosts.
     pub async fn list_all(pool: &SqlitePool) -> DbResult<Vec<Ghost>> {
         let rows = sqlx::query_as::<_, GhostRow>(
-            "SELECT id, name, owner_operator_id, cwd, model_aliases, statusline, created_at
+            "SELECT id, name, owner_operator_id, cwd, model_aliases, heartbeat_model_aliases, reflection_model_aliases, statusline, created_at
              FROM ghosts
              ORDER BY created_at ASC",
         )
@@ -258,6 +262,54 @@ impl GhostRepository {
         Ok(())
     }
 
+    /// Update the heartbeat model alias override for a ghost by name.
+    pub async fn update_heartbeat_model_aliases(
+        pool: &SqlitePool,
+        name: &str,
+        model_aliases: Option<&str>,
+    ) -> DbResult<()> {
+        let updated = sqlx::query(
+            "UPDATE ghosts
+             SET heartbeat_model_aliases = ?
+             WHERE name = ?",
+        )
+        .bind(model_aliases)
+        .bind(name)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+        if updated == 0 {
+            return Err(DbError::GhostNotFound(name.to_string()));
+        }
+
+        Ok(())
+    }
+
+    /// Update the reflection model alias override for a ghost by name.
+    pub async fn update_reflection_model_aliases(
+        pool: &SqlitePool,
+        name: &str,
+        model_aliases: Option<&str>,
+    ) -> DbResult<()> {
+        let updated = sqlx::query(
+            "UPDATE ghosts
+             SET reflection_model_aliases = ?
+             WHERE name = ?",
+        )
+        .bind(model_aliases)
+        .bind(name)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+        if updated == 0 {
+            return Err(DbError::GhostNotFound(name.to_string()));
+        }
+
+        Ok(())
+    }
+
     /// Delete a ghost by name.
     pub async fn delete_by_name(pool: &SqlitePool, name: &str) -> DbResult<()> {
         let deleted = sqlx::query("DELETE FROM ghosts WHERE name = ?")
@@ -281,6 +333,8 @@ struct GhostRow {
     owner_operator_id: String,
     cwd: Option<String>,
     model_aliases: Option<String>,
+    heartbeat_model_aliases: Option<String>,
+    reflection_model_aliases: Option<String>,
     statusline: bool,
     created_at: i64,
 }
@@ -298,6 +352,8 @@ impl From<GhostRow> for Ghost {
             owner_operator_id: row.owner_operator_id,
             cwd: row.cwd,
             model_aliases: row.model_aliases,
+            heartbeat_model_aliases: row.heartbeat_model_aliases,
+            reflection_model_aliases: row.reflection_model_aliases,
             statusline: row.statusline,
             created_at: row.created_at,
         }

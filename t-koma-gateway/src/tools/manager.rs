@@ -76,6 +76,15 @@ impl ToolManager {
         Self { tools }
     }
 
+    /// Tools for scheduled CRON jobs.
+    ///
+    /// CRON jobs share the same capabilities as interactive chat so they can
+    /// perform equivalent tasks (including self-updating their own plans/files
+    /// inside normal workspace and approval boundaries).
+    pub fn new_cron(skill_paths: Vec<PathBuf>) -> Self {
+        Self::new_chat(skill_paths)
+    }
+
     /// Get all tools in this manager.
     pub fn get_tools(&self) -> Vec<&dyn Tool> {
         self.tools.iter().map(|t| t.as_ref()).collect()
@@ -145,6 +154,19 @@ mod tests {
             !names.contains(&"run_shell_command"),
             "shell should not be in reflection tools"
         );
+    }
+
+    #[test]
+    fn test_cron_tools_match_chat_tools() {
+        let chat = ToolManager::new_chat(vec![]);
+        let cron = ToolManager::new_cron(vec![]);
+
+        let chat_names: std::collections::BTreeSet<&str> =
+            chat.get_tools().iter().map(|t| t.name()).collect();
+        let cron_names: std::collections::BTreeSet<&str> =
+            cron.get_tools().iter().map(|t| t.name()).collect();
+
+        assert_eq!(cron_names, chat_names);
     }
 
     #[tokio::test]

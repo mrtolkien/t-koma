@@ -15,3 +15,14 @@ Use `AGENTS.md` for universal rules. Use these docs for feature work:
   loop.
 
 If you change behavior covered by one of these guides, update that file in the same PR.
+
+## Text-First Rule
+
+When designing new features, stay as close to plain text workspace files as possible.
+Prefer:
+
+- workspace markdown/TOML files as source of truth
+- skills for operational guidance
+- CLI commands for validation and maintenance
+
+Only introduce a new tool surface when the text-first + CLI approach is insufficient.

@@ -1,4 +1,4 @@
-//! Job log storage for background tasks (heartbeat, reflection).
+//! Job log storage for background tasks (heartbeat, reflection, cron).
 //!
 //! Job lifecycle:
 //! 1. `insert_started()` — INSERT at job start (TUI sees "in progress")
@@ -22,6 +22,7 @@ use crate::sessions::{ContentBlock, MessageRole};
 pub enum JobKind {
     Heartbeat,
     Reflection,
+    Cron,
 }
 
 impl std::fmt::Display for JobKind {
@@ -29,6 +30,7 @@ impl std::fmt::Display for JobKind {
         match self {
             JobKind::Heartbeat => write!(f, "heartbeat"),
             JobKind::Reflection => write!(f, "reflection"),
+            JobKind::Cron => write!(f, "cron"),
         }
     }
 }
@@ -40,6 +42,7 @@ impl std::str::FromStr for JobKind {
         match s {
             "heartbeat" => Ok(JobKind::Heartbeat),
             "reflection" => Ok(JobKind::Reflection),
+            "cron" => Ok(JobKind::Cron),
             _ => Err(DbError::Serialization(format!("invalid job kind: {s}"))),
         }
     }

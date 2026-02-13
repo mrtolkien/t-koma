@@ -36,6 +36,18 @@ During chat, web results are cached as plain files in `.web-cache/`. The reflect
 system sees this file list and curates content into proper reference topics using
 `reference_manage`. The cache is auto-cleared after successful reflection.
 
+## CRON (File-Based Jobs)
+
+CRON jobs are defined as markdown files in each GHOST workspace under `cron/`.
+
+- **Schedule**: standard 5-field CRON expression (UTC)
+- **Source of truth**: plaintext frontmatter + markdown prompt body
+- **Watcher**: gateway watches `cron/` folders and refreshes the in-memory queue on file
+  changes
+- **Downtime behavior**: missed runs are skipped
+- **Output continuity**: each job can carry previous output via files under
+  `cron/.state/`
+
 ## Job Lifecycle
 
 Background jobs use `SessionChat::chat_job()` instead of `chat()`, keeping their

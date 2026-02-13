@@ -187,7 +187,7 @@ impl TuiApp {
                 o('x', "Delete"),
             ],
             Category::Jobs => {
-                let mut opts = vec![o('a', "All Recent")];
+                let mut opts = vec![o('c', "CRON"), o('a', "All Recent")];
                 for (i, g) in self.ghosts.iter().enumerate() {
                     let key = char::from(b'1' + i as u8).min('9');
                     opts.push(o(key, &format!("Ghost: {}", g.ghost.name)));
