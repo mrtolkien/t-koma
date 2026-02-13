@@ -2,6 +2,7 @@ mod content;
 mod footer;
 mod header;
 mod modal;
+mod onboarding;
 mod prompt;
 mod sidebar;
 
@@ -20,6 +21,11 @@ use super::{TuiApp, util::glow_color};
 
 impl TuiApp {
     pub(super) fn draw(&self, frame: &mut Frame) {
+        if self.onboarding.is_some() {
+            self.draw_onboarding(frame);
+            return;
+        }
+
         let pulse = glow_color(self.anim_tick);
         let outer = Block::default()
             .title("╼ T-KOMA CYBERDECK ╾")

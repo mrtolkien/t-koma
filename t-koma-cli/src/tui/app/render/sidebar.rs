@@ -1,7 +1,8 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem},
 };
 
@@ -21,15 +22,28 @@ impl TuiApp {
             .iter()
             .enumerate()
             .map(|(idx, cat)| {
-                let mut item = ListItem::new(format!(" {}", cat.label()));
-                if idx == self.category_idx {
-                    item = item.style(
-                        Style::default()
-                            .fg(glow_color(self.anim_tick))
-                            .add_modifier(Modifier::BOLD),
-                    );
-                }
-                item
+                let selected = idx == self.category_idx;
+                let key_style = Style::default()
+                    .fg(Color::Black)
+                    .bg(if selected {
+                        glow_color(self.anim_tick)
+                    } else {
+                        Color::Rgb(60, 80, 90)
+                    })
+                    .add_modifier(Modifier::BOLD);
+                let label_style = if selected {
+                    Style::default()
+                        .fg(glow_color(self.anim_tick))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                let line = Line::from(vec![
+                    Span::styled(format!(" {} ", cat.key()), key_style),
+                    Span::styled(format!(" {}", cat.label()), label_style),
+                ]);
+                ListItem::new(line)
             })
             .collect();
 
@@ -48,12 +62,27 @@ impl TuiApp {
         let items: Vec<ListItem> = options
             .iter()
             .enumerate()
-            .map(|(idx, item)| {
-                let mut item_widget = ListItem::new(item.clone());
-                if idx == self.options_idx && self.focus == FocusPane::Options {
-                    item_widget = item_widget.style(theme::selected());
-                }
-                item_widget
+            .map(|(idx, opt)| {
+                let selected = idx == self.options_idx && self.focus == FocusPane::Options;
+                let key_style = Style::default()
+                    .fg(Color::Black)
+                    .bg(if selected {
+                        Color::Cyan
+                    } else {
+                        Color::Rgb(60, 80, 90)
+                    })
+                    .add_modifier(Modifier::BOLD);
+                let label_style = if selected {
+                    theme::selected()
+                } else {
+                    Style::default()
+                };
+
+                let line = Line::from(vec![
+                    Span::styled(format!(" {} ", opt.key), key_style),
+                    Span::styled(format!(" {}", opt.label), label_style),
+                ]);
+                ListItem::new(line)
             })
             .collect();
 

@@ -1,6 +1,8 @@
 mod actions;
 mod input;
+mod input_onboarding;
 mod logs;
+pub(crate) mod onboarding;
 mod render;
 mod state;
 mod util;
@@ -20,8 +22,8 @@ use t_koma_db::{KomaDbPool, Operator};
 use crate::tui::state::{Category, FocusPane, GateFilter};
 
 use self::state::{
-    ContentView, GateEvent, GhostRow, JobViewState, KnowledgeViewState, Metrics, OAuthPendingState,
-    OperatorView, PromptState, SelectionModal, SessionViewState,
+    ContentView, GateEvent, GhostRow, JobViewState, KnowledgeViewState, Metrics, OperatorView,
+    OptionDef, PromptState, SelectionModal, SessionViewState,
 };
 
 pub struct TuiApp {
@@ -46,7 +48,6 @@ pub struct TuiApp {
 
     prompt: PromptState,
     modal: Option<SelectionModal>,
-    oauth_pending: Option<OAuthPendingState>,
     content_view: ContentView,
 
     job_view: JobViewState,
@@ -65,6 +66,8 @@ pub struct TuiApp {
     metrics: Metrics,
     metrics_last_refresh: Instant,
     anim_tick: usize,
+
+    onboarding: Option<onboarding::OnboardingState>,
 }
 
 impl TuiApp {
@@ -97,7 +100,6 @@ impl TuiApp {
 
             prompt: PromptState::default(),
             modal: None,
-            oauth_pending: None,
             content_view: ContentView::default(),
 
             job_view: JobViewState::default(),
@@ -116,7 +118,14 @@ impl TuiApp {
             metrics: Metrics::default(),
             metrics_last_refresh: Instant::now() - Duration::from_secs(30),
             anim_tick: 0,
+
+            onboarding: None,
         };
+
+        // Auto-launch onboarding if no models are configured
+        if app.settings.models.is_empty() {
+            app.onboarding = Some(onboarding::OnboardingState::default());
+        }
 
         app.start_logs_stream();
         app.sync_selection().await;
@@ -140,55 +149,67 @@ impl TuiApp {
         Category::ALL[self.category_idx]
     }
 
-    fn options_for(&self, category: Category) -> Vec<String> {
+    fn options_for(&self, category: Category) -> Vec<OptionDef> {
+        let o = |key: char, label: &str| OptionDef {
+            key,
+            label: label.to_string(),
+        };
+
         match category {
             Category::Gate => vec![],
             Category::Config => vec![
-                "Add Model".to_string(),
-                "Add Provider".to_string(),
-                "Set Default".to_string(),
-                "Toggle Discord".to_string(),
-                "Edit in Editor".to_string(),
-                "Reload".to_string(),
+                o('m', "Add Model"),
+                o('p', "Add Provider"),
+                o('d', "Set Default"),
+                o('t', "Toggle Discord"),
+                o('e', "Edit in Editor"),
+                o('r', "Reload"),
                 if self.settings_dirty {
-                    "Save (required after changes)".to_string()
+                    o('s', "Save (required)")
                 } else {
-                    "Save".to_string()
+                    o('s', "Save")
                 },
-                "Restore Backup".to_string(),
+                o('b', "Restore Backup"),
             ],
             Category::Operators => vec![
-                "List All".to_string(),
-                "Add Operator".to_string(),
-                "Pending Approvals".to_string(),
-                "Set Access Level".to_string(),
-                "Set Rate Limits".to_string(),
-                "Disable Rate Limits".to_string(),
-                "Toggle Workspace Escape".to_string(),
+                o('l', "List All"),
+                o('a', "Add Operator"),
+                o('p', "Pending Approvals"),
+                o('v', "Set Access Level"),
+                o('r', "Set Rate Limits"),
+                o('x', "Disable Rate Limits"),
+                o('w', "Toggle Workspace Escape"),
             ],
-            Category::Ghosts => {
-                vec![
-                    "Sessions".to_string(),
-                    "List All".to_string(),
-                    "New Ghost".to_string(),
-                    "Delete".to_string(),
-                ]
-            }
+            Category::Ghosts => vec![
+                o('s', "Sessions"),
+                o('l', "List All"),
+                o('n', "New Ghost"),
+                o('x', "Delete"),
+            ],
             Category::Jobs => {
-                let mut opts = vec!["All Recent".to_string()];
-                for g in &self.ghosts {
-                    opts.push(format!("Ghost: {}", g.ghost.name));
+                let mut opts = vec![o('a', "All Recent")];
+                for (i, g) in self.ghosts.iter().enumerate() {
+                    let key = char::from(b'1' + i as u8).min('9');
+                    opts.push(o(key, &format!("Ghost: {}", g.ghost.name)));
                 }
                 opts
             }
-            Category::Knowledge => {
-                vec![
-                    "Recent Notes".to_string(),
-                    "Search".to_string(),
-                    "Index Stats".to_string(),
-                ]
-            }
+            Category::Knowledge => vec![
+                o('r', "Recent Notes"),
+                o('s', "Search"),
+                o('i', "Index Stats"),
+            ],
         }
+    }
+
+    fn option_index_for_key(&self, key: char) -> Option<usize> {
+        self.options_for(self.selected_category())
+            .iter()
+            .position(|opt| opt.key == key)
+    }
+
+    fn category_index_for_key(key: char) -> Option<usize> {
+        Category::ALL.iter().position(|cat| cat.key() == key)
     }
 
     async fn tick(&mut self) {

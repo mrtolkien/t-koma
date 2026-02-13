@@ -82,11 +82,18 @@ impl TuiApp {
                 hints.push(("a", "Approve"));
                 hints.push(("d", "Deny"));
             }
-            _ => {
-                if self.focus == FocusPane::Content || self.focus == FocusPane::Options {
+            _ => match self.focus {
+                FocusPane::Categories => {
+                    hints.push(("1-6", "Jump"));
+                }
+                FocusPane::Options => {
+                    hints.push(("a-z", "Select"));
                     hints.push(("Enter", "Open"));
                 }
-            }
+                FocusPane::Content => {
+                    hints.push(("Enter", "Open"));
+                }
+            },
         }
 
         hints

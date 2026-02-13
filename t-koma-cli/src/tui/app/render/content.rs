@@ -335,6 +335,18 @@ impl TuiApp {
                             Style::default().fg(color),
                         ));
                     }
+                    ContentBlock::Image { filename, .. } => {
+                        lines.push(Line::styled(
+                            format!("  📷 {}", filename),
+                            Style::default().fg(Color::Blue),
+                        ));
+                    }
+                    ContentBlock::File { filename, .. } => {
+                        lines.push(Line::styled(
+                            format!("  📎 {}", filename),
+                            Style::default().fg(Color::Blue),
+                        ));
+                    }
                 }
             }
             lines.push(Line::from(""));
@@ -562,6 +574,18 @@ impl TuiApp {
                         lines.push(Line::styled(
                             format!("{}{}", prefix, short),
                             Style::default().fg(color),
+                        ));
+                    }
+                    ContentBlock::Image { filename, .. } => {
+                        lines.push(Line::styled(
+                            format!("  📷 {}", filename),
+                            Style::default().fg(Color::Blue),
+                        ));
+                    }
+                    ContentBlock::File { filename, .. } => {
+                        lines.push(Line::styled(
+                            format!("  📎 {}", filename),
+                            Style::default().fg(Color::Blue),
                         ));
                     }
                 }
