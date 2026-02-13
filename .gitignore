@@ -27,5 +27,11 @@ package-lock.json
 /private-scripts
 /e2e-output
 
+# mdbook build output
+/docs/book/
+
 # dprint cache
 .dprint
+
+# Nix
+/result

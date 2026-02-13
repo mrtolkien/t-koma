@@ -337,6 +337,30 @@ fn content_block_to_json(block: &ContentBlock) -> serde_json::Value {
                 "is_error": is_error
             })
         }
+        ContentBlock::Image {
+            path,
+            mime_type,
+            filename,
+        } => {
+            serde_json::json!({
+                "type": "image",
+                "path": path,
+                "mime_type": mime_type,
+                "filename": filename
+            })
+        }
+        ContentBlock::File {
+            path,
+            filename,
+            size,
+        } => {
+            serde_json::json!({
+                "type": "file",
+                "path": path,
+                "filename": filename,
+                "size": size
+            })
+        }
     }
 }
 
@@ -462,13 +486,6 @@ fn create_models_from_config(model_alias: &str) -> (HashMap<String, ModelEntry>,
                 "kimi_code",
             ))
         }
-        ProviderType::AnthropicOAuth | ProviderType::OpenAiCodex => {
-            eprintln!(
-                "\n\x1b[31mError: OAuth providers are not supported in this e2e test script.\x1b[0m\n\
-                 Use API-key-based providers instead."
-            );
-            std::process::exit(1);
-        }
     };
 
     models.insert(
@@ -479,6 +496,7 @@ fn create_models_from_config(model_alias: &str) -> (HashMap<String, ModelEntry>,
             model: model_config.model.clone(),
             client,
             context_window: model_config.context_window,
+            retry_on_empty: model_config.retry_on_empty.unwrap_or(0),
         },
     );
 
